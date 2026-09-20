@@ -1,0 +1,37 @@
+//SPDX Licence-Identifier:UNDENFINED
+
+pragma solidity ^0.8.20;
+
+contract EthEscrow {
+    // modifier onlyowner() {
+    //    address addr = msg.sender;
+    //    _;
+    //}
+
+    address immutable ESCROW = address(this);
+
+    mapping(address ESCROW => uint256 amount) public escrowbalances;
+
+    enum Status {
+        pending,
+        // paid,
+        released
+    }
+    Status public status;
+
+    //creator first sends his amount to the contract then the recipient does the same and when the creator and
+    // recipient confirm everything is in order the contract releases the funds  to each of them
+    function deposit(
+        uint256 amount,
+        address creator,
+        address recipient
+    ) external payable {
+        amount = msg.value;
+        //require(msg.value > 0, "no funds set");
+        escrowbalances[address(this)] = amount;
+
+        status = Status.pending;
+    }
+
+    //function release(address creator,address reci) external {}
+}

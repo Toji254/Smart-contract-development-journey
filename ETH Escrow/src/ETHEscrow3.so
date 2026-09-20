@@ -1,0 +1,42 @@
+//SPDX Licence-Identifier:UNDENFINED
+
+pragma solidity ^0.8.20;
+
+contract EthEscrow {
+    bool constant IS_CREATOR = true;
+
+    mapping(address => uint256 amount) public balances;
+
+    event CreateEscrow(uint256 amount);
+
+    enum input{
+        continu,
+        stop
+    }
+
+    input _input;
+
+    //modifier onlycreator{}
+    //ensure that the creator is the only one depositing and no one else
+
+    function createEscrow(
+        uint256 amount
+        //address recipient
+    ) external payable returns (uint256) {
+        require(IS_CREATOR, "you are recipient");
+        require(amount == msg.value, "Invalid Amount");
+        balances[msg.sender] += msg.value;
+
+        emit CreateEscrow(msg.value);
+        return amount;
+    }
+
+    function accept(input Input) external {
+        if (stop.input,"STOP" ){
+            revert()
+        };
+
+    }
+
+    function release() external {}
+}
