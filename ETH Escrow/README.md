@@ -1,211 +1,303 @@
 # ETH Escrow
 
-This project is a small ETH escrow contract and the first project in this repository that should be treated as a serious **state-machine + security** exercise.
+## What you are building
 
-The original project brief is preserved in:
+You are going to build a simple ETH escrow from an English description.
 
-`## 🥊 Solidity Weekly Challenge #1 — ETH.md`
-
----
-
-## 1. What this contract is supposed to do
-
-Two parties agree to an ETH payment:
-
-- **Creator** deposits ETH.
-- **Recipient** accepts the escrow.
-- **Creator** releases the payment.
-- **Recipient** receives the ETH.
-
-The contract acts as the middleman.
-
-Conceptually:
-
-```
+~~~text
 Creator
-  |
-  | deposit ETH
-  v
-Escrow contract
-  |
-  | recipient accepts
-  v
+   │
+   │ deposit ETH
+   ▼
+Escrow
+   │
+   │ recipient accepts
+   ▼
+Accepted
+   │
+   │ creator releases
+   ▼
+Recipient receives ETH
+~~~
+
+The important lesson is how actors, state, authorization, and ETH movement fit together.
+
+## 1. Define the actors
+
+### Creator
+
+The person who creates and funds an escrow.
+
+### Recipient
+
+The person who is supposed to receive the ETH.
+
+Write down who may perform each action before coding.
+
+## 2. Define the lifecycle
+
+Start with this state machine:
+
+~~~text
+CREATED
+   │
+   │ recipient accepts
+   ▼
 ACCEPTED
-  |
-  | creator releases
-  v
-Recipient
-```
+   │
+   │ creator releases
+   ▼
+RELEASED
+~~~
 
-A real implementation also needs a cancellation path.
+Cancellation:
 
----
+~~~text
+CREATED → CANCELLED
+~~~
 
-## 2. Required behavior
+For the core exercise, use a concrete rule: the creator may cancel only before acceptance, and cancellation refunds the creator.
 
-### Create
+Deadlines and disputes are stretch goals.
 
-A creator creates an escrow while sending ETH.
+## 3. Decide what an escrow must remember
 
-The escrow should store at least:
+At minimum:
 
-- creator;
-- recipient;
-- amount;
-- status;
-- unique identifier.
+~~~text
+creator
+recipient
+amount
+status
+id
+~~~
 
-A valid implementation should prevent obviously invalid setup, such as invalid participants or a mismatch between the intended amount and the ETH actually deposited.
+This naturally suggests a struct.
 
-### Accept
+## 4. Add a status enum
 
-Only the intended recipient may accept.
+Use states that match the lifecycle.
 
-Expected transition:
+The important part is not the syntax. The important part is defining which states each function may enter.
 
-```
-CREATED -> ACCEPTED
-```
+## 5. Support more than one escrow
 
-### Release
+Do not hard-code a single storage slot.
 
-Only the creator may release.
+Use a unique identifier, for example a bytes32 escrow ID, and map that ID to an escrow struct.
 
-Release must only be possible after acceptance.
+Your storage should conceptually be:
 
-Expected transition:
+~~~text
+mapping(bytes32 => Escrow)
+~~~
 
-```
-ACCEPTED -> RELEASED
-```
+Ask:
 
-The escrowed ETH should be sent to the recipient exactly once.
+> If Alice creates two escrows, how does the contract distinguish them?
 
-### Cancel
+## 6. Create an escrow
 
-Define explicit cancellation rules.
+The creator sends ETH with the creation transaction.
 
-At minimum decide:
+Use msg.value as the source of truth for the ETH actually deposited.
 
-- who may cancel;
-- from which states;
-- whether the recipient/creator gets the funds;
-- what the resulting state is.
+Do not confuse a function parameter with ETH attached to the transaction.
 
-### Events
+Conceptual flow:
 
-Emit useful events for:
+~~~text
+creator calls create
+        ↓
+validate inputs
+        ↓
+read msg.sender
+        ↓
+read msg.value
+        ↓
+generate escrow ID
+        ↓
+store Escrow struct
+        ↓
+emit event
+~~~
 
-- creation;
-- acceptance;
-- release;
-- cancellation.
+## 7. Validate participants
 
----
+At minimum, decide what should happen when the recipient is the zero address, creator and recipient are the same address, or msg.value is zero.
 
-## 3. Historical implementation: what to notice
+Write tests for the rules you choose.
 
-The current source file is intentionally kept as historical material.
+## 8. Test creation first
 
-It contains several important learning clues:
+Prove that valid creation stores the correct creator, recipient, amount, and initial state, and that ETH arrives at the contract.
 
-- `escrow[1]` is hard-coded, so there is effectively only one escrow slot;
-- a function parameter named `amount` is modified locally but the stored amount comes from `msg.value`;
-- `balances[msg.sender]` is updated without being part of a coherent escrow accounting model;
-- rejection attempts to mutate state and then reverts;
-- release does not verify that the escrow was accepted;
-- release does not mark the escrow as released;
-- repeated releases are not explicitly blocked;
-- cancellation is missing;
-- input validation is incomplete;
-- there is almost no automated test coverage.
+Do not continue until you understand what changed on-chain.
 
-Do not patch these one by one first.
+## 9. Let the recipient accept
 
-**Rebuild from the brief.**
+Only the stored recipient may call accept.
 
-That forces the state machine and accounting model to come from the requirements rather than from the old code.
+The valid transition is:
 
----
+~~~text
+CREATED → ACCEPTED
+~~~
 
-## 4. What I should understand after rebuilding
+Test wrong caller, repeated acceptance, and acceptance from terminal states.
 
-I should be able to explain:
+## 10. Release the ETH
 
-- why the contract is payable;
-- where the ETH actually lives;
-- why `msg.value` is not the same thing as the contract balance;
-- how the escrow is identified;
-- how the enum/state machine works;
-- why caller checks matter;
-- why state transitions must be explicit;
-- why an ETH transfer should be handled carefully;
-- why a successful transfer is not enough by itself;
-- how tests prove both valid and invalid behavior.
+The release rule is:
 
----
+~~~text
+only creator
++
+status == ACCEPTED
+=
+release is allowed
+~~~
 
-## 5. Minimum test matrix
+Then move the state to RELEASED and send the escrowed ETH to the recipient.
+
+## 11. Think about transfer ordering
+
+ETH transfer is an external interaction.
+
+Reason about:
+
+~~~text
+checks
+  ↓
+state transition
+  ↓
+external ETH interaction
+~~~
+
+Ask what a contract recipient could do during the transfer.
+
+## 12. Make release one-time
+
+An escrow must not be payable twice.
+
+Test:
+
+~~~text
+release once  → succeeds
+release again → reverts
+~~~
+
+Do not depend only on the contract balance changing. The escrow itself needs terminal state.
+
+## 13. Add cancellation
+
+Core rule:
+
+~~~text
+CREATED → CANCELLED
+~~~
+
+Only the creator can cancel the basic version.
+
+Test cancellation before acceptance and rejection after the escrow has moved past the allowed state.
+
+## 14. Add events
+
+Emit events for creation, acceptance, release, and cancellation.
+
+Remember the distinction:
+
+~~~text
+state  = what the contract remembers
+event  = what the transaction log announces
+~~~
+
+## 15. Minimum test matrix
 
 ### Creation
 
 - [ ] valid creation succeeds;
-- [ ] ETH arrives at the contract;
-- [ ] creator/recipient/amount/status are recorded;
-- [ ] invalid participants revert;
-- [ ] invalid deposit conditions revert.
+- [ ] amount equals actual ETH deposited;
+- [ ] creator and recipient are recorded correctly;
+- [ ] initial state is CREATED;
+- [ ] invalid participant setup fails;
+- [ ] zero-value creation fails if that is your chosen rule.
 
 ### Acceptance
 
 - [ ] recipient can accept;
-- [ ] unrelated caller cannot accept;
-- [ ] creator cannot impersonate recipient;
-- [ ] acceptance changes status exactly once.
+- [ ] wrong caller cannot;
+- [ ] state becomes ACCEPTED;
+- [ ] acceptance cannot happen twice.
 
 ### Release
 
 - [ ] creator cannot release before acceptance;
-- [ ] recipient cannot release;
-- [ ] unrelated caller cannot release;
+- [ ] non-creator cannot release;
 - [ ] creator can release after acceptance;
-- [ ] recipient receives the exact escrow amount;
-- [ ] status becomes released;
-- [ ] second release reverts.
+- [ ] recipient receives the correct amount;
+- [ ] state becomes RELEASED;
+- [ ] second release fails.
 
 ### Cancellation
 
-- [ ] cancellation follows the chosen rules;
-- [ ] released escrow cannot be cancelled;
-- [ ] already cancelled escrow cannot be cancelled again;
-- [ ] funds return to the intended party.
+- [ ] creator can cancel when allowed;
+- [ ] unauthorized caller cannot;
+- [ ] released or otherwise ineligible escrow cannot cancel;
+- [ ] funds return to the intended party;
+- [ ] cancellation cannot be processed twice.
 
-### Events
+## 16. Manual interaction
 
-- [ ] creation event;
-- [ ] acceptance event;
-- [ ] release event;
-- [ ] cancellation event.
+Use Anvil with separate creator, recipient, and attacker accounts.
 
----
+Perform:
 
-## 6. Stretch goals
+~~~text
+creator creates
+recipient accepts
+creator releases
+recipient receives ETH
+~~~
 
-After the core version works:
+Then attack the flow with wrong callers, early release, double release, and late cancellation.
 
-- deadline/expiry;
+## 17. Stretch goals
+
+After the basic version is boringly correct:
+
+- deadline / expiry;
 - multiple escrows per user;
-- escrow discovery/query helpers;
-- dispute resolution;
-- reputation/history.
+- participant history and discovery;
+- dispute resolution.
 
-Do these only after the basic state machine is boringly correct.
+Each stretch goal should introduce a new state or accounting question.
 
----
+## 18. Historical comparison
 
-## 7. Rebuild rule
+Only after your rebuild is complete, inspect src/EthEscrow.sol.
 
-Before opening the old `src/EthEscrow.sol`, create a fresh implementation from this README and the original challenge.
+Compare storage design, IDs, msg.value, state transitions, caller checks, ETH transfer order, repeated actions, cancellation, and tests.
 
-Use the old implementation afterward as a comparison point.
+## Final mental model
 
-That comparison is the actual learning exercise.
+~~~text
+                Escrow[id]
+                    │
+             ┌──────┴──────┐
+             │             │
+          creator       recipient
+             │             │
+             │             │ accept
+             │             ▼
+             │          ACCEPTED
+             │             │
+             │             │ release
+             ▼             ▼
+                RELEASED
+                   │
+                   ▼
+               Recipient
+~~~
+
+The project is successful when you can explain who can change each state, why they can change it, where the ETH is, and why the same ETH cannot be released twice.
