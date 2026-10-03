@@ -1,185 +1,288 @@
 # Tipjar
 
-Tipjar is a deliberately small ETH accounting project.
+## What you are building
 
-Its job is to teach the basics of receiving ETH, recording who paid, and restricting withdrawals to an owner.
+You are going to build a very small ETH tip jar.
 
----
+~~~text
+Someone sends ETH
+       ↓
+Tipjar receives it
+       ↓
+Tipjar remembers who tipped
+       ↓
+Owner can withdraw ETH
+~~~
 
-## 1. Core idea
+Do not start from the old implementation. Start from the behavior.
 
-```
-User
-  |
-  | send ETH
-  v
-Tipjar contract
-  |
-  +--> record user's cumulative tips
-  |
-  v
-Contract balance
-  |
-  | owner withdrawal
-  v
-Recipient
-```
+## 1. Understand the problem
 
-The project is small on purpose.
+Before writing Solidity, answer:
 
-It is a good place to become comfortable with:
+- Where does ETH enter?
+- Who sent it?
+- Where is the ETH physically stored?
+- What must the contract remember?
+- Who may withdraw?
+- What happens if withdrawal fails?
 
-- payable functions;
-- `msg.value`;
-- mappings;
-- contract balances;
-- owner-only actions;
-- ETH transfers;
-- events.
+## 2. Start with the smallest contract
 
----
+Make the contract exist first. Compile it. Do not add advanced features yet.
 
-## 2. What the historical code contains
+~~~bash
+forge build
+~~~
 
-The current source contains:
+Checkpoint: understand what the compiler is checking before moving on.
 
-- an immutable `OWNER`;
-- an `onlyowner` modifier;
-- `mapping(address => uint256) usertips`;
-- a tip event;
-- a payable tip function;
-- an unfinished withdrawal function.
+## 3. Decide who the owner is
 
-It is **not a completed contract**.
+For this exercise, the deployer becomes the owner.
 
-Important problems include:
+The important concept is msg.sender: the address that called the current operation.
 
-- the mapping is never actually incremented;
-- the local `tip` parameter does not provide persistent accounting;
-- `msg.value` is transaction data, not a mutable storage variable;
-- the withdrawal declaration is unfinished/malformed;
-- there are no meaningful tests.
+Ask why owner information belongs in contract state.
 
-Treat this as an old scaffold and rebuild it cleanly.
+## 4. Add owner-only withdrawal
 
----
+Build a reusable authorization rule:
 
-## 3. Rebuild specification
+~~~text
+withdraw()
+   ↓
+Is msg.sender the owner?
+   ↓
+yes → continue
+no  → revert
+~~~
 
-### Tipping
+Test with an owner and a second account before continuing.
 
-Anyone can send an ETH tip.
+## 5. Make the contract receive ETH
 
-A valid tip should:
+Add a payable tip function.
 
-1. enter the contract;
-2. increase that sender's cumulative tip total;
-3. emit a useful event.
+The ETH attached to that call is msg.value.
 
-Suggested accounting:
+Remember:
 
-```
-usertips[msg.sender] += msg.value;
-```
+~~~text
+msg.sender = caller
+msg.value  = ETH attached to this call
+~~~
 
-The exact implementation is yours to decide.
+msg.value is transaction input for the current call, not persistent storage.
 
-### Withdrawal
+## 6. Record who tipped
 
-Only the owner can withdraw.
+Now introduce a mapping with the shape:
 
-The withdrawal operation should be able to specify:
+~~~text
+address → uint256
+~~~
 
-- amount;
-- recipient.
+You want to answer:
 
-It should reject an amount larger than the contract's current balance.
+> How much ETH has Alice tipped through this contract?
 
-The contract should use a deliberate ETH transfer pattern and handle failure correctly.
+The conceptual relationship is:
 
----
+~~~text
+msg.sender
+   ↓
+mapping key
+   ↓
+historical tip amount
+~~~
 
-## 4. Two balances you must keep separate
+## 7. Keep two balances separate
 
-This is an important concept for the rebuild.
+Historical accounting:
 
-### Historical tips
-
-```
+~~~text
 usertips[user]
-```
+~~~
 
-This should represent how much ETH that address has tipped **through the contract over its lifetime**.
+means how much that address has tipped through the contract over time.
 
-### Current contract balance
+Current contract balance:
 
-```
+~~~text
 address(this).balance
-```
+~~~
 
-This represents how much ETH the contract currently holds.
+means how much ETH the contract holds right now.
 
-A withdrawal can reduce the contract balance without reducing a user's historical tipping total.
+Example:
 
-These values answer different questions.
+~~~text
+Alice tips 1 ETH
+usertips[Alice] = 1 ETH
+contract balance = 1 ETH
 
----
+owner withdraws 0.4 ETH
+usertips[Alice] = 1 ETH
+contract balance = 0.6 ETH
+~~~
 
-## 5. Minimum tests
+Those values answer different questions.
+
+## 8. Emit an event
+
+Emit a tip event containing useful information such as the sender and amount.
+
+Remember:
+
+~~~text
+storage = persistent contract state
+event   = transaction log information
+~~~
+
+Events are not a replacement for storage.
+
+## 9. Test the tipping path
+
+Prove:
+
+~~~text
+Alice sends 1 ETH
+↓
+Alice's total increases by 1 ETH
+↓
+contract balance increases by 1 ETH
+↓
+event appears
+~~~
+
+Then tip twice and prove the totals accumulate.
+
+## 10. Implement withdrawal
+
+The owner should choose an amount and recipient.
+
+Before the transfer, reason about:
+
+- authorization;
+- available balance;
+- recipient validity;
+- transfer failure;
+- external code execution.
+
+Think in terms of:
+
+~~~text
+checks
+  ↓
+state updates
+  ↓
+external interaction
+~~~
+
+## 11. Test withdrawal
+
+Cover:
+
+- owner can withdraw;
+- non-owner cannot;
+- amount larger than available balance fails;
+- repeated withdrawal cannot exceed the real balance;
+- recipient receives the correct amount;
+- transfer failure is handled.
+
+Also consider what happens if the recipient is a contract.
+
+## 12. Decide the zero-tip policy
+
+Choose explicitly whether zero-value tips are allowed and test the choice.
+
+## 13. Decide the direct-transfer policy
+
+Only after the core path works, think about receive() and fallback().
+
+Ask:
+
+> What happens if ETH is sent directly without calling the tip function?
+
+Possible designs include accepting and counting it, accepting but not counting it, or rejecting it.
+
+Choose deliberately.
+
+## 14. Minimum finished version
 
 ### Tipping
 
-- [x] user can send a tip;
-- [ ] user's cumulative tips increase;
-- [x] contract balance increases;
-- [x] event is emitted;
+- [ ] valid tip succeeds;
+- [ ] msg.value is the deposited amount;
+- [ ] sender's cumulative total increases;
+- [ ] contract balance increases;
+- [ ] event is emitted;
 - [ ] repeated tips accumulate.
 
+### Ownership
+
+- [ ] deployer becomes owner;
+- [ ] only owner can withdraw.
+
 ### Withdrawal
 
-- [x] non-owner cannot withdraw;
-- [ ] owner can withdraw a valid amount;
-- [x] recipient receives the correct amount;
-- [ ] over-withdrawal reverts;
-- [ ] failed withdrawal does not corrupt state;
-- [ ] multiple withdrawals behave correctly.
+- [ ] owner can withdraw;
+- [ ] recipient gets the correct amount;
+- [ ] over-withdrawal fails;
+- [ ] transfer failure is handled;
+- [ ] repeat withdrawal cannot duplicate the payout.
 
----
+## 15. Manual checkpoint
 
-## 6. Questions to answer while rebuilding
+Run Anvil, deploy the contract, and inspect owner, contract balance, and tip totals before and after real local transactions.
 
-Before coding, be able to answer:
+Connect the full chain:
 
-- What exactly does `msg.value` represent?
-- Where does ETH go when a payable function succeeds?
-- What is the difference between storage accounting and actual ETH balance?
-- Why does `onlyowner` check `msg.sender`?
-- What happens if the recipient is a contract?
-- What should happen when the recipient rejects ETH?
-- Should zero-value tips be allowed?
-- Should the owner be allowed to withdraw the entire balance?
-- Should withdrawals affect `usertips`?
+~~~text
+Solidity source
+      ↓
+transaction
+      ↓
+EVM execution
+      ↓
+storage + balance changes
+~~~
 
-These questions matter more than the final number of lines in the contract.
+## 16. Break it
 
----
+Try non-owner withdrawal, over-withdrawal, double withdrawal, zero-value tips, failed recipients, and many repeated tips.
 
-## 7. Stretch goals
+Then define invariants such as:
 
-After the core version works:
+> A withdrawal must never increase the ETH held by the contract.
 
-- allow user-facing tip messages;
-- expose total tips received;
-- emit a dedicated withdrawal event;
-- support a `receive()` function deliberately, with a clear accounting policy;
-- write stronger invariants around balance and accounting.
+## 17. Historical comparison
 
----
+Only after your rebuild works, inspect the old src/Tipjar.sol.
 
-## 8. Rebuild rule
+Compare owner setup, mapping updates, msg.value, contract balance, withdrawal logic, events, and failure handling.
 
-Start from the behavior described above.
+The goal is to explain why the old design was incomplete and whether you would make the same mistakes now.
 
-Do not attempt to repair the old function line by line.
+## Final mental model
 
-The old implementation is there so that, after rebuilding, you can compare your current understanding against your earlier attempt.
+~~~text
+              TIP IN
+                │
+                │ msg.value
+                ▼
+        ┌─────────────────┐
+        │     Tipjar      │
+        │                 │
+        │ usertips[user]  │ ← historical accounting
+        │                 │
+        │ ETH balance     │ ← actual ETH held now
+        └────────┬────────┘
+                 │
+                 │ owner withdrawal
+                 ▼
+              recipient
+~~~
+
+Small contract. Big lesson.
