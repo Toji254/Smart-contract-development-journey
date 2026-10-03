@@ -1,0 +1,36 @@
+{
+  "family": "reentrancy",
+  "target": {
+    "contract": "Tipjar",
+    "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "artifact": "/home/rogue/Smart-contract-development-journey/Tipjar project/out/Tipjar2.sol/Tipjar.json",
+    "source": "current target"
+  },
+  "function": "withdraw(address,uint256)",
+  "values": [
+    "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "1"
+  ],
+  "calldata": "f3fef3a300000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c80000000000000000000000000000000000000000000000000000000000000001",
+  "call_value": "0",
+  "forge_returncode": 1,
+  "harness": "/home/rogue/Smart-contract-development-journey/Tipjar project/test/Lowkey_Break_Tipjar_withdraw_reentrancy_1cb8cf3384.t.sol",
+  "output_tail": "Error: Compiler run failed:\nError (9429): This looks like an address but has an invalid checksum. Correct checksummed address: \"0x5FbDB2315678afecb367f032d93F642f64180aa3\". If this is not used as an address, please prepend '00'. For more information please see https://docs.soliditylang.org/en/develop/types.html#address-literals\nSyntaxError: This looks like an address but has an invalid checksum. Correct checksummed address: \"0x5FbDB2315678afecb367f032d93F642f64180aa3\". If this is not used as an address, please prepend '00'. For more information please see https://docs.soliditylang.org/en/develop/types.html#address-literals\n  --> test/Lowkey_Break_Tipjar_withdraw_reentrancy_1cb8cf3384.t.sol:48:39:\n   |\n48 |     address constant TARGET = address(0x5fbdb2315678afecb367f032d93f642f64180aa3);\n   |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+  "generated_at": 1791008956.4804795,
+  "research_basis": {
+    "title": "Reentrancy / callback abuse",
+    "basis": "external calls, ETH transfer, token/NFT callbacks",
+    "priority": 1
+  },
+  "project_detection": {
+    "kind": "foundry",
+    "break_backend": "evm",
+    "languages": {
+      "solidity": 17
+    },
+    "stacks": [
+      "foundry"
+    ],
+    "language_features": []
+  }
+}

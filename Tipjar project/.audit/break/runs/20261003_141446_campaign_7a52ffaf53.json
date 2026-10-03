@@ -1,0 +1,30 @@
+{
+  "mode": "round-limited",
+  "rounds": 1,
+  "targets": [
+    {
+      "contract": "Tipjar",
+      "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "artifact": "/home/rogue/Smart-contract-development-journey/Tipjar project/out/Tipjar2.sol/Tipjar.json",
+      "source": "current target"
+    }
+  ],
+  "results": [
+    {
+      "family": "accounting",
+      "contract": "Tipjar",
+      "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "function": "withdraw(address,uint256)",
+      "status": "OBSERVED",
+      "summary": "Attack executed; no concrete break condition reached.",
+      "evidence_path": "/home/rogue/Smart-contract-development-journey/Tipjar project/.audit/break/runs/20261003_141446_experiment_Tipjar_withdraw_accounting_8c99f2b52f.json",
+      "break_condition": false,
+      "detail": {
+        "raw_tail": "Compiling 1 files with Solc 0.8.26\nSolc 0.8.26 finished in 987.88ms\nCompiler run successful!\n\nRan 1 test for test/Lowkey_Break_Tipjar_withdraw_accounting_220f94b319.t.sol:LowkeyBreakRepeat\n[PASS] test_break_repeat() (gas: 73003)\nLogs:\n  LOWKEY_BREAK_FAMILY accounting\n  FIRST_SUCCESS false\n  SECOND_SUCCESS false\n  SECOND_ATTACKER_GAIN 0\n  SECOND_TARGET_OUTFLOW 0\n  LOWKEY_BREAK false\n\nSuite result: ok. 1 passed; 0 failed; 0 skipped; finished in 15.70ms (1.98ms CPU time)\n\nRan 1 test suite in 30.24ms (15.70ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)",
+        "harness": "/home/rogue/Smart-contract-development-journey/Tipjar project/test/Lowkey_Break_Tipjar_withdraw_accounting_220f94b319.t.sol",
+        "forge_returncode": 0
+      }
+    }
+  ],
+  "started_at": 1791026086.4930806
+}

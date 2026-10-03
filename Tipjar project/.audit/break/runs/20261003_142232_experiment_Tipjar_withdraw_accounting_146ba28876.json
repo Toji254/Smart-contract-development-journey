@@ -1,0 +1,36 @@
+{
+  "family": "accounting",
+  "target": {
+    "contract": "Tipjar",
+    "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "artifact": "/home/rogue/Smart-contract-development-journey/Tipjar project/out/Tipjar2.sol/Tipjar.json",
+    "source": "current target"
+  },
+  "function": "withdraw(address,uint256)",
+  "values": [
+    "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "1"
+  ],
+  "calldata": "f3fef3a300000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c80000000000000000000000000000000000000000000000000000000000000001",
+  "call_value": "0",
+  "forge_returncode": 0,
+  "harness": "/home/rogue/Smart-contract-development-journey/Tipjar project/test/Lowkey_Break_Tipjar_withdraw_accounting_a6bc56457b.t.sol",
+  "output_tail": "Compiling 1 files with Solc 0.8.26\nSolc 0.8.26 finished in 2.06s\nCompiler run successful with warnings:\nWarning (2519): This declaration shadows an existing declaration.\n  --> test/Lowkey_Break_Tipjar_withdraw_accounting_a6bc56457b.t.sol:27:23:\n   |\n27 |             (bool ok, bytes memory data) = TARGET.staticcall(\n   |                       ^^^^^^^^^^^^^^^^^\nNote: The shadowed declaration is here:\n  --> test/Lowkey_Break_Tipjar_withdraw_accounting_a6bc56457b.t.sol:34:9:\n   |\n34 |         bytes memory data = abi.encodeWithSignature(\"withdraw(address,uint256)\", address(ATTACKER), 1);\n   |         ^^^^^^^^^^^^^^^^^\n\nWarning (2519): This declaration shadows an existing declaration.\n  --> test/Lowkey_Break_Tipjar_withdraw_accounting_a6bc56457b.t.sol:48:23:\n   |\n48 |             (bool ok, bytes memory data) = TARGET.staticcall(\n   |                       ^^^^^^^^^^^^^^^^^\nNote: The shadowed declaration is here:\n  --> test/Lowkey_Break_Tipjar_withdraw_accounting_a6bc56457b.t.sol:34:9:\n   |\n34 |         bytes memory data = abi.encodeWithSignature(\"withdraw(address,uint256)\", address(ATTACKER), 1);\n   |         ^^^^^^^^^^^^^^^^^\n\nWarning (2519): This declaration shadows an existing declaration.\n  --> test/Lowkey_Break_Tipjar_withdraw_accounting_a6bc56457b.t.sol:62:23:\n   |\n62 |             (bool ok, bytes memory data) = TARGET.staticcall(\n   |                       ^^^^^^^^^^^^^^^^^\nNote: The shadowed declaration is here:\n  --> test/Lowkey_Break_Tipjar_withdraw_accounting_a6bc56457b.t.sol:34:9:\n   |\n34 |         bytes memory data = abi.encodeWithSignature(\"withdraw(address,uint256)\", address(ATTACKER), 1);\n   |         ^^^^^^^^^^^^^^^^^\n\n\nRan 1 test for test/Lowkey_Break_Tipjar_withdraw_accounting_a6bc56457b.t.sol:LowkeyBreakRepeat\n[PASS] test_break_repeat() (gas: 179242)\nLogs:\n  SETUP_SUCCESS true\n  SETUP_RETURNDATA_LENGTH 0\n  LOWKEY_BREAK_FAMILY accounting\n  FIRST_SUCCESS false\n  SECOND_SUCCESS false\n  FIRST_RETURNDATA_LENGTH 36\n  SECOND_RETURNDATA_LENGTH 36\n  TOTAL_ATTACKER_GAIN 0\n  TOTAL_TARGET_OUTFLOW 0\n  ENTITLEMENT_READ_OK true\n  ENTITLEMENT_BEFORE 10000000000000000000\n  ENTITLEMENT_AFTER_FIRST 10000000000000000000\n  ENTITLEMENT_AFTER_SECOND 10000000000000000000\n  LOWKEY_BREAK false\n\nSuite result: ok. 1 passed; 0 failed; 0 skipped; finished in 21.25ms (5.70ms CPU time)\n\nRan 1 test suite in 37.02ms (21.25ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)",
+  "generated_at": 1791026552.9629,
+  "research_basis": {
+    "title": "Accounting / value extraction",
+    "basis": "asset conservation, duplicate payout, unexpected ETH movement",
+    "priority": 4
+  },
+  "project_detection": {
+    "kind": "foundry",
+    "break_backend": "evm",
+    "languages": {
+      "solidity": 74
+    },
+    "stacks": [
+      "foundry"
+    ],
+    "language_features": []
+  }
+}

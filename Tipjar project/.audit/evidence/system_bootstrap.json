@@ -1,0 +1,1243 @@
+{
+  "schema": "lowkey.system-bootstrap.v1",
+  "generated_at": "2026-10-03T11:39:09+00:00",
+  "updated_reason": "lk break target discovery",
+  "project": {
+    "root": "/home/rogue/Smart-contract-development-journey/Tipjar project",
+    "git_sha": "4c7df9614de0985093d03812b96efe6f811c36b3",
+    "git_branch": "main"
+  },
+  "runtime": {
+    "rpc": "http://127.0.0.1:8545",
+    "chain_id": "0x7a69"
+  },
+  "actors": {
+    "actors": [
+      {
+        "name": "vault",
+        "address": "0x1234567890123456789012345678901234567890",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "escrow",
+        "address": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "ConfidencePoolFactory",
+        "address": "0x56fC17a65ccFEC6B7ad0aDe9BD9416CB365B9BE8",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "ConfidencePool",
+        "address": "0x3904b8f5b0F49cD206b7d5AABeE5D1F37eE15D8d",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "BountyArena",
+        "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "BlockHashOracleMock",
+        "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "ScrvusdOracleV2",
+        "address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "StakeToken",
+        "address": "0x54B8d8E2455946f2A5B8982283f2359812e815ce",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "MockAttackRegistry",
+        "address": "0xf090f16dEc8b6D24082Edd25B1C8D26f2bC86128",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "MockSafeHarborRegistry",
+        "address": "0xd9140951d8aE6E5F625a02F5908535e16e3af964",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "MockAgreement",
+        "address": "0x56D13Eb21a625EdA8438F55DF2C31dC3632034f5",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "MockConfidencePoolModerator",
+        "address": "0xccf1769D8713099172642EB55DDFFC0c5A444FE9",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "target",
+        "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "ERC1967Proxy",
+        "address": "0x56fC17a65ccFEC6B7ad0aDe9BD9416CB365B9BE8",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "QuantAMMWeightedPool",
+        "address": "0x3324275755a877F85e8cAd6b99d78860849Eb081",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "AaveDIVAWrapper",
+        "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "DeployedContract",
+        "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "Escrow",
+        "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "Fallback",
+        "address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "Tipjar",
+        "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "Alice",
+        "address": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "source": "wallet config"
+      },
+      {
+        "name": "Bob",
+        "address": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+        "source": "wallet config"
+      },
+      {
+        "name": "attacker",
+        "address": "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+        "source": "wallet config"
+      },
+      {
+        "name": "lab-deployer",
+        "address": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "source": "wallet config"
+      }
+    ]
+  },
+  "contracts": [
+    {
+      "name": "Tipjar",
+      "artifact": "out/Tipjar2.sol/Tipjar.json",
+      "abi_functions": 6,
+      "errors": 3
+    }
+  ],
+  "deployments": [],
+  "live_runtime": [],
+  "relationships": [],
+  "roles": [],
+  "initialization": [],
+  "scripts": [],
+  "sources": [
+    {
+      "path": "src/Tipjar2.sol",
+      "sha256": "f4d139d2cb53cf453f4c1274d3c095c64f8281591ac335d18e4a41e6e6907463",
+      "actions": [],
+      "lines": 30
+    }
+  ],
+  "tests": [
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_access_0d23db0f06.t.sol",
+      "sha256": "26d5614b77b2f50d38afd73ddec1cf45a9b74913074901e303f2009c97b6e70f",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_access_147803b45c.t.sol",
+      "sha256": "efa4528c5bb608c7e97fad1b2aa021da8b226c44c579f955c23ea4f6b096e17e",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_access_3480a4f700.t.sol",
+      "sha256": "ea7a3270350a3502c11f783d20b453242fa00a2eb5489655f5ab4ca38c16bb85",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_access_714d37c891.t.sol",
+      "sha256": "5082daa9cb49b10d73324ffcabae35e7f42e5ec9f4fc4490161254375e91f9bd",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_access_95a16fe8a3.t.sol",
+      "sha256": "1bad07b02c11fc691cc733169bb65594c4f2b3aac0c30588658274da035e0772",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_access_98db4ba0aa.t.sol",
+      "sha256": "3e2a603b19c2ff8eb52a51041cfa49c359d1df88328fc5697abb70580219a0e4",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_access_a5d7171cf3.t.sol",
+      "sha256": "b090563b988c6a2e312ba48a148e96a63a34ad91a3d0e7bb29b5749e66ff4973",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_access_dcae97b8c0.t.sol",
+      "sha256": "8d60d76d7e5216b074a04d78e5135d1f837cad4e6d25b0ebfcda299882b2c722",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_accounting_157691b308.t.sol",
+      "sha256": "ed3ec16cf40208658c684d4791a507d76f18f509d875d437a6dc3d49d2b19f99",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control"
+      ],
+      "functions": [
+        "test_break_repeat"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_accounting_220f94b319.t.sol",
+      "sha256": "bb6343bb91a9c6d208e9062249317787b569ce301b074cb2dbc6392bf54f3eba",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_repeat"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_accounting_4c2da0905a.t.sol",
+      "sha256": "f7545443992e6afc46519da93870dafcc35c31c03db1c8c2f6e526929a94ccd2",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_repeat"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_accounting_a6bc56457b.t.sol",
+      "sha256": "86f5b4277c7848408511235e2ac9472dffd6d73a1e5162c559ceac223b957e98",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_repeat"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_accounting_c1f30e82fa.t.sol",
+      "sha256": "95923034039645777c088cb29cb058739e7d1c658845c8098d05210a319ed503",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_repeat"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_boundary_b479c01a73.t.sol",
+      "sha256": "b9b1ef1c27c48e5b4ab8e700610383fb2117f052c4c6478c5cddaecc30b0a938",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_boundary"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_callback_3480a4f700.t.sol",
+      "sha256": "ea7a3270350a3502c11f783d20b453242fa00a2eb5489655f5ab4ca38c16bb85",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_callback_95a16fe8a3.t.sol",
+      "sha256": "1bad07b02c11fc691cc733169bb65594c4f2b3aac0c30588658274da035e0772",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_callback_98db4ba0aa.t.sol",
+      "sha256": "3e2a603b19c2ff8eb52a51041cfa49c359d1df88328fc5697abb70580219a0e4",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_callback_dcae97b8c0.t.sol",
+      "sha256": "8d60d76d7e5216b074a04d78e5135d1f837cad4e6d25b0ebfcda299882b2c722",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_dos_147803b45c.t.sol",
+      "sha256": "efa4528c5bb608c7e97fad1b2aa021da8b226c44c579f955c23ea4f6b096e17e",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_dos_3480a4f700.t.sol",
+      "sha256": "ea7a3270350a3502c11f783d20b453242fa00a2eb5489655f5ab4ca38c16bb85",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_dos_98db4ba0aa.t.sol",
+      "sha256": "3e2a603b19c2ff8eb52a51041cfa49c359d1df88328fc5697abb70580219a0e4",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_dos_dcae97b8c0.t.sol",
+      "sha256": "8d60d76d7e5216b074a04d78e5135d1f837cad4e6d25b0ebfcda299882b2c722",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_dos_f5bc67f41e.t.sol",
+      "sha256": "57b272a7525c8573bd56372d76fd6511c01e18c30777e8e39e1b998ac0097847",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_economic_0d23db0f06.t.sol",
+      "sha256": "26d5614b77b2f50d38afd73ddec1cf45a9b74913074901e303f2009c97b6e70f",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_economic_3480a4f700.t.sol",
+      "sha256": "ea7a3270350a3502c11f783d20b453242fa00a2eb5489655f5ab4ca38c16bb85",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_economic_95a16fe8a3.t.sol",
+      "sha256": "1bad07b02c11fc691cc733169bb65594c4f2b3aac0c30588658274da035e0772",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_economic_98db4ba0aa.t.sol",
+      "sha256": "3e2a603b19c2ff8eb52a51041cfa49c359d1df88328fc5697abb70580219a0e4",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_economic_dcae97b8c0.t.sol",
+      "sha256": "8d60d76d7e5216b074a04d78e5135d1f837cad4e6d25b0ebfcda299882b2c722",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_erc20_0d23db0f06.t.sol",
+      "sha256": "26d5614b77b2f50d38afd73ddec1cf45a9b74913074901e303f2009c97b6e70f",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_erc20_147803b45c.t.sol",
+      "sha256": "efa4528c5bb608c7e97fad1b2aa021da8b226c44c579f955c23ea4f6b096e17e",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_erc20_3480a4f700.t.sol",
+      "sha256": "ea7a3270350a3502c11f783d20b453242fa00a2eb5489655f5ab4ca38c16bb85",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_erc20_95a16fe8a3.t.sol",
+      "sha256": "1bad07b02c11fc691cc733169bb65594c4f2b3aac0c30588658274da035e0772",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_erc20_98db4ba0aa.t.sol",
+      "sha256": "3e2a603b19c2ff8eb52a51041cfa49c359d1df88328fc5697abb70580219a0e4",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_erc20_dcae97b8c0.t.sol",
+      "sha256": "8d60d76d7e5216b074a04d78e5135d1f837cad4e6d25b0ebfcda299882b2c722",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_erc20_f5bc67f41e.t.sol",
+      "sha256": "57b272a7525c8573bd56372d76fd6511c01e18c30777e8e39e1b998ac0097847",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_oracle_0d23db0f06.t.sol",
+      "sha256": "26d5614b77b2f50d38afd73ddec1cf45a9b74913074901e303f2009c97b6e70f",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_oracle_147803b45c.t.sol",
+      "sha256": "efa4528c5bb608c7e97fad1b2aa021da8b226c44c579f955c23ea4f6b096e17e",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_oracle_3480a4f700.t.sol",
+      "sha256": "ea7a3270350a3502c11f783d20b453242fa00a2eb5489655f5ab4ca38c16bb85",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_oracle_98db4ba0aa.t.sol",
+      "sha256": "3e2a603b19c2ff8eb52a51041cfa49c359d1df88328fc5697abb70580219a0e4",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_oracle_dcae97b8c0.t.sol",
+      "sha256": "8d60d76d7e5216b074a04d78e5135d1f837cad4e6d25b0ebfcda299882b2c722",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_proxy_0d23db0f06.t.sol",
+      "sha256": "26d5614b77b2f50d38afd73ddec1cf45a9b74913074901e303f2009c97b6e70f",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_proxy_3480a4f700.t.sol",
+      "sha256": "ea7a3270350a3502c11f783d20b453242fa00a2eb5489655f5ab4ca38c16bb85",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_proxy_95a16fe8a3.t.sol",
+      "sha256": "1bad07b02c11fc691cc733169bb65594c4f2b3aac0c30588658274da035e0772",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_proxy_98db4ba0aa.t.sol",
+      "sha256": "3e2a603b19c2ff8eb52a51041cfa49c359d1df88328fc5697abb70580219a0e4",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_proxy_dcae97b8c0.t.sol",
+      "sha256": "8d60d76d7e5216b074a04d78e5135d1f837cad4e6d25b0ebfcda299882b2c722",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_reentrancy_0321addcde.t.sol",
+      "sha256": "edfc7d31d3c36cccb2a784ff40d32a6fdb02d75d8f177854100dfdc7fc48b86f",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_reentrancy"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_reentrancy_1cb8cf3384.t.sol",
+      "sha256": "84133c68c2e8d659b30a6826582a0912d50d74506c873c6bef3f77648a2d4681",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_reentrancy"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_reentrancy_2e26e0fc2b.t.sol",
+      "sha256": "c983d231a34ca3ceaa8026d804f0f22148842a65838004c6f2af40e6d1204115",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_reentrancy"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_reentrancy_3ba83e6709.t.sol",
+      "sha256": "ace64eb62e9b03b7f8a05355396a36812b3d75d0dbc6b84beaa533abcc1a7349",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_reentrancy"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_reentrancy_4ac11b1148.t.sol",
+      "sha256": "5fca9377bc39389b02d72f26bf2ec7d4b0c00160ab2373ea43eea98869fe0650",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_reentrancy"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_reentrancy_820af2dc6b.t.sol",
+      "sha256": "9b7770950bfee41e04421682b5a9c9df7140d85c689a13e1e623e5f7dbc3403e",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_reentrancy"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_reentrancy_92a2bdab7c.t.sol",
+      "sha256": "df8e55b764086767de79b2234e7667ab37dbb00ea889b5f22d7f3bcacdc5d2f7",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_reentrancy"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_reentrancy_c8bb02cd7d.t.sol",
+      "sha256": "73af090cef53759469670b69ada7c61bb8c876f8da3a6969a0dfaedf8cd3d538",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_reentrancy"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_reentrancy_d42d821492.t.sol",
+      "sha256": "bc82122f238ad8f6986c71a4150840155ffcbb61cf8db59a319a077d75eadaa9",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_reentrancy"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_reentrancy_f7534bbd49.t.sol",
+      "sha256": "f70442fd355741e6992d3756dad49f5e313bb071d3cd22ffacda305820d47050",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_reentrancy"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_reentrancy_f960e25d2d.t.sol",
+      "sha256": "bbdc7bfaa9a5bc95fcf1a01c8e7298a5252717899d6ab2d01dc1c2e86a83d822",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_reentrancy"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_replay_6fc6758410.t.sol",
+      "sha256": "f98db10ad8eac1788df08ddab6046457d775d0fc2ffc99cd35b1bc5a5331290a",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_repeat"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_signature_147803b45c.t.sol",
+      "sha256": "efa4528c5bb608c7e97fad1b2aa021da8b226c44c579f955c23ea4f6b096e17e",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_signature_3480a4f700.t.sol",
+      "sha256": "ea7a3270350a3502c11f783d20b453242fa00a2eb5489655f5ab4ca38c16bb85",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_signature_95a16fe8a3.t.sol",
+      "sha256": "1bad07b02c11fc691cc733169bb65594c4f2b3aac0c30588658274da035e0772",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_signature_98db4ba0aa.t.sol",
+      "sha256": "3e2a603b19c2ff8eb52a51041cfa49c359d1df88328fc5697abb70580219a0e4",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_signature_dcae97b8c0.t.sol",
+      "sha256": "8d60d76d7e5216b074a04d78e5135d1f837cad4e6d25b0ebfcda299882b2c722",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_storage_0d23db0f06.t.sol",
+      "sha256": "26d5614b77b2f50d38afd73ddec1cf45a9b74913074901e303f2009c97b6e70f",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_storage_3480a4f700.t.sol",
+      "sha256": "ea7a3270350a3502c11f783d20b453242fa00a2eb5489655f5ab4ca38c16bb85",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_storage_95a16fe8a3.t.sol",
+      "sha256": "1bad07b02c11fc691cc733169bb65594c4f2b3aac0c30588658274da035e0772",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_storage_98db4ba0aa.t.sol",
+      "sha256": "3e2a603b19c2ff8eb52a51041cfa49c359d1df88328fc5697abb70580219a0e4",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_storage_dcae97b8c0.t.sol",
+      "sha256": "8d60d76d7e5216b074a04d78e5135d1f837cad4e6d25b0ebfcda299882b2c722",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_time_0933d496fb.t.sol",
+      "sha256": "d32a7ef88481ef60df9889cf5d165b43c7f2f24d18d23748de055211a0aed6ad",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "time/block manipulation",
+        "asset funding"
+      ],
+      "functions": [
+        "test_time_dependence"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_time_19c5af4a65.t.sol",
+      "sha256": "906e6b25f3d9c0196b6a56802ee530dfec412c7aff0047e5c96e28db300b69a9",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "time/block manipulation",
+        "asset funding"
+      ],
+      "functions": [
+        "test_time_dependence"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_time_e314357409.t.sol",
+      "sha256": "fc5d9820da194534dcf8292c292428589d9150fc595bcd3c0ae0b7b5f0547458",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "time/block manipulation",
+        "asset funding"
+      ],
+      "functions": [
+        "test_time_dependence"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_upgrade_3480a4f700.t.sol",
+      "sha256": "ea7a3270350a3502c11f783d20b453242fa00a2eb5489655f5ab4ca38c16bb85",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_upgrade_98db4ba0aa.t.sol",
+      "sha256": "3e2a603b19c2ff8eb52a51041cfa49c359d1df88328fc5697abb70580219a0e4",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_upgrade_dcae97b8c0.t.sol",
+      "sha256": "8d60d76d7e5216b074a04d78e5135d1f837cad4e6d25b0ebfcda299882b2c722",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    },
+    {
+      "path": "test/Lowkey_Break_Tipjar_withdraw_upgrade_f5bc67f41e.t.sol",
+      "sha256": "57b272a7525c8573bd56372d76fd6511c01e18c30777e8e39e1b998ac0097847",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "actor control",
+        "asset funding"
+      ],
+      "functions": [
+        "test_break_access"
+      ]
+    }
+  ],
+  "adversarial_evidence": [
+    {
+      "path": "script/LowkeyPoC_Tipjar.s.sol",
+      "sha256": "dd7d13f28ec6b773311d8090d6a8b143a46a60d8bc04b87f667ae0934485f31d",
+      "kind": "adversarial-script"
+    },
+    {
+      "path": ".audit/poc/LowkeyPoc_Tipjar.json",
+      "sha256": "1e4229ca22d7c700335c48e4acba87c7d704db2feb2e5d14009e1b827a54f488",
+      "kind": "adversarial-script",
+      "summary": {
+        "candidate": null,
+        "evidence": {
+          "candidate": {
+            "actions": [],
+            "category": null,
+            "check": null,
+            "column": null,
+            "confidence": null,
+            "description": null,
+            "evidence_count": 0,
+            "file": null,
+            "function": null,
+            "id": null,
+            "impact": null,
+            "line": null,
+            "meaning": null,
+            "mode": "generic",
+            "next": null,
+            "pattern_id": null,
+            "title": null,
+            "tool": null,
+            "verification": null,
+            "verification_status": null
+          },
+          "focused_signal": null,
+          "latest": {
+            "calldata": "0xd0e30db0",
+            "function": "deposit()",
+            "state_diff": null,
+            "trace": null,
+            "tx_hash": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+            "value": "1 wei"
+          },
+          "open_signals": 5,
+          "tools": {
+            "forge_build": null,
+            "forge_coverage": "completed",
+            "forge_tests": null,
+            "receipt": null,
+            "risk_functions": null,
+            "slither_findings": 3,
+            "source_triage_markers": null,
+            "trace": null
+          }
+        },
+        "poc_file": null
+      }
+    }
+  ],
+  "audit_evidence": [
+    {
+      "file": ".audit/evidence/source_triage.json",
+      "sha256": "e7599feb5ac08c4fe5c017736da695bf013cb67065431c158422e2090bb3fa71",
+      "count": 1
+    }
+  ],
+  "audit_targets": [],
+  "security_patterns": [
+    {
+      "id": "REPLAY-001",
+      "title": "Replayable payout / claim path",
+      "contract": null,
+      "function": "withdraw",
+      "file": "src/Tipjar2.sol",
+      "line": 15,
+      "verification_status": "CANDIDATE",
+      "confidence": "Source pattern",
+      "description": "The first payout call was rejected, so a replay condition was not reached.",
+      "next": "Run the same concrete call twice from the same actor with enough protocol reserve and compare the second call's value/state delta.",
+      "evidence": [
+        "This function looks like an economic claim/withdraw/redeem path.",
+        "The body writes user/entitlement state; this is the state that must be consumed exactly once.",
+        "The first payout call was rejected, so a replay condition was not reached."
+      ]
+    },
+    {
+      "id": "REPLAY-001",
+      "title": "Replayable payout / claim path",
+      "contract": null,
+      "function": "withdraw",
+      "file": "src/Tipjar2.sol",
+      "line": 17,
+      "verification_status": "CANDIDATE",
+      "confidence": "Source pattern",
+      "description": "This function looks like an economic claim/withdraw/redeem path.",
+      "next": "Run the same concrete call twice from the same actor with enough protocol reserve and compare the second call's value/state delta.",
+      "evidence": [
+        "This function looks like an economic claim/withdraw/redeem path.",
+        "The function performs a native-value payout but does not show an entitlement-consumption write in this function."
+      ]
+    }
+  ],
+  "security_pattern_summary": {
+    "total": 2,
+    "reviews": 0,
+    "confirmed": 0,
+    "candidates": 2
+  },
+  "known_addresses": {},
+  "deployed_contract_names": [],
+  "confidence": {
+    "confirmed": [
+      "broadcast deployment entries",
+      "source/script evidence",
+      "artifact metadata",
+      "runtime bytecode checks when RPC is available"
+    ],
+    "inferred": [
+      "constructor relationships from broadcast arguments",
+      "role/configuration labels derived from source patterns"
+    ],
+    "not_verified": [
+      "semantic correctness of every initialization step",
+      "completeness of deployment scripts",
+      "security impact of adversarial evidence"
+    ]
+  }
+}

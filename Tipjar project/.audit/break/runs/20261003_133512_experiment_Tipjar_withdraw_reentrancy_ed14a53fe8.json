@@ -1,0 +1,36 @@
+{
+  "family": "reentrancy",
+  "target": {
+    "contract": "Tipjar",
+    "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "artifact": "/home/rogue/Smart-contract-development-journey/Tipjar project/out/Tipjar2.sol/Tipjar.json",
+    "source": "current target"
+  },
+  "function": "withdraw(address,uint256)",
+  "values": [
+    "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "1"
+  ],
+  "calldata": "f3fef3a300000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c80000000000000000000000000000000000000000000000000000000000000001",
+  "call_value": "0",
+  "forge_returncode": 1,
+  "harness": "/home/rogue/Smart-contract-development-journey/Tipjar project/test/Lowkey_Break_Tipjar_withdraw_reentrancy_2e26e0fc2b.t.sol",
+  "output_tail": "Error: Compiler run failed:\nError (6675): Member \"log\" not unique after argument-dependent lookup in type(library console).\n  --> test/Lowkey_Break_Tipjar_withdraw_reentrancy_2e26e0fc2b.t.sol:65:9:\n   |\n65 |         console2.log(\"SETUP_VALUE_WEI\", 10 ether);\n   |         ^^^^^^^^^^^^",
+  "generated_at": 1791023712.2771611,
+  "research_basis": {
+    "title": "Reentrancy / callback abuse",
+    "basis": "external calls, ETH transfer, token/NFT callbacks",
+    "priority": 1
+  },
+  "project_detection": {
+    "kind": "foundry",
+    "break_backend": "evm",
+    "languages": {
+      "solidity": 65
+    },
+    "stacks": [
+      "foundry"
+    ],
+    "language_features": []
+  }
+}

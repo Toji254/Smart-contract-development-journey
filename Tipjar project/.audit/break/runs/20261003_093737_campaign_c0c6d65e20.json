@@ -1,0 +1,30 @@
+{
+  "mode": "round-limited",
+  "rounds": 1,
+  "targets": [
+    {
+      "contract": "Tipjar",
+      "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "artifact": "/home/rogue/Smart-contract-development-journey/Tipjar project/out/Tipjar2.sol/Tipjar.json",
+      "source": "current target"
+    }
+  ],
+  "results": [
+    {
+      "family": "reentrancy",
+      "contract": "Tipjar",
+      "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "function": "withdraw(address,uint256)",
+      "status": "BLOCKED",
+      "summary": "Attack harness did not produce a usable execution result.",
+      "evidence_path": "/home/rogue/Smart-contract-development-journey/Tipjar project/.audit/break/runs/20261003_093737_experiment_Tipjar_withdraw_reentrancy_5f26d5feee.json",
+      "break_condition": false,
+      "detail": {
+        "raw_tail": "Error: Compiler run failed:\nError (9429): This looks like an address but has an invalid checksum. Correct checksummed address: \"0x5FbDB2315678afecb367f032d93F642f64180aa3\". If this is not used as an address, please prepend '00'. For more information please see https://docs.soliditylang.org/en/develop/types.html#address-literals\nSyntaxError: This looks like an address but has an invalid checksum. Correct checksummed address: \"0x5FbDB2315678afecb367f032d93F642f64180aa3\". If this is not used as an address, please prepend '00'. For more information please see https://docs.soliditylang.org/en/develop/types.html#address-literals\n  --> test/Lowkey_Break_Tipjar_withdraw_reentrancy_f7534bbd49.t.sol:48:47:\n   |\n48 |     address constant TARGET = address(uint160(0x5fbdb2315678afecb367f032d93f642f64180aa3));\n   |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+        "harness": "/home/rogue/Smart-contract-development-journey/Tipjar project/test/Lowkey_Break_Tipjar_withdraw_reentrancy_f7534bbd49.t.sol",
+        "forge_returncode": 1
+      }
+    }
+  ],
+  "started_at": 1791009457.0702708
+}

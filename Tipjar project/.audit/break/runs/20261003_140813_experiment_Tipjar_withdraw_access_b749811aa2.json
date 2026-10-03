@@ -1,0 +1,36 @@
+{
+  "family": "access",
+  "target": {
+    "contract": "Tipjar",
+    "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "artifact": "/home/rogue/Smart-contract-development-journey/Tipjar project/out/Tipjar2.sol/Tipjar.json",
+    "source": "current target"
+  },
+  "function": "withdraw(address,uint256)",
+  "values": [
+    "0x0000000000000000000000000000000000000000",
+    "0"
+  ],
+  "calldata": "f3fef3a300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "call_value": "0",
+  "forge_returncode": 0,
+  "harness": "/home/rogue/Smart-contract-development-journey/Tipjar project/test/Lowkey_Break_Tipjar_withdraw_access_714d37c891.t.sol",
+  "output_tail": "Compiling 23 files with Solc 0.8.26\nSolc 0.8.26 finished in 1.09s\nCompiler run successful!\n\nRan 1 test for test/Lowkey_Break_Tipjar_withdraw_access_714d37c891.t.sol:LowkeyBreakAccess\n[PASS] test_break_access() (gas: 42975)\nLogs:\n  LOWKEY_BREAK_FAMILY access\n  SUCCESS false\n  RETURNDATA_LENGTH 0\n  LOWKEY_BREAK false\n\nSuite result: ok. 1 passed; 0 failed; 0 skipped; finished in 16.44ms (2.60ms CPU time)\n\nRan 1 test suite in 32.03ms (16.44ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)",
+  "generated_at": 1791025693.899013,
+  "research_basis": {
+    "title": "Access-control bypass",
+    "basis": "privileged operations callable by an untrusted actor",
+    "priority": 3
+  },
+  "project_detection": {
+    "kind": "foundry",
+    "break_backend": "evm",
+    "languages": {
+      "solidity": 70
+    },
+    "stacks": [
+      "foundry"
+    ],
+    "language_features": []
+  }
+}

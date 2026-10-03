@@ -1,0 +1,36 @@
+{
+  "family": "reentrancy",
+  "target": {
+    "contract": "Tipjar",
+    "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "artifact": "/home/rogue/Smart-contract-development-journey/Tipjar project/out/Tipjar2.sol/Tipjar.json",
+    "source": "current target"
+  },
+  "function": "withdraw(address,uint256)",
+  "values": [
+    "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "1"
+  ],
+  "calldata": "f3fef3a300000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c80000000000000000000000000000000000000000000000000000000000000001",
+  "call_value": "0",
+  "forge_returncode": 1,
+  "harness": "/home/rogue/Smart-contract-development-journey/Tipjar project/test/Lowkey_Break_Tipjar_withdraw_reentrancy_92a2bdab7c.t.sol",
+  "output_tail": "Compiling 1 files with Solc 0.8.26\nSolc 0.8.26 finished in 1.01s\n\nError: Compiler run failed:\nError: Compiler error (/solidity/libsolidity/codegen/LValue.cpp:51):Stack too deep. Try compiling with `--via-ir` (cli) or the equivalent `viaIR: true` (standard JSON) while enabling the optimizer. Otherwise, try removing local variables.\n  --> test/Lowkey_Break_Tipjar_withdraw_reentrancy_92a2bdab7c.t.sol:96:70:\n   |\n96 |                 abi.encodeWithSignature(\"balances(address)\", address(hostile))\n   |                                                                      ^^^^^^^",
+  "generated_at": 1791024853.7358181,
+  "research_basis": {
+    "title": "Reentrancy / callback abuse",
+    "basis": "external calls, ETH transfer, token/NFT callbacks",
+    "priority": 1
+  },
+  "project_detection": {
+    "kind": "foundry",
+    "break_backend": "evm",
+    "languages": {
+      "solidity": 68
+    },
+    "stacks": [
+      "foundry"
+    ],
+    "language_features": []
+  }
+}

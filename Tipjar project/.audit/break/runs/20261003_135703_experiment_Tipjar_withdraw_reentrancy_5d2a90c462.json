@@ -1,0 +1,36 @@
+{
+  "family": "reentrancy",
+  "target": {
+    "contract": "Tipjar",
+    "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "artifact": "/home/rogue/Smart-contract-development-journey/Tipjar project/out/Tipjar2.sol/Tipjar.json",
+    "source": "current target"
+  },
+  "function": "withdraw(address,uint256)",
+  "values": [
+    "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "1"
+  ],
+  "calldata": "f3fef3a300000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c80000000000000000000000000000000000000000000000000000000000000001",
+  "call_value": "0",
+  "forge_returncode": 0,
+  "harness": "/home/rogue/Smart-contract-development-journey/Tipjar project/test/Lowkey_Break_Tipjar_withdraw_reentrancy_92a2bdab7c.t.sol",
+  "output_tail": "Compiling 23 files with Solc 0.8.26\nSolc 0.8.26 finished in 3.60s\nCompiler run successful!\n\nRan 1 test for test/Lowkey_Break_Tipjar_withdraw_reentrancy_92a2bdab7c.t.sol:LowkeyBreakReentrancy\n[PASS] test_break_reentrancy() (gas: 1119693)\nLogs:\n  SETUP_WRAPPER_SUCCESS true\n  SETUP_VALUE_WEI 10000000000000000000\n  ENTITLEMENT_SETUP_READ_OK true\n  ENTITLEMENT_AFTER_SETUP 10000000000000000000\n  LOWKEY_BREAK_FAMILY reentrancy\n  HOSTILE_WRAPPER_SUCCESS true\n  TARGET_SETUP_SUCCESS true\n  TARGET_SETUP_RETURNDATA_LENGTH 0\n  TARGET_BALANCE_BEFORE_FUNDING 0\n  TARGET_BALANCE_BEFORE_SETUP 10000000000000000000\n  TARGET_BALANCE_AFTER_SETUP 20000000000000000000\n  0x\n  TARGET_OUTER_SUCCESS false\n  TARGET_OUTER_RETURNDATA_LENGTH 0\n  0x\n  TARGET_CODE_LENGTH 2383\n  TARGET_BALANCE_AFTER_SETUP 20000000000000000000\n  REENTRY_ATTEMPTS 0\n  REENTRY_SUCCESSES 0\n  ATTACKER_WITHDRAW_RECEIVED 0\n  ENTITLEMENT_BEFORE_ATTACK 10000000000000000000\n  ENTITLEMENT_BEFORE_ATTACK_READ_OK true\n  ENTITLEMENT_AFTER_ATTACK 10000000000000000000\n  TARGET_LOSS 0\n  LOWKEY_BREAK false\n\nSuite result: ok. 1 passed; 0 failed; 0 skipped; finished in 17.72ms (3.88ms CPU time)\n\nRan 1 test suite in 33.67ms (17.72ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)",
+  "generated_at": 1791025023.306038,
+  "research_basis": {
+    "title": "Reentrancy / callback abuse",
+    "basis": "external calls, ETH transfer, token/NFT callbacks",
+    "priority": 1
+  },
+  "project_detection": {
+    "kind": "foundry",
+    "break_backend": "evm",
+    "languages": {
+      "solidity": 69
+    },
+    "stacks": [
+      "foundry"
+    ],
+    "language_features": []
+  }
+}

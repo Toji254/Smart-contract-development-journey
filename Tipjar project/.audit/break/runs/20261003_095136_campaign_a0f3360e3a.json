@@ -1,0 +1,30 @@
+{
+  "mode": "round-limited",
+  "rounds": 1,
+  "targets": [
+    {
+      "contract": "Tipjar",
+      "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "artifact": "/home/rogue/Smart-contract-development-journey/Tipjar project/out/Tipjar2.sol/Tipjar.json",
+      "source": "current target"
+    }
+  ],
+  "results": [
+    {
+      "family": "reentrancy",
+      "contract": "Tipjar",
+      "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "function": "withdraw(address,uint256)",
+      "status": "BLOCKED",
+      "summary": "Attack harness did not produce a usable execution result.",
+      "evidence_path": "/home/rogue/Smart-contract-development-journey/Tipjar project/.audit/break/runs/20261003_095136_experiment_Tipjar_withdraw_reentrancy_c65503b181.json",
+      "break_condition": false,
+      "detail": {
+        "raw_tail": "Error: Compiler run failed:\nError (6675): Member \"log\" not unique after argument-dependent lookup in type(library console).\n  --> test/Lowkey_Break_Tipjar_withdraw_reentrancy_2e26e0fc2b.t.sol:65:9:\n   |\n65 |         console2.log(\"SETUP_VALUE_WEI\", 10 ether);\n   |         ^^^^^^^^^^^^",
+        "harness": "/home/rogue/Smart-contract-development-journey/Tipjar project/test/Lowkey_Break_Tipjar_withdraw_reentrancy_2e26e0fc2b.t.sol",
+        "forge_returncode": 1
+      }
+    }
+  ],
+  "started_at": 1791010296.539506
+}

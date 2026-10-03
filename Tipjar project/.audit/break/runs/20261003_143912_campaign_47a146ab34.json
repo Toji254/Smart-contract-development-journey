@@ -1,0 +1,33 @@
+{
+  "mode": "round-limited",
+  "rounds": 1,
+  "targets": [
+    {
+      "contract": "Tipjar",
+      "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "artifact": "/home/rogue/Smart-contract-development-journey/Tipjar project/out/Tipjar2.sol/Tipjar.json",
+      "source": "current target"
+    }
+  ],
+  "results": [
+    {
+      "family": "accounting",
+      "contract": "Tipjar",
+      "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "function": "withdraw(address,uint256)",
+      "status": "OBSERVED",
+      "summary": "Target rejected the first withdraw attempt before value movement. OwnableUnauthorizedAccount(address) [selector 0x118cdaa7]",
+      "evidence_path": "/home/rogue/Smart-contract-development-journey/Tipjar project/.audit/break/runs/20261003_143912_experiment_Tipjar_withdraw_accounting_1629496b0e.json",
+      "break_condition": false,
+      "detail": {
+        "raw_tail": "No files changed, compilation skipped\n\nRan 1 test for test/Lowkey_Break_Tipjar_withdraw_accounting_4c2da0905a.t.sol:LowkeyBreakRepeat\n[PASS] test_break_repeat() (gas: 191038)\nLogs:\n  SETUP_SUCCESS true\n  SETUP_RETURNDATA_LENGTH 0\n  0x\n  0x\n  LOWKEY_BREAK_FAMILY accounting\n  FIRST_SUCCESS false\n  SECOND_SUCCESS false\n  FIRST_RETURNDATA_LENGTH 36\n  0x118cdaa7000000000000000000000000beef000000000000000000000000000000000042\n  SECOND_RETURNDATA_LENGTH 36\n  0x118cdaa7000000000000000000000000beef000000000000000000000000000000000042\n  TOTAL_ATTACKER_GAIN 0\n  TOTAL_TARGET_OUTFLOW 0\n  ENTITLEMENT_READ_OK true\n  ENTITLEMENT_BEFORE 10000000000000000000\n  ENTITLEMENT_AFTER_FIRST 10000000000000000000\n  ENTITLEMENT_AFTER_SECOND 10000000000000000000\n  LOWKEY_BREAK false\n\nSuite result: ok. 1 passed; 0 failed; 0 skipped; finished in 23.63ms (5.82ms CPU time)\n\nRan 1 test suite in 40.55ms (23.63ms CPU time): 1 tests passed, 0 failed, 0 skipped (1 total tests)",
+        "setup_revert": null,
+        "first_revert": "OwnableUnauthorizedAccount(address) [selector 0x118cdaa7]",
+        "second_revert": "OwnableUnauthorizedAccount(address) [selector 0x118cdaa7]",
+        "harness": "/home/rogue/Smart-contract-development-journey/Tipjar project/test/Lowkey_Break_Tipjar_withdraw_accounting_4c2da0905a.t.sol",
+        "forge_returncode": 0
+      }
+    }
+  ],
+  "started_at": 1791027552.8759115
+}

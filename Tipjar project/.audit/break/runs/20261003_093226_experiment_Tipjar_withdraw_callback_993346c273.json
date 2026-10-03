@@ -1,0 +1,36 @@
+{
+  "family": "callback",
+  "target": {
+    "contract": "Tipjar",
+    "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "artifact": "/home/rogue/Smart-contract-development-journey/Tipjar project/out/Tipjar2.sol/Tipjar.json",
+    "source": "current target"
+  },
+  "function": "withdraw(address,uint256)",
+  "values": [
+    "0x0000000000000000000000000000000000000000",
+    "0"
+  ],
+  "calldata": "f3fef3a300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "call_value": "0",
+  "forge_returncode": 1,
+  "harness": "/home/rogue/Smart-contract-development-journey/Tipjar project/test/Lowkey_Break_Tipjar_withdraw_callback_3480a4f700.t.sol",
+  "output_tail": "Error: Compiler run failed:\nError (9429): This looks like an address but has an invalid checksum. Correct checksummed address: \"0x5FbDB2315678afecb367f032d93F642f64180aa3\". If this is not used as an address, please prepend '00'. For more information please see https://docs.soliditylang.org/en/develop/types.html#address-literals\nSyntaxError: This looks like an address but has an invalid checksum. Correct checksummed address: \"0x5FbDB2315678afecb367f032d93F642f64180aa3\". If this is not used as an address, please prepend '00'. For more information please see https://docs.soliditylang.org/en/develop/types.html#address-literals\n --> test/Lowkey_Break_Tipjar_withdraw_callback_3480a4f700.t.sol:8:39:\n  |\n8 |     address constant TARGET = address(0x5fbdb2315678afecb367f032d93f642f64180aa3);\n  |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\nError (9429): This looks like an address but has an invalid checksum. Correct checksummed address: \"0xbEEF000000000000000000000000000000000042\". If this is not used as an address, please prepend '00'. For more information please see https://docs.soliditylang.org/en/develop/types.html#address-literals\nSyntaxError: This looks like an address but has an invalid checksum. Correct checksummed address: \"0xbEEF000000000000000000000000000000000042\". If this is not used as an address, please prepend '00'. For more information please see https://docs.soliditylang.org/en/develop/types.html#address-literals\n --> test/Lowkey_Break_Tipjar_withdraw_callback_3480a4f700.t.sol:9:41:\n  |\n9 |     address constant ATTACKER = address(0xBEEF000000000000000000000000000000000042);\n  |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+  "generated_at": 1791009146.0408251,
+  "research_basis": {
+    "title": "External callback / return-value abuse",
+    "basis": "arbitrary recipients, low-level calls and callback surfaces",
+    "priority": 8
+  },
+  "project_detection": {
+    "kind": "foundry",
+    "break_backend": "evm",
+    "languages": {
+      "solidity": 60
+    },
+    "stacks": [
+      "foundry"
+    ],
+    "language_features": []
+  }
+}

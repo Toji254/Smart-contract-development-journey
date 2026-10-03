@@ -1,0 +1,30 @@
+{
+  "mode": "round-limited",
+  "rounds": 1,
+  "targets": [
+    {
+      "contract": "Tipjar",
+      "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "artifact": "/home/rogue/Smart-contract-development-journey/Tipjar project/out/Tipjar2.sol/Tipjar.json",
+      "source": "current target"
+    }
+  ],
+  "results": [
+    {
+      "family": "reentrancy",
+      "contract": "Tipjar",
+      "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "function": "withdraw(address,uint256)",
+      "status": "BLOCKED",
+      "summary": "Forge produced no Lowkey telemetry. Last output: Compiling 1 files with Solc 0.8.26\nSolc 0.8.26 finished in 1.01s\n\nError: Compiler run failed:\nError: Compiler error (/solidity/libsolidity/codegen/LValue.cpp:51):Stack too deep. Try compiling with `--via-ir` (cli) or the equivalent `viaIR: true` (standard JSON) while enabling the optimizer. Otherwise, try removing local variables.\n  --> test/Lowkey_Break_Tipjar_withdraw_reentrancy_92a2bdab7c.t.sol:96:70:\n   |\n96 |                 abi.encodeWithSignature(\"balances(address)\", address(hostile))\n   |                                                                      ^^^^^^^",
+      "evidence_path": "/home/rogue/Smart-contract-development-journey/Tipjar project/.audit/break/runs/20261003_135413_experiment_Tipjar_withdraw_reentrancy_b26ce1b4e2.json",
+      "break_condition": false,
+      "detail": {
+        "raw_tail": "Compiling 1 files with Solc 0.8.26\nSolc 0.8.26 finished in 1.01s\n\nError: Compiler run failed:\nError: Compiler error (/solidity/libsolidity/codegen/LValue.cpp:51):Stack too deep. Try compiling with `--via-ir` (cli) or the equivalent `viaIR: true` (standard JSON) while enabling the optimizer. Otherwise, try removing local variables.\n  --> test/Lowkey_Break_Tipjar_withdraw_reentrancy_92a2bdab7c.t.sol:96:70:\n   |\n96 |                 abi.encodeWithSignature(\"balances(address)\", address(hostile))\n   |                                                                      ^^^^^^^",
+        "harness": "/home/rogue/Smart-contract-development-journey/Tipjar project/test/Lowkey_Break_Tipjar_withdraw_reentrancy_92a2bdab7c.t.sol",
+        "forge_returncode": 1
+      }
+    }
+  ],
+  "started_at": 1791024853.744496
+}

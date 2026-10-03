@@ -1,15 +1,55 @@
+note[event-fields]: event has unindexed fields that may benefit from being indexed: parameter #1 (address)
+  ╭▸ src/Tipjar2.sol:9:11
+  │
+9 │     event Withdraw(address, uint256);
+  │           ━━━━━━━━
+  │
+  ╰ help: https://getfoundry.sh/forge/linting/event-fields
+
 note[low-level-calls]: Low-level calls should be avoided
-   ╭▸ src/Tipjar2.sol:18:28
+   ╭▸ script/LowkeyPoC_Tipjar.s.sol:51:13
    │
-18 │         (bool success, ) = payable(to).call{value: amount}("");
+51 │             TARGET.call{value: 1 wei}(hex"d0e30db0");
+   │             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/low-level-calls
+
+note[low-level-calls]: Low-level calls should be avoided
+   ╭▸ src/Tipjar2.sol:22:28
+   │
+22 │         (bool success, ) = payable(to).call{value: amount}("");
    │                            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    │
    ╰ help: https://getfoundry.sh/forge/linting/low-level-calls
 
-warning[missing-zero-check]: address parameter is used in a state write or value transfer without a zero-address check
-   ╭▸ src/Tipjar2.sol:15:23
+note[custom-errors]: prefer using custom errors on revert and require calls
+   ╭▸ src/Tipjar2.sol:18:9
    │
-15 │     function withdraw(address to, uint256 amount) external onlyOwner {
-   │                       ━━━━━━━━━━
+18 │         require(amount <= address(this).balance, "put amount");
+   │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    │
-   ╰ help: https://getfoundry.sh/forge/linting/missing-zero-check
+   ╰ help: https://getfoundry.sh/forge/linting/custom-errors
+
+note[custom-errors]: prefer using custom errors on revert and require calls
+   ╭▸ src/Tipjar2.sol:19:9
+   │
+19 │         require(to != address(0), "zero address");
+   │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/custom-errors
+
+note[custom-errors]: prefer using custom errors on revert and require calls
+   ╭▸ src/Tipjar2.sol:28:9
+   │
+28 │         require(msg.value > 0, "hahaha");
+   │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/custom-errors
+
+warning[unused-return]: Return value of an external call is not used
+   ╭▸ script/LowkeyPoC_Tipjar.s.sol:38:9
+   │
+38 │         (, attacker, ) = vm.readCallers();
+   │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/unused-return

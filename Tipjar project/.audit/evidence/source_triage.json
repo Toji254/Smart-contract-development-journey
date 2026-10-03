@@ -1,6 +1,6 @@
 {
   "kind": "source_triage",
-  "recorded_at": "2026-10-03T07:02:11",
+  "recorded_at": "2026-10-03T08:44:27",
   "data": {
     "project": "foundry",
     "languages": [
@@ -11,7 +11,7 @@
     "markers": [
       {
         "file": "src/Tipjar2.sol",
-        "line": 18,
+        "line": 22,
         "language": "solidity",
         "label": "REENTRANCY REVIEW",
         "text": "(bool success, ) = payable(to).call{value: amount}(\"\");"

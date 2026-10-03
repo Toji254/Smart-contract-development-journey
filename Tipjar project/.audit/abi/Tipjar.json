@@ -2,6 +2,10 @@
   "contractName": "Tipjar",
   "abi": [
     {
+      "type": "receive",
+      "stateMutability": "payable"
+    },
+    {
       "type": "function",
       "name": "balances",
       "inputs": [
@@ -106,6 +110,25 @@
           "type": "address",
           "indexed": true,
           "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "Withdraw",
+      "inputs": [
+        {
+          "name": "",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        },
+        {
+          "name": "",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
         }
       ],
       "anonymous": false

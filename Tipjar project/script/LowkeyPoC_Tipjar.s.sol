@@ -14,8 +14,8 @@
 // Source scan  : not recorded review marker(s)
 // Risk map     : not recorded function row(s)
 // Trace        : not recorded
-// Latest tx    : 0xed41eb5a81296fe1f7426047d72ebefbd72efb7d1abd5205fa9e1db20609ba22
-// Open signals : 4
+// Latest tx    : 0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42
+// Open signals : 5
 // NOTE: this context is evidence for investigation, not proof that the detector is exploitable.
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
