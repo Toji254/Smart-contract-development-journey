@@ -1,143 +1,122 @@
 # BountyArena
 
-## Project Overview
+## What you are building
 
-**BountyArena** is a small on-chain bounty platform.
+BountyArena is the integration project in this repository.
 
-A user creates a bounty by depositing ETH into the smart contract and assigning a hunter to complete the task. The hunter claims the bounty, submits a solution, and waits for the bounty creator to approve it.
+~~~text
+Creator
+  │
+  │ create bounty + ETH
+  ▼
+BountyArena
+  │
+  │ hunter claims
+  ▼
+Hunter
+  │
+  │ submits solution
+  ▼
+Creator reviews
+  │
+  ├── approve ─────→ Hunter earns ETH
+  │
+  └── dispute ─────→ Owner resolves
+~~~
 
-When the creator approves the solution, the hunter earns the bounty. The hunter does not receive the ETH immediately; instead, the ETH is added to their withdrawable balance.
+The goal is to build this system from the requirements below, not from the existing implementation.
 
-The contract also includes a simple reputation system, allowing only hunters with enough reputation to claim bounties.
+## 0. Learning objective
 
-The project is intentionally small, but several Solidity concepts must be combined together rather than used independently.
+By the end, these should feel like one connected model:
 
----
+~~~text
+mapping
+   ↓
+struct
+   ↓
+array inside struct
+   ↓
+bytes32 ID
+   ↓
+address → bytes32[]
+   ↓
+enum state
+   ↓
+ETH accounting
+   ↓
+external contract call
+   ↓
+withdrawal
+~~~
 
-# 1. Main Participants
+The point is not to collect Solidity keywords. The point is to understand how the pieces interact.
 
-There are three important participants.
+## 1. Define the actors
 
-### Contract Owner
+### Creator
 
-The address that deploys the contract.
-
-The owner is responsible for:
-
-* controlling owner-only functionality
-* resolving disputed bounties
-* interacting with the reputation system where necessary
-
-Use OpenZeppelin's `Ownable` for ownership.
-
----
-
-### Bounty Creator
-
-The person who creates a bounty.
-
-A creator:
-
-1. Creates a bounty.
-2. Deposits ETH with the bounty.
-3. Specifies the hunter who is expected to complete it.
-4. Reviews the submitted solution.
-5. Approves the solution.
-6. Can cancel an open bounty.
-
----
+Creates and funds a bounty, reviews work, approves eligible work, cancels an eligible bounty, and may participate in disputes according to your rules.
 
 ### Hunter
 
-The person assigned to complete a bounty.
+Claims the bounty, submits a solution, earns a credited balance, and withdraws ETH.
 
-A hunter:
+### Contract owner
 
-1. Attempts to claim a bounty.
-2. Must satisfy the reputation requirement.
-3. Submits a solution.
-4. Receives the bounty when the creator approves the solution.
-5. Withdraws their earned ETH.
+Handles administrative actions such as dispute resolution. Use OpenZeppelin ownership rather than inventing a parallel owner system.
 
-A user can be both a creator and a hunter in different bounties.
+A single address may play different roles in different bounties.
 
----
+## 2. Draw the state machine first
 
-# 2. Bounty Lifecycle
+Core path:
 
-Every bounty follows a simple state machine.
-
-```text
-Open
+~~~text
+OPEN
   ↓
-Claimed
+CLAIMED
   ↓
-Submitted
+SUBMITTED
   ↓
-Completed
-```
+COMPLETED
+~~~
 
-There is also a cancellation path:
+Cancellation:
 
-```text
-Open
-  ↓
-Cancelled
-```
+~~~text
+OPEN → CANCELLED
+~~~
 
-And a dispute path:
+Dispute:
 
-```text
-Claimed / Submitted
-       ↓
-    Disputed
-       ↓
-    Resolved
-       ↓
-   Completed
-```
+~~~text
+CLAIMED / SUBMITTED
+        ↓
+     DISPUTED
+        ↓
+      owner
+        ↓
+     RESOLVED
+~~~
 
-You must decide the exact rules for which states can move into `Disputed`.
+Do not let a function change state just because the caller is authorized. The current state must also be valid.
 
----
+## 3. Design the Bounty struct
 
-# 3. Bounty Data Structure
+At minimum, a bounty needs to remember:
 
-Create a `Bounty` struct.
-
-It should contain the main information about a bounty.
-
-At minimum, include:
-
-* bounty creator
-* hunter
-* amount of ETH
-* title or description
-* submitted solution hash
-* current status
-
-### Required combination: Struct + Array
-
-Each bounty must also contain a small array of tags.
-
-For example:
-
-```text
-Solidity
-DeFi
-Audit
-Bug
-```
-
-Do **not** store these as one giant string.
-
-Use an array inside the struct.
-
-Use a suitable type such as `bytes32[]`.
+- creator;
+- hunter;
+- amount of ETH;
+- description;
+- submitted solution hash;
+- status;
+- tags.
 
 Conceptually:
 
-```text
+~~~text
 Bounty
 ├── creator
 ├── hunter
@@ -146,998 +125,634 @@ Bounty
 ├── solutionHash
 ├── status
 └── tags[]
-```
+~~~
 
-This is deliberate: you must practice working with an **array inside a struct**.
+## 4. Put tags inside the struct
 
-The tags should be supplied when the bounty is created.
-
----
-
-# 4. Bounty Storage
-
-Store every bounty using its `bytes32` ID.
-
-Conceptually:
-
-```text
-bytes32 ID
-     ↓
-Bounty struct
-     ↓
-creator
-hunter
-amount
-status
-tags[]
-...
-```
-
-This gives you:
-
-**mapping → struct → array**
-
-You should be comfortable navigating something conceptually like:
-
-```text
-bounties[id].tags
-```
-
-without treating the pieces as separate concepts.
-
----
-
-# 5. Creator Bounty History
-
-Maintain another data structure that records which bounties each creator has created.
-
-### Required combination: Mapping + Array
-
-Use a structure equivalent to:
-
-```text
-address → bytes32[]
-```
-
-Meaning:
-
-```text
-Creator address
-      ↓
-[ Bounty ID 1, Bounty ID 2, Bounty ID 3 ]
-```
-
-Whenever someone creates a bounty:
-
-1. Create the bounty ID.
-2. Store the bounty in the main mapping.
-3. Add the ID to the creator's bounty array.
-
-This gives you practice with:
-
-**mapping → dynamic array**
-
-Do not replace this with one global array.
-
-You need both:
-
-```text
-allBountyIds
-```
-
-and:
-
-```text
-creatorBountyIds[creator]
-```
-
----
-
-# 6. Hunter History
-
-You may also maintain a second history structure for hunters.
-
-For example:
-
-```text
-address → bytes32[]
-```
-
-containing bounties a hunter has claimed or completed.
-
-This is optional, but recommended because it makes you work with nested data structures more.
-
-Do not over-engineer this.
-
----
-
-# 7. Bounty IDs
-
-Every bounty must have a `bytes32` ID.
-
-The ID should be generated using `keccak256` from useful information about the bounty.
-
-Do not simply use:
-
-```text
-1
-2
-3
-4
-```
-
-Your ID-generation design should make collisions extremely unlikely.
-
-You should be able to explain why the values being hashed are sufficient for your design.
-
----
-
-# 8. Creating a Bounty
-
-A creator starts by calling the bounty creation function.
-
-The creator must send ETH with the transaction.
+Use a small array, such as a bytes32 array.
 
 Example:
 
-```text
-Creator
-   │
-   │ create bounty + ETH
-   ▼
-BountyArena
-```
+~~~text
+Solidity
+DeFi
+Audit
+~~~
 
-When the bounty is created:
+This is deliberate practice for:
 
-1. Verify that the deposited amount is greater than zero.
-2. Generate a unique `bytes32` bounty ID.
-3. Generate it using `keccak256`.
-4. Store the bounty in the main mapping.
-5. Store the supplied tags inside the bounty's `tags[]` array.
-6. Add the bounty ID to the global bounty ID array.
-7. Add the bounty ID to the creator's personal bounty array.
-8. Emit a `BountyCreated` event.
+~~~text
+mapping → struct → array
+~~~
 
-The bounty begins in:
+## 5. Store bounties in a mapping
 
-```text
-Open
-```
+Every bounty needs an identifier.
 
-This single function should therefore combine:
+Use a bytes32 ID and map it to the Bounty struct:
 
-```text
-payable function
-       ↓
-msg.sender
-       ↓
-msg.value
-       ↓
+~~~text
+bytes32 → Bounty
+~~~
+
+Ask:
+
+> What does bounties[id] mean, and what does bounties[id].tags mean?
+
+Do not treat the mapping, struct, and array as unrelated features.
+
+## 6. Track creator history
+
+Add a relationship of the form:
+
+~~~text
+address → bytes32[]
+~~~
+
+This lets you answer which bounties a creator created.
+
+Whenever a bounty is created:
+
+1. create the ID;
+2. store the bounty;
+3. add the ID to the global list;
+4. add the ID to the creator's list.
+
+## 7. Track all bounty IDs
+
+Keep a global bytes32 array.
+
+You now have:
+
+~~~text
+bytes32[] allBountyIds
+address → bytes32[] creatorBountyIds
+bytes32 → Bounty bounties
+~~~
+
+These are different views of the same underlying data.
+
+## 8. Optional hunter history
+
+After creator history works, you may add an address to bytes32 array for hunter history.
+
+Do not over-engineer this first.
+
+## 9. Generate bounty IDs
+
+Use keccak256 rather than a simple visible counter.
+
+The learning chain is:
+
+~~~text
+inputs
+   ↓
+ABI encoding
+   ↓
 keccak256
-       ↓
-bytes32
-       ↓
-struct
-       ↓
-array inside struct
-       ↓
-mapping
-       ↓
-mapping(address => bytes32[])
-       ↓
-global array
-       ↓
-event
-```
+   ↓
+bytes32 bounty ID
+~~~
 
-That combination is intentional.
+You should be able to explain why the hashed values are sufficient to distinguish bounties for your design.
 
----
+## 10. Understand ABI encoding
 
-# 9. Reputation System
+Before choosing between abi.encode and abi.encodePacked, understand how they represent the inputs and why packed representations can create ambiguity for some dynamic values.
 
-BountyArena interacts with an external reputation contract through an interface.
+The target is understanding the bytes being hashed, not memorising a preferred spelling.
 
-The purpose is simple:
+## 11. Create a bounty
 
-> A hunter must have a minimum reputation before claiming a bounty.
+The creator sends ETH with the creation transaction.
 
-BountyArena does not implement the reputation system itself.
+Conceptual flow:
 
-Instead:
+~~~text
+Creator
+  ↓
+validate
+  ↓
+msg.sender + msg.value
+  ↓
+generate bytes32 ID
+  ↓
+build Bounty
+  ↓
+store mapping entry
+  ↓
+copy tags
+  ↓
+append global ID
+  ↓
+append creator ID
+  ↓
+emit BountyCreated
+~~~
 
-```text
+The initial state is OPEN.
+
+## 12. Validate bounty creation
+
+Choose and document rules for zero ETH, zero-address hunter, creator equal to hunter, empty description, and empty tags.
+
+Not every field must be rejected. The important part is that your rules are intentional and tested.
+
+## 13. Build the reputation interface
+
+BountyArena should query an external reputation contract instead of implementing the reputation system itself.
+
+~~~text
 BountyArena
-     │
-     │ interface call
-     ▼
-Reputation Contract
-```
+    │
+    │ interface call
+    ▼
+Reputation contract
+~~~
 
-Create an interface exposing a function that returns a user's reputation.
+Create a small mock reputation contract for Foundry tests.
 
-For testing, create a small mock reputation contract.
+Pass the reputation contract address into the BountyArena constructor instead of hardcoding one deployment.
 
-The main contract should store the reputation contract's address.
+## 14. Claim a bounty
 
----
+Valid transition:
 
-# 10. Claiming a Bounty
-
-Once a bounty exists, the assigned hunter can claim it.
-
-The hunter must satisfy all required conditions.
+~~~text
+OPEN → CLAIMED
+~~~
 
 At minimum:
 
-1. The bounty must exist.
-2. The bounty must currently be `Open`.
-3. The caller must be the assigned hunter.
-4. The hunter must not be the bounty creator.
-5. The hunter must have enough reputation.
+1. bounty exists;
+2. state is OPEN;
+3. caller is the assigned hunter;
+4. hunter is not the creator;
+5. reputation is high enough.
 
-When successful:
+The reputation query is your first important cross-contract check.
 
-```text
-Open → Claimed
-```
+## 15. Test claiming
 
-Store the hunter where appropriate.
+Cover:
 
-Also update the hunter's bounty history if you implemented it.
+- correct hunter with enough reputation;
+- wrong caller;
+- creator trying to claim;
+- low reputation;
+- unknown bounty ID;
+- repeated claim;
+- wrong state.
 
-Emit:
-
-```text
-BountyClaimed
-```
-
-This gives you another combination:
-
-```text
-mapping
-    ↓
-struct
-    ↓
-enum state
-    ↓
-interface call
-    ↓
-msg.sender
-```
-
----
-
-# 11. Submitting a Solution
-
-After claiming a bounty, the hunter can submit a solution.
+## 16. Submit a solution
 
 Do not store the full solution on-chain.
 
-Instead, store a `bytes32` hash.
+Store a bytes32 solution hash.
 
-The hunter submits information that can be hashed.
+Flow:
 
-The contract:
+~~~text
+verify hunter
+   ↓
+verify CLAIMED
+   ↓
+hash submission data
+   ↓
+store solutionHash
+   ↓
+CLAIMED → SUBMITTED
+~~~
 
-1. Verifies the bounty exists.
-2. Verifies the caller is the hunter.
-3. Verifies the bounty is in the correct state.
-4. Creates the solution hash using `keccak256`.
-5. Stores the resulting hash in the bounty.
-6. Changes the bounty status.
+Think carefully about what exactly is included in the hash.
 
-State transition:
+## 17. Test submission
 
-```text
-Claimed → Submitted
-```
+Prove the hunter can submit, a non-hunter cannot, submission before claiming fails, wrong-state submission fails, and the hash is stored correctly.
 
-Emit:
+Decide whether resubmission is allowed. Encode that decision in the state machine and tests.
 
-```text
-SolutionSubmitted
-```
+## 18. Approve a bounty
 
-You must decide whether to use:
-
-```solidity
-abi.encode(...)
-```
-
-or:
-
-```solidity
-abi.encodePacked(...)
-```
-
-and be able to explain your decision afterward.
-
----
-
-# 12. Approving the Solution
-
-The bounty creator reviews the submitted work.
-
-Only the creator of that bounty can approve it.
+Only the creator may approve a submitted bounty.
 
 Before approval:
 
-* the bounty must exist
-* caller must be the creator
-* bounty must be in the correct state
-* a solution must have been submitted
+~~~text
+bounty exists
+caller == creator
+status == SUBMITTED
+~~~
 
-When approved:
+Then:
 
-```text
-Submitted → Completed
-```
+~~~text
+SUBMITTED → COMPLETED
+~~~
 
-The hunter does not receive ETH directly.
+Do not immediately push ETH to the hunter in the core design. Credit a withdrawable balance instead.
 
-Instead, the bounty amount is added to their withdrawable balance.
+## 19. Build withdrawable ETH accounting
 
-Conceptually:
+Use:
 
-```text
-hunterBalances[hunter]
-        +
-     bounty.amount
-```
-
-Emit:
-
-```text
-BountyCompleted
-```
-
----
-
-# 13. Hunter Withdrawals
-
-Hunters can withdraw their earned ETH.
-
-Maintain a balance mapping equivalent to:
-
-```text
+~~~text
 address → uint256
-```
+~~~
 
-When a hunter withdraws:
+This is entitlement accounting, not separate physical piles of ETH.
 
-1. Check that their balance is greater than zero.
-2. Store the amount to withdraw.
-3. Set their stored balance to zero.
-4. Perform the external ETH transfer.
-5. Verify that the transfer succeeded.
-6. Emit a withdrawal event.
+Physical ETH is held by:
 
-Use low-level:
+~~~text
+address(this).balance
+~~~
 
-```solidity
-call
-```
+That distinction is central to the project.
 
-for the ETH transfer.
+## 20. Withdraw safely
 
-Clear the balance before the external call.
+Conceptual order:
 
-This gives you practice with:
-
-```text
-mapping
+~~~text
+check balance
    ↓
-value retrieval
+read amount
    ↓
-state update
+set stored balance to zero
    ↓
-external call
-```
+external ETH transfer
+   ↓
+verify success
+   ↓
+emit event
+~~~
 
----
+Clearing the balance before the external call is deliberate.
 
-# 14. Cancelling a Bounty
+Ask what a contract recipient could do during the transfer.
 
-A creator can cancel a bounty while it is in an allowed state.
+## 21. Test withdrawal
 
-At minimum, an `Open` bounty should be cancellable.
+Cover:
 
-When cancelled:
+- user can withdraw;
+- stored balance becomes zero;
+- recipient receives the correct amount;
+- second withdrawal cannot repeat the payout;
+- zero balance fails;
+- failed transfer is handled.
 
-```text
-Open → Cancelled
-```
+## 22. Cancellation
 
-The bounty's ETH should become withdrawable by the creator.
+Basic path:
 
-Do not immediately send ETH from the cancellation function.
+~~~text
+OPEN → CANCELLED
+~~~
 
-Instead, credit the creator's withdrawable balance.
+Only the creator can use the basic cancellation path.
 
-Emit:
+Credit the creator's withdrawable balance rather than immediately pushing ETH.
 
-```text
-BountyCancelled
-```
+Test that the same bounty cannot be credited twice.
 
-Think carefully about whether the bounty amount can accidentally be credited more than once.
+## 23. Disputes
 
----
+Only after the core create → claim → submit → complete flow is correct.
 
-# 15. Disputes
+Possible path:
 
-A dispute allows a bounty to be escalated when the parties disagree.
-
-A valid dispute changes the bounty to:
-
-```text
-Disputed
-```
-
-Only the participants you consider appropriate should be able to open a dispute.
-
-The owner resolves the dispute.
-
-The owner chooses whether the bounty goes to:
-
-```text
-Creator
-```
-
-or:
-
-```text
-Hunter
-```
-
-The chosen party receives an amount in their withdrawable balance.
-
-The bounty becomes completed/resolved according to your design.
-
-Emit:
-
-```text
-BountyResolved
-```
-
-Your implementation must prevent a dispute from being resolved more than once.
-
----
-
-# 16. Owner and Inheritance
-
-Use OpenZeppelin's `Ownable`.
-
-Do not write your own owner variable and `onlyOwner` implementation.
-
-Your contract should inherit from the OpenZeppelin ownership contract.
-
-Conceptually:
-
-```text
-OpenZeppelin Ownable
+~~~text
+CLAIMED / SUBMITTED
         ↓
-   BountyArena
-```
+DISPUTED
+        ↓
+RESOLVED
+~~~
 
-Use ownership for administrative actions such as dispute resolution.
+You must explicitly define:
 
-This gives you practice with:
+- who may open a dispute;
+- which states can be disputed;
+- who may resolve;
+- how the winner is chosen;
+- what happens to the bounty funds;
+- how double resolution is prevented.
 
-```text
+## 24. Ownership and inheritance
+
+Use OpenZeppelin Ownable.
+
+The learning chain is:
+
+~~~text
 import
-   ↓
+  ↓
 inheritance
-   ↓
-inherited modifier
-   ↓
-owner-controlled function
-```
+  ↓
+inherited owner state
+  ↓
+onlyOwner
+  ↓
+admin action
+~~~
 
----
+Understand what the inherited contract provides instead of treating onlyOwner as magic.
 
-# 17. Constructor
+## 25. Constructor dependencies
 
-The constructor should initialize the inherited ownership system and the reputation contract address.
+Initialize ownership and store the reputation contract address.
 
-Think about why the reputation contract address should be supplied when deploying instead of hardcoded into your contract.
+Ask which addresses belong in deployment configuration instead of being permanently hardcoded.
 
----
+## 26. receive() and fallback()
 
-# 18. Direct ETH Transfers
+Only after normal bounty creation is working, decide what direct ETH transfers should do.
 
-Implement both:
+An unsolicited transfer is not automatically a bounty.
 
-```text
-receive()
-fallback()
-```
+Your accounting must distinguish:
 
-Decide what should happen when ETH is sent directly to the contract without creating a bounty.
+~~~text
+ETH physically held
+        ≠
+ETH already attributed to a specific bounty liability
+~~~
 
-Your accounting system should not accidentally treat random ETH as belonging to a particular bounty.
+## 27. Meaningful internal helper
 
-After implementing this, you should understand the difference between:
+Create at least one useful internal function, such as shared balance-crediting logic.
 
-```text
-ETH physically held by the contract
-```
+Do not create a helper only to tick a Solidity feature box.
 
-and:
+## 28. Events
 
-```text
-ETH accounted for in individual balances
-```
+Think about events for:
 
----
+- BountyCreated;
+- BountyClaimed;
+- SolutionSubmitted;
+- BountyCompleted;
+- BountyCancelled;
+- BountyDisputed;
+- BountyResolved;
+- Withdrawal.
 
-# 19. Internal Function
+Choose indexed fields where they make sense.
 
-Create at least one meaningful `internal` function.
+## 29. Custom errors
 
-For example, you may have reusable internal logic for crediting a user's balance after a bounty outcome.
+Use custom errors for important failure conditions such as unknown bounty, invalid state, unauthorized caller, insufficient reputation, zero withdrawal balance, failed ETH transfer, or invalid resolution.
 
-Do not create an internal function simply to satisfy the requirement.
+Choose names and parameters that communicate the failure.
 
----
+## 30. Minimum complete data model
 
-# 20. Events
-
-Emit events whenever important state changes happen.
-
-At minimum:
-
-```text
-BountyCreated
-BountyClaimed
-SolutionSubmitted
-BountyCompleted
-BountyCancelled
-BountyDisputed
-BountyResolved
-Withdrawal
-```
-
-Use `indexed` parameters where appropriate.
-
----
-
-# 21. Custom Errors
-
-Use custom errors for important failure conditions.
-
-The contract should clearly reject situations such as:
-
-* zero-value bounty
-* nonexistent bounty
-* invalid status
-* unauthorized caller
-* insufficient reputation
-* invalid hunter
-* no withdrawal balance
-* failed ETH transfer
-
-Choose your own error names and parameters.
-
----
-
-# 22. Required Data Structures
-
-Your implementation should contain all of these:
-
-### Main bounty mapping
-
-```text
+~~~text
 bytes32 → Bounty
-```
-
-### Balance mapping
-
-```text
 address → uint256
-```
-
-### Creator history mapping
-
-```text
 address → bytes32[]
-```
-
-### Global bounty array
-
-```text
 bytes32[]
-```
+Bounty.tags → bytes32[]
+~~~
 
-### Array inside the Bounty struct
+Read this as one connected model, not a checklist.
 
-```text
-bytes32[] tags
-```
+## 31. Minimum success flow
 
-So your data model should contain these relationships:
-
-```text
-mapping
-   ↓
-Bounty struct
-   ↓
-tags array
-```
-
-and:
-
-```text
-mapping(address => bytes32[])
-          ↓
-    creator's bounties
-```
-
-and:
-
-```text
-global array
-      ↓
-all bounty IDs
-```
-
-This is one of the main learning objectives of the project.
-
----
-
-# 23. Required Solidity Features
-
-The finished project should demonstrate:
-
-* structs
-* mappings
-* nested mappings/arrays where appropriate
-* arrays
-* arrays inside structs
-* enum
-* events
-* modifiers
-* custom errors
-* constructors
-* immutable variables where appropriate
-* payable functions
-* `msg.sender`
-* `msg.value`
-* `address(this)`
-* `address(this).balance`
-* `keccak256`
-* `abi.encode` or `abi.encodePacked`
-* internal functions
-* interfaces
-* imports
-* inheritance
-* external contract calls
-* `receive`
-* `fallback`
-* low-level `call`
-
----
-
-# 24. Example User Flow
-
-## Successful bounty
-
-```text
+~~~text
 1. Deploy MockReputation.
+2. Give hunter enough reputation.
+3. Deploy BountyArena with reputation address.
+4. Creator creates funded bounty.
+5. Tags are stored.
+6. Bounty receives bytes32 ID.
+7. ID enters main mapping.
+8. ID enters global array.
+9. ID enters creator history.
+10. Hunter claims.
+11. Reputation is checked.
+12. Hunter submits solution.
+13. Creator approves.
+14. Hunter balance is credited.
+15. Hunter withdraws.
+~~~
 
-2. Give Hunter enough reputation.
+Do this before adding disputes or other advanced features.
 
-3. Deploy BountyArena with the reputation contract address.
+## 32. Cancellation flow
 
-4. Creator creates a bounty and deposits ETH.
+~~~text
+Creator creates
+      ↓
+OPEN
+      ↓
+Creator cancels
+      ↓
+CANCELLED
+      ↓
+Creator withdrawable credit
+      ↓
+Creator withdraws
+~~~
 
-5. Creator supplies several tags.
+Prove the credit cannot happen twice.
 
-6. Contract creates a bytes32 bounty ID.
+## 33. Dispute flow
 
-7. ID is stored in the main bounty mapping.
+~~~text
+create
+  ↓
+claim
+  ↓
+submit
+  ↓
+dispute
+  ↓
+owner resolves
+  ↓
+winner gets credit
+  ↓
+winner withdraws
+~~~
 
-8. ID is added to the global bounty array.
+## 34. Foundry test plan
 
-9. ID is added to the creator's personal bounty array.
-
-10. Hunter claims the bounty.
-
-11. Hunter submits a solution.
-
-12. Creator approves the solution.
-
-13. Hunter's withdrawable balance increases.
-
-14. Hunter withdraws the ETH.
-```
-
----
-
-# 25. Example Cancellation Flow
-
-```text
-1. Creator creates bounty.
-
-2. Bounty remains Open.
-
-3. Creator cancels it.
-
-4. Bounty becomes Cancelled.
-
-5. Creator's withdrawable balance increases.
-
-6. Creator withdraws the ETH.
-```
-
----
-
-# 26. Example Dispute Flow
-
-```text
-1. Creator creates bounty.
-
-2. Hunter claims bounty.
-
-3. A valid participant opens a dispute.
-
-4. Bounty becomes Disputed.
-
-5. Owner resolves the dispute.
-
-6. Owner chooses Creator or Hunter.
-
-7. Chosen party receives a withdrawable balance.
-
-8. Chosen party withdraws the ETH.
-```
-
----
-
-# 27. What the Contract Must Prevent
-
-The contract should reject situations such as:
-
-```text
-A random user claiming someone else's bounty.
-
-A hunter with insufficient reputation claiming a bounty.
-
-A hunter submitting before claiming.
-
-A creator approving before a submission exists.
-
-A creator cancelling a completed bounty.
-
-A bounty being completed twice.
-
-A bounty being cancelled twice.
-
-A hunter withdrawing the same balance twice.
-
-A dispute being resolved twice.
-
-A non-owner resolving a dispute.
-
-A user withdrawing with a zero balance.
-
-A bounty's funds being credited twice.
-
-A bounty being given to the wrong user.
-
-Invalid state transitions.
-
-Creating a bounty with zero ETH.
-
-Sending more ETH than the contract can actually pay.
-```
-
----
-
-# 28. Foundry Tests
-
-Write tests for the main system behavior.
-
-At minimum test:
+Write tests as you build, not only at the end.
 
 ### Creation
 
-* bounty is created
-* amount is correct
-* creator is correct
-* tags are stored
-* ID is generated
-* ID is added to the global array
-* ID is added to the creator's array
-* event is emitted
+- [ ] bounty exists;
+- [ ] creator, hunter, amount are correct;
+- [ ] tags are stored;
+- [ ] ID is generated;
+- [ ] ID is stored globally and for the creator;
+- [ ] event is emitted.
 
 ### Claiming
 
-* correct hunter can claim
-* wrong user cannot claim
-* insufficient reputation cannot claim
-* bounty cannot be claimed twice
-* creator cannot claim their own bounty
+- [ ] correct hunter can claim;
+- [ ] wrong user cannot;
+- [ ] creator cannot claim own bounty;
+- [ ] low reputation fails;
+- [ ] double claim fails.
 
 ### Submission
 
-* hunter can submit
-* non-hunter cannot submit
-* submission cannot happen in the wrong state
-* solution hash is stored
+- [ ] hunter can submit;
+- [ ] non-hunter cannot;
+- [ ] wrong state fails;
+- [ ] solution hash is stored.
 
 ### Completion
 
-* creator can approve
-* non-creator cannot approve
-* correct hunter receives the balance
-* bounty cannot be completed twice
+- [ ] creator can approve;
+- [ ] non-creator cannot;
+- [ ] hunter gets exactly one correct credit;
+- [ ] completion cannot happen twice.
 
 ### Cancellation
 
-* creator can cancel when allowed
-* unauthorized user cannot cancel
-* correct user receives the balance
-* cancelled bounty cannot be processed again
+- [ ] creator can cancel when allowed;
+- [ ] unauthorized caller fails;
+- [ ] terminal bounty cannot cancel;
+- [ ] creator gets exactly one credit.
 
 ### Withdrawal
 
-* user can withdraw
-* balance becomes zero
-* correct ETH amount is sent
-* withdrawal event is emitted
-* failed transfer is handled
+- [ ] balance is paid correctly;
+- [ ] balance becomes zero;
+- [ ] second withdrawal fails;
+- [ ] failed transfer is handled.
 
 ### Disputes
 
-* valid participant can dispute
-* invalid participant cannot dispute
-* only owner can resolve
-* correct party receives funds
-* dispute cannot be resolved twice
+- [ ] valid participant can dispute;
+- [ ] invalid participant cannot;
+- [ ] only owner resolves;
+- [ ] correct party gets credit;
+- [ ] resolution cannot happen twice.
 
-### Reputation
+## 35. Manual Anvil walkthrough
 
-* insufficient reputation blocks claiming
-* sufficient reputation allows claiming
+Use at least these local actors:
 
----
+~~~text
+owner
+creator
+hunter
+attacker
+~~~
 
-# 29. Final Architecture Goal
+Observe bounty data, status, tags, history arrays, withdrawable balances, and the actual contract ETH balance.
 
-Your final contract should roughly have this conceptual structure:
+Then attack the system with wrong callers, early actions, double actions, bad reputation, and failed ETH transfers.
 
-```text
-                    BountyArena
-                         │
-          ┌──────────────┼──────────────┐
-          │              │              │
-       Ownable      Reputation       Bounty Data
-          │           Interface          │
-          │                              │
-      onlyOwner                    bytes32 → Bounty
-                                         │
-                           ┌─────────────┼─────────────┐
-                           │             │             │
-                        creator       hunter        tags[]
-                        amount        status
-                        solutionHash
-```
+## 36. Security questions
 
-And separately:
+### Authorization
 
-```text
-creator address
-      ↓
-bytes32[]
-      ↓
-creator's bounty IDs
-```
+Who can call this? Who should be able to call this?
 
-and:
+### State
 
-```text
-user address
-      ↓
-uint256
-      ↓
-withdrawable ETH
-```
+What exact state must exist first? Can the action happen twice?
 
-and:
+### Accounting
 
-```text
-bytes32[]
-      ↓
-all bounty IDs
-```
+Where is ETH physically stored? What storage says someone is entitled to it? Can the entitlement be credited twice?
 
-The important part is that these structures must **work together**.
+### External calls
 
-You shouldn't finish the project thinking:
+What contracts are called? What happens when they revert or behave unexpectedly?
 
-> "I used a mapping. I used an array. I used a struct."
+### Hashing
 
-You should be thinking:
+Exactly which bytes are hashed? Could different inputs encode ambiguously?
 
-> "My mapping stores structs, those structs contain arrays, another mapping stores arrays of IDs, and those IDs point back to the structs."
+### Data relationships
 
-That is the skill this project is testing.
+Does every ID point to the intended bounty? Can history drift away from the main mapping?
 
----
+## 37. Break the protocol
 
-# 30. Timebox
+Try:
 
-### 0–5 minutes
-
-Design the architecture.
-
-### 5–40 minutes
-
-Write the contract.
-
-### 40–55 minutes
-
-Write Foundry tests.
-
-### 55–60 minutes
-
-Try to break it.
-
-Test things like:
-
-```text
+~~~text
+unknown ID
+zero-value bounty
+wrong caller
+creator claims own bounty
+low reputation
 claim twice
 submit too early
+submit twice
+approve too early
 complete twice
+cancel after claim
 cancel after completion
-dispute invalid bounty
-resolve twice
+cancel twice
 withdraw twice
-wrong caller
-zero ETH
-bad reputation
-fake bounty ID
-```
+resolve twice
+non-owner resolution
+failed ETH transfer
+unexpected direct ETH
+~~~
 
----
+Then look for higher-level invariants.
 
-# Final Objective
+For example:
 
-Build BountyArena so that someone can:
+> A bounty's committed ETH must never be credited to two different users through two different terminal paths.
 
-> Create a funded bounty → assign/claim a hunter → verify reputation → store tags → submit a hashed solution → approve or dispute the bounty → account for the ETH → withdraw the funds.
+## 38. Historical comparison
 
-The project should be small enough to finish in about an hour, but interconnected enough that you have to actively think about:
+Only after your rebuild is complete, inspect the existing implementation.
 
-```text
-structs
-   +
-mappings
-   +
-arrays
-   +
-enums
-   +
-modifiers
-   +
-events
-   +
-errors
-   +
-hashing
-   +
-interfaces
-   +
-inheritance
-   +
-ETH accounting
-   +
-external calls
-   +
-state machines
-```
+Compare the struct, mappings, arrays, ID generation, hashing, reputation interface, state transitions, ETH accounting, withdrawals, events, errors, and direct ETH handling.
 
-**Do not copy the implementation from another project. Design it from this specification and write it yourself.**
+Do not just ask what is different. Ask what your earlier misunderstanding was and whether you would make the same design mistake now.
+
+## Final architecture
+
+~~~text
+                         BountyArena
+                              │
+             ┌────────────────┼────────────────┐
+             │                │                │
+          Ownable        Reputation        Bounty data
+             │            interface            │
+             │                │                ▼
+        onlyOwner             │          bytes32 → Bounty
+             │                │                │
+             │                │        ┌───────┼───────┐
+             │                │        │       │       │
+             │                │     creator  hunter  tags[]
+             │                │     amount   status
+             │                │     solutionHash
+             │                │
+             │                ▼
+             │          external call
+             │
+             ▼
+      dispute resolution
+
+user address → uint256
+       ↓
+withdrawable ETH
+
+address → bytes32[]
+       ↓
+creator bounty history
+
+bytes32[]
+   ↓
+global bounty IDs
+~~~
+
+## Final objective
+
+The finished system should let a user create a funded bounty, identify it by a bytes32 ID, store it in connected data structures, verify reputation, move through explicit states, store a hashed solution, approve or dispute the bounty, credit the correct party, and withdraw ETH safely.
+
+The project is successful when you can explain not only what each component does, but why the components have to work together in that order.
