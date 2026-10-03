@@ -1,66 +1,211 @@
-## Foundry
+# ETH Escrow
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+This project is a small ETH escrow contract and the first project in this repository that should be treated as a serious **state-machine + security** exercise.
 
-Foundry consists of:
+The original project brief is preserved in:
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+`## 🥊 Solidity Weekly Challenge #1 — ETH.md`
 
-## Documentation
+---
 
-https://book.getfoundry.sh/
+## 1. What this contract is supposed to do
 
-## Usage
+Two parties agree to an ETH payment:
 
-### Build
+- **Creator** deposits ETH.
+- **Recipient** accepts the escrow.
+- **Creator** releases the payment.
+- **Recipient** receives the ETH.
 
-```shell
-$ forge build
+The contract acts as the middleman.
+
+Conceptually:
+
+```
+Creator
+  |
+  | deposit ETH
+  v
+Escrow contract
+  |
+  | recipient accepts
+  v
+ACCEPTED
+  |
+  | creator releases
+  v
+Recipient
 ```
 
-### Test
+A real implementation also needs a cancellation path.
 
-```shell
-$ forge test
+---
+
+## 2. Required behavior
+
+### Create
+
+A creator creates an escrow while sending ETH.
+
+The escrow should store at least:
+
+- creator;
+- recipient;
+- amount;
+- status;
+- unique identifier.
+
+A valid implementation should prevent obviously invalid setup, such as invalid participants or a mismatch between the intended amount and the ETH actually deposited.
+
+### Accept
+
+Only the intended recipient may accept.
+
+Expected transition:
+
+```
+CREATED -> ACCEPTED
 ```
 
-### Format
+### Release
 
-```shell
-$ forge fmt
+Only the creator may release.
+
+Release must only be possible after acceptance.
+
+Expected transition:
+
+```
+ACCEPTED -> RELEASED
 ```
 
-### Gas Snapshots
+The escrowed ETH should be sent to the recipient exactly once.
 
-```shell
-$ forge snapshot
-```
+### Cancel
 
-### Anvil
+Define explicit cancellation rules.
 
-```shell
-$ anvil
-```
+At minimum decide:
 
-### Deploy
+- who may cancel;
+- from which states;
+- whether the recipient/creator gets the funds;
+- what the resulting state is.
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
+### Events
 
-### Cast
+Emit useful events for:
 
-```shell
-$ cast <subcommand>
-```
+- creation;
+- acceptance;
+- release;
+- cancellation.
 
-### Help
+---
 
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+## 3. Historical implementation: what to notice
+
+The current source file is intentionally kept as historical material.
+
+It contains several important learning clues:
+
+- `escrow[1]` is hard-coded, so there is effectively only one escrow slot;
+- a function parameter named `amount` is modified locally but the stored amount comes from `msg.value`;
+- `balances[msg.sender]` is updated without being part of a coherent escrow accounting model;
+- rejection attempts to mutate state and then reverts;
+- release does not verify that the escrow was accepted;
+- release does not mark the escrow as released;
+- repeated releases are not explicitly blocked;
+- cancellation is missing;
+- input validation is incomplete;
+- there is almost no automated test coverage.
+
+Do not patch these one by one first.
+
+**Rebuild from the brief.**
+
+That forces the state machine and accounting model to come from the requirements rather than from the old code.
+
+---
+
+## 4. What I should understand after rebuilding
+
+I should be able to explain:
+
+- why the contract is payable;
+- where the ETH actually lives;
+- why `msg.value` is not the same thing as the contract balance;
+- how the escrow is identified;
+- how the enum/state machine works;
+- why caller checks matter;
+- why state transitions must be explicit;
+- why an ETH transfer should be handled carefully;
+- why a successful transfer is not enough by itself;
+- how tests prove both valid and invalid behavior.
+
+---
+
+## 5. Minimum test matrix
+
+### Creation
+
+- [ ] valid creation succeeds;
+- [ ] ETH arrives at the contract;
+- [ ] creator/recipient/amount/status are recorded;
+- [ ] invalid participants revert;
+- [ ] invalid deposit conditions revert.
+
+### Acceptance
+
+- [ ] recipient can accept;
+- [ ] unrelated caller cannot accept;
+- [ ] creator cannot impersonate recipient;
+- [ ] acceptance changes status exactly once.
+
+### Release
+
+- [ ] creator cannot release before acceptance;
+- [ ] recipient cannot release;
+- [ ] unrelated caller cannot release;
+- [ ] creator can release after acceptance;
+- [ ] recipient receives the exact escrow amount;
+- [ ] status becomes released;
+- [ ] second release reverts.
+
+### Cancellation
+
+- [ ] cancellation follows the chosen rules;
+- [ ] released escrow cannot be cancelled;
+- [ ] already cancelled escrow cannot be cancelled again;
+- [ ] funds return to the intended party.
+
+### Events
+
+- [ ] creation event;
+- [ ] acceptance event;
+- [ ] release event;
+- [ ] cancellation event.
+
+---
+
+## 6. Stretch goals
+
+After the core version works:
+
+- deadline/expiry;
+- multiple escrows per user;
+- escrow discovery/query helpers;
+- dispute resolution;
+- reputation/history.
+
+Do these only after the basic state machine is boringly correct.
+
+---
+
+## 7. Rebuild rule
+
+Before opening the old `src/EthEscrow.sol`, create a fresh implementation from this README and the original challenge.
+
+Use the old implementation afterward as a comparison point.
+
+That comparison is the actual learning exercise.
