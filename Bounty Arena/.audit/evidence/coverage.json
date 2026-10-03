@@ -1,0 +1,13 @@
+{
+  "kind": "coverage",
+  "recorded_at": "2026-09-27T05:11:42",
+  "data": {
+    "command": [
+      "forge",
+      "coverage"
+    ],
+    "exit_code": 0,
+    "stdout": "Compiling 3 files with Solc 0.8.26\nSolc 0.8.26 finished in 58.38ms\nCompiler run successful!\nAnalysing contracts...\nRunning tests...\n\n\u256d---------------------+-------------+--------------+-------------+-------------\u256e\n| File                | % Lines     | % Statements | % Branches  | % Funcs     |\n+==============================================================================+\n| src/BountyArena.sol | 0.00% (0/9) | 0.00% (0/8)  | 0.00% (0/8) | 0.00% (0/2) |\n|---------------------+-------------+--------------+-------------+-------------|\n| Total               | 0.00% (0/9) | 0.00% (0/8)  | 0.00% (0/8) | 0.00% (0/2) |\n\u2570---------------------+-------------+--------------+-------------+-------------\u256f\n",
+    "stderr": "Warning: optimizer settings and `viaIR` have been disabled for accurate coverage reports.\nIf you encounter \"stack too deep\" errors, consider using `--ir-minimum` which enables `viaIR` with minimum optimization resolving most of the errors.\nSee more: https://book.getfoundry.sh/guides/best-practices/stack-too-deep\nWarning: No tests found in project! Forge looks for functions that start with `test`\n"
+  }
+}

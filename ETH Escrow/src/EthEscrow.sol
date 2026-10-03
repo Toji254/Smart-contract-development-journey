@@ -10,7 +10,7 @@ contract Escrow {
     mapping(address => uint256 amount) public balances;
     mapping(uint256 value => Create Escrow) public escrow;
 
-    enum status {
+    enum STATUS {
         waiting,
         funded,
         rejected,
@@ -21,7 +21,7 @@ contract Escrow {
         address creator;
         address recipient;
         uint256 amount;
-        status currentstatus;
+        STATUS currentstatus;
     }
 
     //modifier onlyrecipient(){
@@ -35,9 +35,13 @@ contract Escrow {
             creator: msg.sender,
             recipient: recipient,
             amount: msg.value,
-            currentstatus: status.waiting
+            currentstatus: STATUS.waiting
         });
         emit CreateEscrow(msg.value, msg.sender);
+    }
+
+    function getBalance(address user) external view returns (uint256) {
+        return balances[user];
     }
 
     function acceptescrow(bool accept) external {
@@ -45,16 +49,17 @@ contract Escrow {
             revert();
         }
         if (!accept) {
-            escrow[1].currentstatus = status.rejected;
+            escrow[1].currentstatus = STATUS.rejected;
         }
         require(accept, "rejected");
-         if (accept) {
-            escrow[1].currentstatus = status.funded;
+        if (accept) {
+            escrow[1].currentstatus = STATUS.funded;
         }
         //require(escrow[1].recipient != msg.sender, "not recipient");
     }
 
     function release() external {
+        require(escrow[1].currentstatus == STATUS.funded, "not accepted");
         require(escrow[1].creator == msg.sender, "not creator");
         (bool success, ) = payable(escrow[1].recipient).call{
             value: escrow[1].amount

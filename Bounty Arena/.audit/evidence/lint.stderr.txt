@@ -1,0 +1,86 @@
+note[custom-errors]: prefer using custom errors on revert and require calls
+   ╭▸ src/BountyArena.sol:26:9
+   │
+26 │         require(amount >= 0,"topup");
+   │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/custom-errors
+
+note[custom-errors]: prefer using custom errors on revert and require calls
+   ╭▸ src/BountyArena.sol:27:9
+   │
+27 │         require (amount==msg.value,"attach eth");
+   │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/custom-errors
+
+note[custom-errors]: prefer using custom errors on revert and require calls
+   ╭▸ src/BountyArena.sol:40:9
+   │
+40 │         require(amount >= 0,"topup");
+   │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/custom-errors
+
+note[custom-errors]: prefer using custom errors on revert and require calls
+   ╭▸ src/BountyArena.sol:41:9
+   │
+41 │         require (amount==msg.value,"attach eth");
+   │         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/custom-errors
+
+warning[weak-prng]: weak randomness derived from a predictable on-chain value
+   ╭▸ src/BountyArena.sol:29:20
+   │
+29 │         bytes32 ID=keccak256(abi.encode(msg.sender,block.timestamp));
+   │                    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/weak-prng
+
+warning[locked-ether]: contract can receive ETH but has no mechanism to send it out
+  ╭▸ src/BountyArena.sol:4:10
+  │
+4 │ contract BountyArena is Ownable {
+  │          ━━━━━━━━━━━
+  │
+  ╰ help: https://getfoundry.sh/forge/linting/locked-ether
+
+warning[type-based-tautology]: condition is always true or false based on the variable's type
+   ╭▸ src/BountyArena.sol:26:17
+   │
+26 │         require(amount >= 0,"topup");
+   │                 ━━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/type-based-tautology
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   ╭▸ src/BountyArena.sol:29:20
+   │
+29 │         bytes32 ID=keccak256(abi.encode(msg.sender,block.timestamp));
+   │                    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/asm-keccak256
+
+warning[unsafe-typecast]: typecasts that can truncate values should be checked
+   ╭▸ src/BountyArena.sol:36:27
+   │
+36 │             solutionHash: bytes32("usr1"),
+   │                           ━━━━━━━━━━━━━━━
+   │
+   ├ note: consider disabling this lint if you're certain the cast is safe
+   │       
+   │       // casting to 'bytes32' is safe because [explain why]
+   │       // forge-lint: disable-next-line(unsafe-typecast)
+   │       
+   │       
+   ╰ help: https://getfoundry.sh/forge/linting/unsafe-typecast
+
+warning[type-based-tautology]: condition is always true or false based on the variable's type
+   ╭▸ src/BountyArena.sol:40:17
+   │
+40 │         require(amount >= 0,"topup");
+   │                 ━━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/type-based-tautology
+

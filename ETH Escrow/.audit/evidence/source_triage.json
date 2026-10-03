@@ -1,0 +1,21 @@
+{
+  "kind": "source_triage",
+  "recorded_at": "2026-09-29T05:38:44",
+  "data": {
+    "project": "foundry",
+    "languages": [
+      "solidity"
+    ],
+    "files_scanned": 1,
+    "count": 1,
+    "markers": [
+      {
+        "file": "src/EthEscrow.sol",
+        "line": 64,
+        "language": "solidity",
+        "label": "REENTRANCY REVIEW",
+        "text": "(bool success, ) = payable(escrow[1].recipient).call{"
+      }
+    ]
+  }
+}

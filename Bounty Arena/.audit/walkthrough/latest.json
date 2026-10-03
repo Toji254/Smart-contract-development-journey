@@ -1,0 +1,86 @@
+{
+  "version": 5,
+  "steps": [
+    {
+      "index": 1,
+      "actor": "Alice",
+      "contract": "BountyArena",
+      "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      "function": "createbounty(address,uint256)",
+      "args": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        1000000000000000000
+      ],
+      "value_wei": 1000000000000000000,
+      "reason": "source-guided bootstrap phase",
+      "inferred": true,
+      "status": "success",
+      "tx_hash": "0x10f10dd06536fca7deeaf53db5d64ede01b41a05dcbb762d6e06148b4b166214",
+      "calldata": "0xc455ed75000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb922660000000000000000000000000000000000000000000000000de0b6b3a7640000",
+      "gas_used": 136909,
+      "error": null,
+      "events": [],
+      "trace_edges": [],
+      "storage_before": [],
+      "storage_after": [],
+      "storage_changes": [],
+      "balance_before": {
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266": 9999999127172999127173,
+        "0x70997970c51812dc3a010c7d01b50e0d17dc79c8": 10000000000000000000000,
+        "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc": 10000000000000000000000,
+        "0x90f79bf6eb2c4f870365e785982e1f101e93b906": 10000000000000000000000,
+        "0x5fbdb2315678afecb367f032d93f642f64180aa3": 0
+      },
+      "balance_after": {
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266": 98999879208809173960,
+        "0x70997970c51812dc3a010c7d01b50e0d17dc79c8": 10000000000000000000000,
+        "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc": 10000000000000000000000,
+        "0x90f79bf6eb2c4f870365e785982e1f101e93b906": 10000000000000000000000,
+        "0x5fbdb2315678afecb367f032d93f642f64180aa3": 1000000000000000000
+      },
+      "token_balance_before": {},
+      "token_balance_after": {},
+      "error_reason": "preflight passed and the live transaction was accepted",
+      "discovered_contracts": [],
+      "preflight": "0x673415aa49361efa70ad351c4bc5b5424af1dec4e88c47290b8917d083c1efe8",
+      "runtime_contracts": [
+        {
+          "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+          "model": "BountyArena",
+          "label": "BountyArena",
+          "relation": "target",
+          "parent": null,
+          "discovered_at_step": 0,
+          "implementation": null
+        }
+      ],
+      "execution_edges": [
+        {
+          "type": "CALL",
+          "to_address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+          "from_contract": "caller",
+          "to_contract": "BountyArena",
+          "function": "createbounty(address,uint256)",
+          "depth": 0,
+          "error": null,
+          "revert": null,
+          "to_label": "BountyArena"
+        }
+      ],
+      "failure_origin": null,
+      "diagnostics": []
+    }
+  ],
+  "runtime_contracts": [
+    {
+      "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      "model": "BountyArena",
+      "label": "BountyArena",
+      "relation": "target",
+      "parent": null,
+      "discovered_at_step": 0,
+      "implementation": null
+    }
+  ],
+  "observed_inputs": {}
+}

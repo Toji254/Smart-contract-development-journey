@@ -1,0 +1,765 @@
+{
+  "version": 5,
+  "mode": "source-guided-live",
+  "target": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  "contract": {
+    "name": "BountyArena",
+    "source": "src/BountyArena.sol",
+    "artifact": "out/BountyArena.sol/BountyArena.json",
+    "abi": [
+      {
+        "type": "constructor",
+        "inputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "bounties",
+        "inputs": [
+          {
+            "name": "ID",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "creator",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "hunter",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "description",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "solutionHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "currentstatus",
+            "type": "uint8",
+            "internalType": "enum BountyArena.status"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "createbounty",
+        "inputs": [
+          {
+            "name": "addr",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          }
+        ],
+        "stateMutability": "payable"
+      },
+      {
+        "type": "function",
+        "name": "owner",
+        "inputs": [],
+        "outputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "renounceOwnership",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "transferOwnership",
+        "inputs": [
+          {
+            "name": "newOwner",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "event",
+        "name": "OwnershipTransferred",
+        "inputs": [
+          {
+            "name": "previousOwner",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          },
+          {
+            "name": "newOwner",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "error",
+        "name": "OwnableInvalidOwner",
+        "inputs": [
+          {
+            "name": "owner",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "type": "error",
+        "name": "OwnableUnauthorizedAccount",
+        "inputs": [
+          {
+            "name": "account",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      }
+    ],
+    "storage": {},
+    "bases": [
+      "Ownable"
+    ],
+    "functions": [
+      "bounties(bytes32)",
+      "createbounty(address,uint256)",
+      "owner()",
+      "renounceOwnership()",
+      "transferOwnership(address)"
+    ],
+    "modifiers": [],
+    "structs": {
+      "Bounty": [
+        {
+          "name": "creator",
+          "type": "address",
+          "offset": null,
+          "slot": null
+        },
+        {
+          "name": "hunter",
+          "type": "address",
+          "offset": null,
+          "slot": null
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "offset": null,
+          "slot": null
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "offset": null,
+          "slot": null
+        },
+        {
+          "name": "solutionHash",
+          "type": "bytes32",
+          "offset": null,
+          "slot": null
+        },
+        {
+          "name": "currentstatus",
+          "type": "status",
+          "offset": null,
+          "slot": null
+        }
+      ]
+    },
+    "mappings": [
+      {
+        "name": "bounties",
+        "key_type": "bytes32 ID",
+        "value_type": "Bounty"
+      }
+    ],
+    "arrays": [
+      {
+        "name": "tags",
+        "type": "bytes32[]"
+      }
+    ],
+    "events": [
+      "OwnershipTransferred(address,address)"
+    ],
+    "calls": [
+      {
+        "kind": "internal",
+        "from": "createbounty",
+        "to_contract": "BountyArena",
+        "to_function": "require",
+        "via": null,
+        "interface": null,
+        "argument_names": [
+          "<expression>",
+          "<literal>"
+        ],
+        "line": 26,
+        "certainty": "AST",
+        "source": "compiler-ast"
+      },
+      {
+        "kind": "internal",
+        "from": "createbounty",
+        "to_contract": "BountyArena",
+        "to_function": "keccak256",
+        "via": null,
+        "interface": null,
+        "argument_names": [
+          "<expression>"
+        ],
+        "line": 29,
+        "certainty": "AST",
+        "source": "compiler-ast"
+      },
+      {
+        "kind": "cross-contract",
+        "from": "createbounty",
+        "to_contract": "BountyArena",
+        "to_function": "encode",
+        "via": "abi",
+        "interface": null,
+        "argument_names": [
+          "sender",
+          "timestamp"
+        ],
+        "line": 29,
+        "certainty": "AST",
+        "source": "compiler-ast"
+      },
+      {
+        "kind": "internal",
+        "from": "createbounty",
+        "to_contract": "BountyArena",
+        "to_function": "Bounty",
+        "via": null,
+        "interface": null,
+        "argument_names": [
+          "sender",
+          "addr",
+          "amount",
+          "<literal>",
+          "<expression>",
+          "open"
+        ],
+        "line": 31,
+        "certainty": "AST",
+        "source": "compiler-ast"
+      }
+    ],
+    "kind": "contract",
+    "function_locations": {
+      "createbounty": 25
+    },
+    "type_bindings": {
+      "currentstatus": "status",
+      "bounties": "public"
+    },
+    "imports": [
+      "@openzeppelin/contracts/access/Ownable.sol"
+    ],
+    "semantics": {
+      "createbounty()": {
+        "reads": [
+          "bounties",
+          "tags"
+        ],
+        "writes": [
+          "bounties"
+        ],
+        "guards": [
+          "require(amount >= 0,\"topup\")",
+          "require(amount==msg.value,\"attach eth\")"
+        ],
+        "creates": [],
+        "emits": [],
+        "external_calls": [],
+        "inputs": [
+          {
+            "name": "addr",
+            "source": "address addr"
+          },
+          {
+            "name": "amount",
+            "source": "uint256 amount"
+          }
+        ],
+        "line": 25
+      }
+    }
+  },
+  "contracts": [
+    {
+      "name": "BountyArena",
+      "source": "src/BountyArena.sol",
+      "artifact": "out/BountyArena.sol/BountyArena.json",
+      "abi": [
+        {
+          "type": "constructor",
+          "inputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "bounties",
+          "inputs": [
+            {
+              "name": "ID",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "creator",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "hunter",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "amount",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "description",
+              "type": "string",
+              "internalType": "string"
+            },
+            {
+              "name": "solutionHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "currentstatus",
+              "type": "uint8",
+              "internalType": "enum BountyArena.status"
+            }
+          ],
+          "stateMutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "createbounty",
+          "inputs": [
+            {
+              "name": "addr",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "amount",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            }
+          ],
+          "stateMutability": "payable"
+        },
+        {
+          "type": "function",
+          "name": "owner",
+          "inputs": [],
+          "outputs": [
+            {
+              "name": "",
+              "type": "address",
+              "internalType": "address"
+            }
+          ],
+          "stateMutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "renounceOwnership",
+          "inputs": [],
+          "outputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "transferOwnership",
+          "inputs": [
+            {
+              "name": "newOwner",
+              "type": "address",
+              "internalType": "address"
+            }
+          ],
+          "outputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "event",
+          "name": "OwnershipTransferred",
+          "inputs": [
+            {
+              "name": "previousOwner",
+              "type": "address",
+              "indexed": true,
+              "internalType": "address"
+            },
+            {
+              "name": "newOwner",
+              "type": "address",
+              "indexed": true,
+              "internalType": "address"
+            }
+          ],
+          "anonymous": false
+        },
+        {
+          "type": "error",
+          "name": "OwnableInvalidOwner",
+          "inputs": [
+            {
+              "name": "owner",
+              "type": "address",
+              "internalType": "address"
+            }
+          ]
+        },
+        {
+          "type": "error",
+          "name": "OwnableUnauthorizedAccount",
+          "inputs": [
+            {
+              "name": "account",
+              "type": "address",
+              "internalType": "address"
+            }
+          ]
+        }
+      ],
+      "storage": {},
+      "bases": [
+        "Ownable"
+      ],
+      "functions": [
+        "bounties(bytes32)",
+        "createbounty(address,uint256)",
+        "owner()",
+        "renounceOwnership()",
+        "transferOwnership(address)"
+      ],
+      "modifiers": [],
+      "structs": {
+        "Bounty": [
+          {
+            "name": "creator",
+            "type": "address",
+            "offset": null,
+            "slot": null
+          },
+          {
+            "name": "hunter",
+            "type": "address",
+            "offset": null,
+            "slot": null
+          },
+          {
+            "name": "amount",
+            "type": "uint256",
+            "offset": null,
+            "slot": null
+          },
+          {
+            "name": "description",
+            "type": "string",
+            "offset": null,
+            "slot": null
+          },
+          {
+            "name": "solutionHash",
+            "type": "bytes32",
+            "offset": null,
+            "slot": null
+          },
+          {
+            "name": "currentstatus",
+            "type": "status",
+            "offset": null,
+            "slot": null
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "name": "bounties",
+          "key_type": "bytes32 ID",
+          "value_type": "Bounty"
+        }
+      ],
+      "arrays": [
+        {
+          "name": "tags",
+          "type": "bytes32[]"
+        }
+      ],
+      "events": [
+        "OwnershipTransferred(address,address)"
+      ],
+      "calls": [
+        {
+          "kind": "internal",
+          "from": "createbounty",
+          "to_contract": "BountyArena",
+          "to_function": "require",
+          "via": null,
+          "interface": null,
+          "argument_names": [
+            "<expression>",
+            "<literal>"
+          ],
+          "line": 26,
+          "certainty": "AST",
+          "source": "compiler-ast"
+        },
+        {
+          "kind": "internal",
+          "from": "createbounty",
+          "to_contract": "BountyArena",
+          "to_function": "keccak256",
+          "via": null,
+          "interface": null,
+          "argument_names": [
+            "<expression>"
+          ],
+          "line": 29,
+          "certainty": "AST",
+          "source": "compiler-ast"
+        },
+        {
+          "kind": "cross-contract",
+          "from": "createbounty",
+          "to_contract": "BountyArena",
+          "to_function": "encode",
+          "via": "abi",
+          "interface": null,
+          "argument_names": [
+            "sender",
+            "timestamp"
+          ],
+          "line": 29,
+          "certainty": "AST",
+          "source": "compiler-ast"
+        },
+        {
+          "kind": "internal",
+          "from": "createbounty",
+          "to_contract": "BountyArena",
+          "to_function": "Bounty",
+          "via": null,
+          "interface": null,
+          "argument_names": [
+            "sender",
+            "addr",
+            "amount",
+            "<literal>",
+            "<expression>",
+            "open"
+          ],
+          "line": 31,
+          "certainty": "AST",
+          "source": "compiler-ast"
+        }
+      ],
+      "kind": "contract",
+      "function_locations": {
+        "createbounty": 25
+      },
+      "type_bindings": {
+        "currentstatus": "status",
+        "bounties": "public"
+      },
+      "imports": [
+        "@openzeppelin/contracts/access/Ownable.sol"
+      ],
+      "semantics": {
+        "createbounty()": {
+          "reads": [
+            "bounties",
+            "tags"
+          ],
+          "writes": [
+            "bounties"
+          ],
+          "guards": [
+            "require(amount >= 0,\"topup\")",
+            "require(amount==msg.value,\"attach eth\")"
+          ],
+          "creates": [],
+          "emits": [],
+          "external_calls": [],
+          "inputs": [
+            {
+              "name": "addr",
+              "source": "address addr"
+            },
+            {
+              "name": "amount",
+              "source": "uint256 amount"
+            }
+          ],
+          "line": 25
+        }
+      }
+    }
+  ],
+  "actors": [
+    {
+      "name": "Alice",
+      "address": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+      "index": 0
+    },
+    {
+      "name": "Bob",
+      "address": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "index": 1
+    },
+    {
+      "name": "Attacker",
+      "address": "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+      "index": 2
+    },
+    {
+      "name": "Treasury",
+      "address": "0x90f79bf6eb2c4f870365e785982e1f101e93b906",
+      "index": 3
+    }
+  ],
+  "workflow": [
+    {
+      "index": 1,
+      "actor": "Alice",
+      "contract": "BountyArena",
+      "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      "function": "createbounty(address,uint256)",
+      "args": [
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        1000000000000000000
+      ],
+      "value_wei": 1000000000000000000,
+      "reason": "source-guided bootstrap phase",
+      "inferred": true,
+      "status": "success",
+      "tx_hash": "0x10f10dd06536fca7deeaf53db5d64ede01b41a05dcbb762d6e06148b4b166214",
+      "calldata": "0xc455ed75000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb922660000000000000000000000000000000000000000000000000de0b6b3a7640000",
+      "gas_used": 136909,
+      "error": null,
+      "events": [],
+      "trace_edges": [],
+      "storage_before": [],
+      "storage_after": [],
+      "storage_changes": [],
+      "balance_before": {
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266": 9999999127172999127173,
+        "0x70997970c51812dc3a010c7d01b50e0d17dc79c8": 10000000000000000000000,
+        "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc": 10000000000000000000000,
+        "0x90f79bf6eb2c4f870365e785982e1f101e93b906": 10000000000000000000000,
+        "0x5fbdb2315678afecb367f032d93f642f64180aa3": 0
+      },
+      "balance_after": {
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266": 98999879208809173960,
+        "0x70997970c51812dc3a010c7d01b50e0d17dc79c8": 10000000000000000000000,
+        "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc": 10000000000000000000000,
+        "0x90f79bf6eb2c4f870365e785982e1f101e93b906": 10000000000000000000000,
+        "0x5fbdb2315678afecb367f032d93f642f64180aa3": 1000000000000000000
+      },
+      "token_balance_before": {},
+      "token_balance_after": {},
+      "error_reason": "preflight passed and the live transaction was accepted",
+      "discovered_contracts": [],
+      "preflight": "0x673415aa49361efa70ad351c4bc5b5424af1dec4e88c47290b8917d083c1efe8",
+      "runtime_contracts": [
+        {
+          "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+          "model": "BountyArena",
+          "label": "BountyArena",
+          "relation": "target",
+          "parent": null,
+          "discovered_at_step": 0,
+          "implementation": null
+        }
+      ],
+      "execution_edges": [
+        {
+          "type": "CALL",
+          "to_address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+          "from_contract": "caller",
+          "to_contract": "BountyArena",
+          "function": "createbounty(address,uint256)",
+          "depth": 0,
+          "error": null,
+          "revert": null,
+          "to_label": "BountyArena"
+        }
+      ],
+      "failure_origin": null,
+      "diagnostics": []
+    }
+  ],
+  "runtime_contracts": [
+    {
+      "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      "model": "BountyArena",
+      "label": "BountyArena",
+      "relation": "target",
+      "parent": null,
+      "discovered_at_step": 0,
+      "implementation": null
+    }
+  ]
+}

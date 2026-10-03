@@ -1,0 +1,65 @@
+{
+  "generated_at": "2026-09-27T06:19:15",
+  "target": "0x0165878A594ca255338adfa4d48449f69242Eb8F",
+  "candidate": {
+    "check": "locked-ether",
+    "mode": "generic",
+    "impact": "medium",
+    "confidence": "high",
+    "function": "createbounty(address,uint256)",
+    "description": "Contract locking ether found: \tContract BountyArena (src/BountyArena.sol#4-46) has payable functions: \t - BountyArena.createbounty(address,uint256) (src/BountyArena.sol#25-45) \tBut does not have a function to withdraw the ether ",
+    "locations": [
+      {
+        "name": "BountyArena",
+        "type": "contract",
+        "source": "src/BountyArena.sol",
+        "start": 4,
+        "end": 5
+      },
+      {
+        "name": "createbounty",
+        "type": "function",
+        "source": "src/BountyArena.sol",
+        "start": 25,
+        "end": 26
+      }
+    ]
+  },
+  "evidence": {
+    "slither_findings": 5,
+    "source_triage_markers": 1,
+    "matrix_scenarios": 0,
+    "notes_findings_todos": [],
+    "evidence_records": [
+      "audit_start",
+      "build",
+      "context",
+      "coverage",
+      "geiger",
+      "lint",
+      "poc",
+      "session_resume",
+      "slither",
+      "slither.raw",
+      "source_triage",
+      "system_bootstrap",
+      "tests",
+      "walkthrough"
+    ],
+    "trace_tx": null,
+    "storage_changes": 0,
+    "risk_functions": 0,
+    "last_tx": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+    "rpc": "http://127.0.0.1:8545"
+  },
+  "poc_file": "test/Poc_locked_ether.t.sol",
+  "refinement_checklist": [
+    "Resolve exact function/signature and calldata.",
+    "Set attacker identities, balances, and pre-state.",
+    "Write down the security invariant before the exploit call.",
+    "Execute the smallest reproducing sequence.",
+    "Assert concrete post-state corruption or asset impact.",
+    "Use trace/storage/log evidence where it strengthens proof.",
+    "Minimize the final PoC and link it back to the finding."
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "calldata": null,
+  "evidence": {
+    "candidate": {
+      "actions": [],
+      "check": "locked-ether",
+      "column": 1,
+      "confidence": "High",
+      "description": "Static analysis found a code pattern that deserves manual security review.",
+      "evidence_count": 0,
+      "file": "src/BountyArena.sol",
+      "function": "createbounty(address,uint256)",
+      "id": "SLITHER-E48837A118",
+      "impact": "Medium",
+      "line": 4,
+      "mode": "generic",
+      "next": "",
+      "title": "Locked Ether",
+      "tool": "slither"
+    },
+    "focused_signal": "SLITHER-E48837A118",
+    "latest": {
+      "calldata": null,
+      "function": null,
+      "state_diff": null,
+      "trace": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+      "tx_hash": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+      "value": null
+    },
+    "open_signals": 3,
+    "tools": {
+      "forge_build": "completed",
+      "forge_coverage": "completed",
+      "forge_tests": "completed",
+      "receipt": null,
+      "risk_functions": null,
+      "slither_findings": 5,
+      "source_triage_markers": 3,
+      "trace": "transaction trace 0xbde44ea2..."
+    }
+  },
+  "function": "createbounty(address,uint256)",
+  "generated_at": "2026-09-27T06:36:13",
+  "kind": "test",
+  "note": "Audit context is carried forward for investigation. Validate the security property before treating this as a confirmed finding.",
+  "output": "/home/rogue/Smart-contract-development-journey/Bounty Arena/test/LowkeyTest_BountyArena.t.sol",
+  "status": "scaffold",
+  "target": "0x0165878A594ca255338adfa4d48449f69242Eb8F",
+  "value": "0"
+}

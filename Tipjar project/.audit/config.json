@@ -1,0 +1,6 @@
+{
+    "target": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "rpc": "http://127.0.0.1:8545",
+    "abi": "/home/rogue/Smart-contract-development-journey/Tipjar project/out/Tipjar2.sol/Tipjar.json",
+    "created": "2026-10-03T07:02:10"
+}

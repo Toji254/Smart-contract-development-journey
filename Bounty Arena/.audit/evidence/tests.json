@@ -1,0 +1,14 @@
+{
+  "kind": "tests",
+  "recorded_at": "2026-09-27T05:11:42",
+  "data": {
+    "command": [
+      "forge",
+      "test",
+      "-vvvv"
+    ],
+    "exit_code": 0,
+    "stdout": "No files changed, compilation skipped\n",
+    "stderr": "Warning: No tests found in project! Forge looks for functions that start with `test`\n"
+  }
+}

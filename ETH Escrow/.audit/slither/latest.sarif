@@ -1,0 +1,133 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Slither",
+          "informationUri": "https://github.com/crytic/slither",
+          "version": "0.11.6",
+          "rules": [
+            {
+              "id": "3-0-solc-version",
+              "name": "solc-version",
+              "properties": {
+                "precision": "very-high",
+                "security-severity": "0.0"
+              },
+              "shortDescription": {
+                "text": "Incorrect versions of Solidity"
+              },
+              "help": {
+                "text": "\nDeploy with a recent version of Solidity (at least 0.8.0) with no known severe issues.\n\nUse a simple pragma version that allows any of these versions.\nConsider using the latest version of Solidity for testing."
+              }
+            },
+            {
+              "id": "3-0-low-level-calls",
+              "name": "low-level-calls",
+              "properties": {
+                "precision": "very-high",
+                "security-severity": "0.0"
+              },
+              "shortDescription": {
+                "text": "Low-level calls"
+              },
+              "help": {
+                "text": "Avoid low-level calls. Check the call success. If the call is meant for a contract, check for code existence."
+              }
+            },
+            {
+              "id": "3-0-naming-convention",
+              "name": "naming-convention",
+              "properties": {
+                "precision": "very-high",
+                "security-severity": "0.0"
+              },
+              "shortDescription": {
+                "text": "Conformance to Solidity naming conventions"
+              },
+              "help": {
+                "text": "Follow the Solidity [naming convention](https://solidity.readthedocs.io/en/v0.4.25/style-guide.html#naming-conventions)."
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "3-0-solc-version",
+          "message": {
+            "text": "Version constraint ^0.8.20 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)\n\t- VerbatimInvalidDeduplication\n\t- FullInlinerNonExpressionSplitArgumentEvaluationOrder\n\t- MissingSideEffectsOnSelectorAccess.\nIt is used by:\n\t- ^0.8.20 (src/EthEscrow.sol#3)\n",
+            "markdown": "Version constraint ^0.8.20 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)\n\t- VerbatimInvalidDeduplication\n\t- FullInlinerNonExpressionSplitArgumentEvaluationOrder\n\t- MissingSideEffectsOnSelectorAccess.\nIt is used by:\n\t- [^0.8.20](src/EthEscrow.sol#L3)\n"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/EthEscrow.sol"
+                },
+                "region": {
+                  "startLine": 3,
+                  "endLine": 3
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "id": "5f614ac80a33f1caca7c2fcf49c3d829b8e08d8752bf778f270e8c7beaea36a4"
+          }
+        },
+        {
+          "ruleId": "3-0-low-level-calls",
+          "message": {
+            "text": "Low level call in Escrow.release() (src/EthEscrow.sol#61-69):\n\t- (success,None) = address(escrow[1].recipient).call{value: escrow[1].amount}() (src/EthEscrow.sol#63-65)\n",
+            "markdown": "Low level call in [Escrow.release()](src/EthEscrow.sol#L61-L69):\n\t- [(success,None) = address(escrow[1].recipient).call{value: escrow[1].amount}()](src/EthEscrow.sol#L63-L65)\n"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/EthEscrow.sol"
+                },
+                "region": {
+                  "startLine": 61,
+                  "endLine": 69
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "id": "c14d9f2f13877dbce48dafb0edcc4861459fb15f3331c335c80d03c3bb656eb6"
+          }
+        },
+        {
+          "ruleId": "3-0-naming-convention",
+          "message": {
+            "text": "Enum Escrow.status (src/EthEscrow.sol#13-18) is not in CapWords\n",
+            "markdown": "Enum [Escrow.status](src/EthEscrow.sol#L13-L18) is not in CapWords\n"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/EthEscrow.sol"
+                },
+                "region": {
+                  "startLine": 13,
+                  "endLine": 18
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "id": "ec73054618c4d22c1b8f01c21ead6f87e25a30881e70bb16f4b8b30f8647ab02"
+          }
+        }
+      ]
+    }
+  ]
+}

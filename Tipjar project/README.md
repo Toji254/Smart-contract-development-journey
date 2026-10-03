@@ -129,17 +129,17 @@ These values answer different questions.
 
 ### Tipping
 
-- [ ] user can send a tip;
+- [x] user can send a tip;
 - [ ] user's cumulative tips increase;
-- [ ] contract balance increases;
-- [ ] event is emitted;
+- [x] contract balance increases;
+- [x] event is emitted;
 - [ ] repeated tips accumulate.
 
 ### Withdrawal
 
-- [ ] non-owner cannot withdraw;
+- [x] non-owner cannot withdraw;
 - [ ] owner can withdraw a valid amount;
-- [ ] recipient receives the correct amount;
+- [x] recipient receives the correct amount;
 - [ ] over-withdrawal reverts;
 - [ ] failed withdrawal does not corrupt state;
 - [ ] multiple withdrawals behave correctly.

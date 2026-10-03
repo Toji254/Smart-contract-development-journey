@@ -1,0 +1,359 @@
+{
+  "schema": "lowkey.system-bootstrap.v1",
+  "generated_at": "2026-09-27T03:19:14+00:00",
+  "updated_reason": "poc:start",
+  "project": {
+    "root": "/home/rogue/Smart-contract-development-journey/Bounty Arena",
+    "git_sha": null,
+    "git_branch": "master"
+  },
+  "runtime": {
+    "rpc": "http://127.0.0.1:8545",
+    "chain_id": "0x7a69"
+  },
+  "actors": {
+    "actors": [
+      {
+        "name": "vault",
+        "address": "0x1234567890123456789012345678901234567890",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "escrow",
+        "address": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "ConfidencePoolFactory",
+        "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "ConfidencePool",
+        "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "BountyArena",
+        "address": "0x0165878A594ca255338adfa4d48449f69242Eb8F",
+        "source": "lowkey alias"
+      },
+      {
+        "name": "Alice",
+        "address": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "source": "wallet config"
+      },
+      {
+        "name": "Bob",
+        "address": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+        "source": "wallet config"
+      },
+      {
+        "name": "attacker",
+        "address": "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+        "source": "wallet config"
+      },
+      {
+        "name": "lab-deployer",
+        "address": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "source": "wallet config"
+      }
+    ]
+  },
+  "contracts": [
+    {
+      "name": "BountyArena",
+      "artifact": "out/BountyArena.sol/BountyArena.json",
+      "abi_functions": 5,
+      "errors": 2
+    }
+  ],
+  "deployments": [],
+  "live_runtime": [],
+  "relationships": [],
+  "roles": [],
+  "initialization": [],
+  "scripts": [],
+  "sources": [
+    {
+      "path": "src/BountyArena.sol",
+      "sha256": "8771b7ab0b8ca808d54ab5f56dae2f8176530f545ce59fc6830556b2da2b164d",
+      "actions": [],
+      "lines": 46
+    }
+  ],
+  "tests": [
+    {
+      "path": "test/Poc_locked_ether.t.sol",
+      "sha256": "393b5dce7bef30a41c625470ad7fea223522d06f057c709e8dc3d33881309d7d",
+      "kind": "test",
+      "signals": [
+        "test/invariant function",
+        "assertion"
+      ],
+      "functions": [
+        "test_poc_candidate"
+      ]
+    }
+  ],
+  "adversarial_evidence": [
+    {
+      "path": "test/Poc_locked_ether.t.sol",
+      "sha256": "393b5dce7bef30a41c625470ad7fea223522d06f057c709e8dc3d33881309d7d",
+      "kind": "adversarial-test",
+      "signals": [
+        "test/invariant function",
+        "assertion"
+      ],
+      "functions": [
+        "test_poc_candidate"
+      ]
+    },
+    {
+      "path": "script/LowkeyPoC_BountyArena.s.sol",
+      "sha256": "c56d026a7e4920354960d60ddcb35d7da11c32ff065d079517cbe3fa4b6f9d5c",
+      "kind": "adversarial-script"
+    },
+    {
+      "path": ".audit/poc/LowkeyPoc_BountyArena.json",
+      "sha256": "238992e7d9b6d8c745741f2fdc6ebfe8726aa98eb75dc29692cf458daab2f79d",
+      "kind": "adversarial-script",
+      "summary": {
+        "candidate": null,
+        "evidence": {
+          "candidate": {
+            "actions": [],
+            "check": "locked-ether",
+            "column": 1,
+            "confidence": "High",
+            "description": "Static analysis found a code pattern that deserves manual security review.",
+            "evidence_count": 0,
+            "file": "src/BountyArena.sol",
+            "function": "createbounty(address,uint256)",
+            "id": "SLITHER-E48837A118",
+            "impact": "Medium",
+            "line": 4,
+            "mode": "generic",
+            "next": "",
+            "title": "Locked Ether",
+            "tool": "slither"
+          },
+          "focused_signal": "SLITHER-E48837A118",
+          "latest": {
+            "calldata": null,
+            "function": null,
+            "state_diff": null,
+            "trace": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+            "tx_hash": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+            "value": null
+          },
+          "open_signals": 3,
+          "tools": {
+            "forge_build": "completed",
+            "forge_coverage": "completed",
+            "forge_tests": "completed",
+            "receipt": null,
+            "risk_functions": null,
+            "slither_findings": 5,
+            "source_triage_markers": 3,
+            "trace": "transaction trace 0xbde44ea2..."
+          }
+        },
+        "poc_file": null
+      }
+    },
+    {
+      "path": ".audit/poc/Poc_audit_candidate.json",
+      "sha256": "8b8673f36ef70a7793372023fd9598a5e7031ef78863481c2764484bfa7b39e0",
+      "kind": "adversarial-script",
+      "summary": {
+        "candidate": {
+          "check": "audit-candidate",
+          "mode": "generic",
+          "impact": "manual",
+          "confidence": "manual",
+          "function": null,
+          "description": "No selected Slither finding, matrix scenario, or source marker.",
+          "locations": []
+        },
+        "evidence": {
+          "slither_findings": 0,
+          "source_triage_markers": 0,
+          "matrix_scenarios": 0,
+          "notes_findings_todos": [],
+          "evidence_records": [
+            "audit_start",
+            "build",
+            "context",
+            "poc",
+            "session_resume",
+            "system_bootstrap",
+            "walkthrough"
+          ],
+          "trace_tx": null,
+          "storage_changes": 0,
+          "risk_functions": 0,
+          "last_tx": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+          "rpc": "http://127.0.0.1:8545"
+        },
+        "poc_file": "test/Poc_audit_candidate.t.sol"
+      }
+    },
+    {
+      "path": ".audit/poc/Poc_locked_ether.json",
+      "sha256": "1ed79d9b3f39da46c6ec2d318a80f184adb1e727001cb90293a6185060a71e7b",
+      "kind": "adversarial-script",
+      "summary": {
+        "candidate": {
+          "check": "locked-ether",
+          "mode": "generic",
+          "impact": "medium",
+          "confidence": "high",
+          "function": "createbounty(address,uint256)",
+          "description": "Contract locking ether found: \tContract BountyArena (src/BountyArena.sol#4-46) has payable functions: \t - BountyArena.createbounty(address,uint256) (src/BountyArena.sol#25-45) \tBut does not have a function to withdraw the ether ",
+          "locations": [
+            {
+              "name": "BountyArena",
+              "type": "contract",
+              "source": "src/BountyArena.sol",
+              "start": 4,
+              "end": 5
+            },
+            {
+              "name": "createbounty",
+              "type": "function",
+              "source": "src/BountyArena.sol",
+              "start": 25,
+              "end": 26
+            }
+          ]
+        },
+        "evidence": {
+          "slither_findings": 5,
+          "source_triage_markers": 1,
+          "matrix_scenarios": 0,
+          "notes_findings_todos": [],
+          "evidence_records": [
+            "audit_start",
+            "build",
+            "context",
+            "coverage",
+            "geiger",
+            "lint",
+            "poc",
+            "session_resume",
+            "slither",
+            "slither.raw",
+            "source_triage",
+            "system_bootstrap",
+            "tests",
+            "walkthrough"
+          ],
+          "trace_tx": null,
+          "storage_changes": 0,
+          "risk_functions": 0,
+          "last_tx": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+          "rpc": "http://127.0.0.1:8545"
+        },
+        "poc_file": "test/Poc_locked_ether.t.sol"
+      }
+    }
+  ],
+  "audit_evidence": [
+    {
+      "file": ".audit/evidence/audit_start.json",
+      "sha256": "5daa32126e5071768d23529ff3e703bf40e86b0b6098697953f5825d428f2139",
+      "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0"
+    },
+    {
+      "file": ".audit/evidence/build.json",
+      "sha256": "2d4bd01aaf3c4fa5fb5913372d32063fd00cfd418aa428b738a79d8bed0a7bbe",
+      "exit_code": 1
+    },
+    {
+      "file": ".audit/evidence/context.json",
+      "sha256": "0909d08978bd64f0ff1a0f19ab1fc0acce2e72168c007facfa3ad22d73deaea7",
+      "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+      "git_sha": null,
+      "git_branch": "master"
+    },
+    {
+      "file": ".audit/evidence/coverage.json",
+      "sha256": "79525e1ee1c69a0dda6e8ffb7728cd05e2d7a2214c3e0c1596fab3921fdf4de0",
+      "exit_code": 0
+    },
+    {
+      "file": ".audit/evidence/geiger.json",
+      "sha256": "dce328981b910959bd7ae8bf729a99d2452443e15b909bc47ae99ddfd0bb786f",
+      "exit_code": 0
+    },
+    {
+      "file": ".audit/evidence/lint.json",
+      "sha256": "47376c81fa79889a0965b599c2f0bc4740b1d750a9157dd46577b0e0b92185f3",
+      "exit_code": 0
+    },
+    {
+      "file": ".audit/evidence/poc.json",
+      "sha256": "24b05941f3cb02ddc811cf56ce6c724ac646a6c3930407a387d398465ce8c563",
+      "target": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
+    },
+    {
+      "file": ".audit/evidence/session_resume.json",
+      "sha256": "f37b1ecdc1253c871079f4a172d0c466d9ec1b3a51a96678ddd5533e99230af1",
+      "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0"
+    },
+    {
+      "file": ".audit/evidence/slither.json",
+      "sha256": "24c019a5c4ac198aba108d68d7f543bee2ba0186da541823ba3d0ecd6114e8c9",
+      "exit_code": 255,
+      "finding_count": 5
+    },
+    {
+      "file": ".audit/evidence/slither.raw.json",
+      "sha256": "0452f575c374189e7a4ff36c1b173aed75a6dddea571239a91427587ae127e9c"
+    },
+    {
+      "file": ".audit/evidence/source_triage.json",
+      "sha256": "15d8624233f399838738c97b7cc8963d3416890f3a59f23dfed166c77baf93f3",
+      "count": 1
+    },
+    {
+      "file": ".audit/evidence/tests.json",
+      "sha256": "a8034b3492dd6de9f46a45645f3beaae7dadf3ab179a6ee2fbd8fa86576b8175",
+      "exit_code": 0
+    },
+    {
+      "file": ".audit/evidence/walkthrough.json",
+      "sha256": "731d712bb7935b5774e0bbe5e9b0ba8fd400c75792dd637fb5cd06a60fc0337f"
+    }
+  ],
+  "audit_targets": [
+    {
+      "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+      "source": "audit_start.json"
+    },
+    {
+      "target": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
+      "source": "poc.json"
+    }
+  ],
+  "known_addresses": {},
+  "deployed_contract_names": [],
+  "confidence": {
+    "confirmed": [
+      "broadcast deployment entries",
+      "source/script evidence",
+      "artifact metadata",
+      "runtime bytecode checks when RPC is available"
+    ],
+    "inferred": [
+      "constructor relationships from broadcast arguments",
+      "role/configuration labels derived from source patterns"
+    ],
+    "not_verified": [
+      "semantic correctness of every initialization step",
+      "completeness of deployment scripts",
+      "security impact of adversarial evidence"
+    ]
+  }
+}

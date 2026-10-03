@@ -1,0 +1,15 @@
+note[low-level-calls]: Low-level calls should be avoided
+   ╭▸ src/Tipjar2.sol:18:28
+   │
+18 │         (bool success, ) = payable(to).call{value: amount}("");
+   │                            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/low-level-calls
+
+warning[missing-zero-check]: address parameter is used in a state write or value transfer without a zero-address check
+   ╭▸ src/Tipjar2.sol:15:23
+   │
+15 │     function withdraw(address to, uint256 amount) external onlyOwner {
+   │                       ━━━━━━━━━━
+   │
+   ╰ help: https://getfoundry.sh/forge/linting/missing-zero-check

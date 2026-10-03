@@ -1,0 +1,2 @@
+Warning: `forge geiger` is deprecated, as it is just an alias for `forge lint --only-lint unsafe-cheatcode`
+

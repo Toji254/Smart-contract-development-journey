@@ -1,0 +1,1240 @@
+{
+  "version": 5,
+  "mode": "source-guided-live",
+  "target": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+  "contract": {
+    "name": "Escrow",
+    "source": "src/EthEscrow.sol",
+    "artifact": "out/EthEscrow.sol/Escrow.json",
+    "abi": [
+      {
+        "type": "function",
+        "name": "acceptescrow",
+        "inputs": [
+          {
+            "name": "accept",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "function",
+        "name": "balances",
+        "inputs": [
+          {
+            "name": "",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "createescrow",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "recipient",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [],
+        "stateMutability": "payable"
+      },
+      {
+        "type": "function",
+        "name": "escrow",
+        "inputs": [
+          {
+            "name": "value",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "creator",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "recipient",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "currentstatus",
+            "type": "uint8",
+            "internalType": "enum Escrow.STATUS"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "getBalance",
+        "inputs": [
+          {
+            "name": "user",
+            "type": "address",
+            "internalType": "address"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ],
+        "stateMutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "release",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+      },
+      {
+        "type": "event",
+        "name": "CreateEscrow",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "uint256",
+            "indexed": true,
+            "internalType": "uint256"
+          },
+          {
+            "name": "creator",
+            "type": "address",
+            "indexed": true,
+            "internalType": "address"
+          }
+        ],
+        "anonymous": false
+      },
+      {
+        "type": "error",
+        "name": "transferfailed",
+        "inputs": []
+      }
+    ],
+    "storage": {
+      "storage": [
+        {
+          "astId": 13,
+          "contract": "src/EthEscrow.sol:Escrow",
+          "label": "balances",
+          "offset": 0,
+          "slot": "0",
+          "type": "t_mapping(t_address,t_uint256)"
+        },
+        {
+          "astId": 18,
+          "contract": "src/EthEscrow.sol:Escrow",
+          "label": "escrow",
+          "offset": 0,
+          "slot": "1",
+          "type": "t_mapping(t_uint256,t_struct(Create)33_storage)"
+        }
+      ],
+      "types": {
+        "t_address": {
+          "encoding": "inplace",
+          "label": "address",
+          "numberOfBytes": "20"
+        },
+        "t_enum(STATUS)23": {
+          "encoding": "inplace",
+          "label": "enum Escrow.STATUS",
+          "numberOfBytes": "1"
+        },
+        "t_mapping(t_address,t_uint256)": {
+          "encoding": "mapping",
+          "key": "t_address",
+          "label": "mapping(address => uint256)",
+          "numberOfBytes": "32",
+          "value": "t_uint256"
+        },
+        "t_mapping(t_uint256,t_struct(Create)33_storage)": {
+          "encoding": "mapping",
+          "key": "t_uint256",
+          "label": "mapping(uint256 => struct Escrow.Create)",
+          "numberOfBytes": "32",
+          "value": "t_struct(Create)33_storage"
+        },
+        "t_struct(Create)33_storage": {
+          "encoding": "inplace",
+          "label": "struct Escrow.Create",
+          "numberOfBytes": "128",
+          "members": [
+            {
+              "astId": 25,
+              "contract": "src/EthEscrow.sol:Escrow",
+              "label": "creator",
+              "offset": 0,
+              "slot": "0",
+              "type": "t_address"
+            },
+            {
+              "astId": 27,
+              "contract": "src/EthEscrow.sol:Escrow",
+              "label": "recipient",
+              "offset": 0,
+              "slot": "1",
+              "type": "t_address"
+            },
+            {
+              "astId": 29,
+              "contract": "src/EthEscrow.sol:Escrow",
+              "label": "amount",
+              "offset": 0,
+              "slot": "2",
+              "type": "t_uint256"
+            },
+            {
+              "astId": 32,
+              "contract": "src/EthEscrow.sol:Escrow",
+              "label": "currentstatus",
+              "offset": 0,
+              "slot": "3",
+              "type": "t_enum(STATUS)23"
+            }
+          ]
+        },
+        "t_uint256": {
+          "encoding": "inplace",
+          "label": "uint256",
+          "numberOfBytes": "32"
+        }
+      }
+    },
+    "bases": [],
+    "functions": [
+      "acceptescrow(bool)",
+      "balances(address)",
+      "createescrow(uint256,address)",
+      "escrow(uint256)",
+      "getBalance(address)",
+      "release()"
+    ],
+    "modifiers": [
+      "onlyrecipient"
+    ],
+    "structs": {
+      "Create": [
+        {
+          "name": "creator",
+          "type": "address",
+          "offset": null,
+          "slot": null
+        },
+        {
+          "name": "recipient",
+          "type": "address",
+          "offset": null,
+          "slot": null
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "offset": null,
+          "slot": null
+        },
+        {
+          "name": "currentstatus",
+          "type": "STATUS",
+          "offset": null,
+          "slot": null
+        }
+      ]
+    },
+    "mappings": [
+      {
+        "name": "balances",
+        "key_type": "address",
+        "value_type": "uint256 amount"
+      },
+      {
+        "name": "escrow",
+        "key_type": "uint256 value",
+        "value_type": "Create Escrow"
+      }
+    ],
+    "arrays": [],
+    "events": [
+      "CreateEscrow(uint256,address)"
+    ],
+    "calls": [
+      {
+        "kind": "internal",
+        "from": "createescrow",
+        "to_contract": "Escrow",
+        "to_function": "Create",
+        "via": null,
+        "interface": null,
+        "argument_names": [
+          "sender",
+          "recipient",
+          "value",
+          "waiting"
+        ],
+        "line": 32,
+        "certainty": "AST",
+        "source": "compiler-ast"
+      },
+      {
+        "kind": "internal",
+        "from": "createescrow",
+        "to_contract": "Escrow",
+        "to_function": "CreateEscrow",
+        "via": null,
+        "interface": null,
+        "argument_names": [
+          "value",
+          "sender"
+        ],
+        "line": 38,
+        "certainty": "AST",
+        "source": "compiler-ast"
+      },
+      {
+        "kind": "internal",
+        "from": "acceptescrow",
+        "to_contract": "Escrow",
+        "to_function": "revert",
+        "via": null,
+        "interface": null,
+        "argument_names": [],
+        "line": 47,
+        "certainty": "AST",
+        "source": "compiler-ast"
+      },
+      {
+        "kind": "internal",
+        "from": "acceptescrow",
+        "to_contract": "Escrow",
+        "to_function": "require",
+        "via": null,
+        "interface": null,
+        "argument_names": [
+          "accept",
+          "<literal>"
+        ],
+        "line": 52,
+        "certainty": "AST",
+        "source": "compiler-ast"
+      },
+      {
+        "kind": "internal",
+        "from": "release",
+        "to_contract": "Escrow",
+        "to_function": "require",
+        "via": null,
+        "interface": null,
+        "argument_names": [
+          "<expression>",
+          "<literal>"
+        ],
+        "line": 58,
+        "certainty": "AST",
+        "source": "compiler-ast"
+      },
+      {
+        "kind": "internal",
+        "from": "release",
+        "to_contract": "Escrow",
+        "to_function": "transferfailed",
+        "via": null,
+        "interface": null,
+        "argument_names": [],
+        "line": 64,
+        "certainty": "AST",
+        "source": "compiler-ast"
+      }
+    ],
+    "kind": "contract",
+    "function_locations": {
+      "createescrow": 31,
+      "getBalance": 43,
+      "acceptescrow": 47,
+      "release": 61
+    },
+    "type_bindings": {
+      "amount": "indexed",
+      "creator": "indexed",
+      "balances": "public",
+      "Escrow": "Create",
+      "escrow": "public",
+      "currentstatus": "STATUS"
+    },
+    "imports": [],
+    "semantics": {
+      "createescrow()": {
+        "reads": [
+          "balances",
+          "escrow"
+        ],
+        "writes": [
+          "balances",
+          "escrow"
+        ],
+        "guards": [],
+        "creates": [],
+        "emits": [
+          "CreateEscrow"
+        ],
+        "external_calls": [],
+        "inputs": [
+          {
+            "name": "amount",
+            "source": "uint256 amount"
+          },
+          {
+            "name": "recipient",
+            "source": "address recipient"
+          }
+        ],
+        "line": 31
+      },
+      "getBalance()": {
+        "reads": [
+          "balances"
+        ],
+        "writes": [],
+        "guards": [],
+        "creates": [],
+        "emits": [],
+        "external_calls": [],
+        "inputs": [
+          {
+            "name": "user",
+            "source": "address user"
+          }
+        ],
+        "line": 43
+      },
+      "acceptescrow()": {
+        "reads": [
+          "escrow"
+        ],
+        "writes": [
+          "escrow"
+        ],
+        "guards": [
+          "require(accept, \"rejected\")",
+          "require(escrow[1].recipient != msg.sender, \"not recipient\")"
+        ],
+        "creates": [],
+        "emits": [],
+        "external_calls": [],
+        "inputs": [
+          {
+            "name": "accept",
+            "source": "bool accept"
+          }
+        ],
+        "line": 47
+      },
+      "release()": {
+        "reads": [
+          "escrow"
+        ],
+        "writes": [
+          "escrow"
+        ],
+        "guards": [
+          "require(escrow[1].currentstatus == STATUS.funded, \"not accepted\")",
+          "require(escrow[1].creator == msg.sender, \"not creator\")",
+          "if(!success) -> revert transferfailed"
+        ],
+        "creates": [],
+        "emits": [],
+        "external_calls": [],
+        "inputs": [],
+        "line": 61
+      }
+    }
+  },
+  "contracts": [
+    {
+      "name": "Escrow",
+      "source": "src/EthEscrow.sol",
+      "artifact": "out/EthEscrow.sol/Escrow.json",
+      "abi": [
+        {
+          "type": "function",
+          "name": "acceptescrow",
+          "inputs": [
+            {
+              "name": "accept",
+              "type": "bool",
+              "internalType": "bool"
+            }
+          ],
+          "outputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "function",
+          "name": "balances",
+          "inputs": [
+            {
+              "name": "",
+              "type": "address",
+              "internalType": "address"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "amount",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ],
+          "stateMutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "createescrow",
+          "inputs": [
+            {
+              "name": "amount",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "recipient",
+              "type": "address",
+              "internalType": "address"
+            }
+          ],
+          "outputs": [],
+          "stateMutability": "payable"
+        },
+        {
+          "type": "function",
+          "name": "escrow",
+          "inputs": [
+            {
+              "name": "value",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "creator",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "recipient",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "amount",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "currentstatus",
+              "type": "uint8",
+              "internalType": "enum Escrow.STATUS"
+            }
+          ],
+          "stateMutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "getBalance",
+          "inputs": [
+            {
+              "name": "user",
+              "type": "address",
+              "internalType": "address"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "",
+              "type": "uint256",
+              "internalType": "uint256"
+            }
+          ],
+          "stateMutability": "view"
+        },
+        {
+          "type": "function",
+          "name": "release",
+          "inputs": [],
+          "outputs": [],
+          "stateMutability": "nonpayable"
+        },
+        {
+          "type": "event",
+          "name": "CreateEscrow",
+          "inputs": [
+            {
+              "name": "amount",
+              "type": "uint256",
+              "indexed": true,
+              "internalType": "uint256"
+            },
+            {
+              "name": "creator",
+              "type": "address",
+              "indexed": true,
+              "internalType": "address"
+            }
+          ],
+          "anonymous": false
+        },
+        {
+          "type": "error",
+          "name": "transferfailed",
+          "inputs": []
+        }
+      ],
+      "storage": {
+        "storage": [
+          {
+            "astId": 13,
+            "contract": "src/EthEscrow.sol:Escrow",
+            "label": "balances",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_mapping(t_address,t_uint256)"
+          },
+          {
+            "astId": 18,
+            "contract": "src/EthEscrow.sol:Escrow",
+            "label": "escrow",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_mapping(t_uint256,t_struct(Create)33_storage)"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "encoding": "inplace",
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_enum(STATUS)23": {
+            "encoding": "inplace",
+            "label": "enum Escrow.STATUS",
+            "numberOfBytes": "1"
+          },
+          "t_mapping(t_address,t_uint256)": {
+            "encoding": "mapping",
+            "key": "t_address",
+            "label": "mapping(address => uint256)",
+            "numberOfBytes": "32",
+            "value": "t_uint256"
+          },
+          "t_mapping(t_uint256,t_struct(Create)33_storage)": {
+            "encoding": "mapping",
+            "key": "t_uint256",
+            "label": "mapping(uint256 => struct Escrow.Create)",
+            "numberOfBytes": "32",
+            "value": "t_struct(Create)33_storage"
+          },
+          "t_struct(Create)33_storage": {
+            "encoding": "inplace",
+            "label": "struct Escrow.Create",
+            "numberOfBytes": "128",
+            "members": [
+              {
+                "astId": 25,
+                "contract": "src/EthEscrow.sol:Escrow",
+                "label": "creator",
+                "offset": 0,
+                "slot": "0",
+                "type": "t_address"
+              },
+              {
+                "astId": 27,
+                "contract": "src/EthEscrow.sol:Escrow",
+                "label": "recipient",
+                "offset": 0,
+                "slot": "1",
+                "type": "t_address"
+              },
+              {
+                "astId": 29,
+                "contract": "src/EthEscrow.sol:Escrow",
+                "label": "amount",
+                "offset": 0,
+                "slot": "2",
+                "type": "t_uint256"
+              },
+              {
+                "astId": 32,
+                "contract": "src/EthEscrow.sol:Escrow",
+                "label": "currentstatus",
+                "offset": 0,
+                "slot": "3",
+                "type": "t_enum(STATUS)23"
+              }
+            ]
+          },
+          "t_uint256": {
+            "encoding": "inplace",
+            "label": "uint256",
+            "numberOfBytes": "32"
+          }
+        }
+      },
+      "bases": [],
+      "functions": [
+        "acceptescrow(bool)",
+        "balances(address)",
+        "createescrow(uint256,address)",
+        "escrow(uint256)",
+        "getBalance(address)",
+        "release()"
+      ],
+      "modifiers": [
+        "onlyrecipient"
+      ],
+      "structs": {
+        "Create": [
+          {
+            "name": "creator",
+            "type": "address",
+            "offset": null,
+            "slot": null
+          },
+          {
+            "name": "recipient",
+            "type": "address",
+            "offset": null,
+            "slot": null
+          },
+          {
+            "name": "amount",
+            "type": "uint256",
+            "offset": null,
+            "slot": null
+          },
+          {
+            "name": "currentstatus",
+            "type": "STATUS",
+            "offset": null,
+            "slot": null
+          }
+        ]
+      },
+      "mappings": [
+        {
+          "name": "balances",
+          "key_type": "address",
+          "value_type": "uint256 amount"
+        },
+        {
+          "name": "escrow",
+          "key_type": "uint256 value",
+          "value_type": "Create Escrow"
+        }
+      ],
+      "arrays": [],
+      "events": [
+        "CreateEscrow(uint256,address)"
+      ],
+      "calls": [
+        {
+          "kind": "internal",
+          "from": "createescrow",
+          "to_contract": "Escrow",
+          "to_function": "Create",
+          "via": null,
+          "interface": null,
+          "argument_names": [
+            "sender",
+            "recipient",
+            "value",
+            "waiting"
+          ],
+          "line": 32,
+          "certainty": "AST",
+          "source": "compiler-ast"
+        },
+        {
+          "kind": "internal",
+          "from": "createescrow",
+          "to_contract": "Escrow",
+          "to_function": "CreateEscrow",
+          "via": null,
+          "interface": null,
+          "argument_names": [
+            "value",
+            "sender"
+          ],
+          "line": 38,
+          "certainty": "AST",
+          "source": "compiler-ast"
+        },
+        {
+          "kind": "internal",
+          "from": "acceptescrow",
+          "to_contract": "Escrow",
+          "to_function": "revert",
+          "via": null,
+          "interface": null,
+          "argument_names": [],
+          "line": 47,
+          "certainty": "AST",
+          "source": "compiler-ast"
+        },
+        {
+          "kind": "internal",
+          "from": "acceptescrow",
+          "to_contract": "Escrow",
+          "to_function": "require",
+          "via": null,
+          "interface": null,
+          "argument_names": [
+            "accept",
+            "<literal>"
+          ],
+          "line": 52,
+          "certainty": "AST",
+          "source": "compiler-ast"
+        },
+        {
+          "kind": "internal",
+          "from": "release",
+          "to_contract": "Escrow",
+          "to_function": "require",
+          "via": null,
+          "interface": null,
+          "argument_names": [
+            "<expression>",
+            "<literal>"
+          ],
+          "line": 58,
+          "certainty": "AST",
+          "source": "compiler-ast"
+        },
+        {
+          "kind": "internal",
+          "from": "release",
+          "to_contract": "Escrow",
+          "to_function": "transferfailed",
+          "via": null,
+          "interface": null,
+          "argument_names": [],
+          "line": 64,
+          "certainty": "AST",
+          "source": "compiler-ast"
+        }
+      ],
+      "kind": "contract",
+      "function_locations": {
+        "createescrow": 31,
+        "getBalance": 43,
+        "acceptescrow": 47,
+        "release": 61
+      },
+      "type_bindings": {
+        "amount": "indexed",
+        "creator": "indexed",
+        "balances": "public",
+        "Escrow": "Create",
+        "escrow": "public",
+        "currentstatus": "STATUS"
+      },
+      "imports": [],
+      "semantics": {
+        "createescrow()": {
+          "reads": [
+            "balances",
+            "escrow"
+          ],
+          "writes": [
+            "balances",
+            "escrow"
+          ],
+          "guards": [],
+          "creates": [],
+          "emits": [
+            "CreateEscrow"
+          ],
+          "external_calls": [],
+          "inputs": [
+            {
+              "name": "amount",
+              "source": "uint256 amount"
+            },
+            {
+              "name": "recipient",
+              "source": "address recipient"
+            }
+          ],
+          "line": 31
+        },
+        "getBalance()": {
+          "reads": [
+            "balances"
+          ],
+          "writes": [],
+          "guards": [],
+          "creates": [],
+          "emits": [],
+          "external_calls": [],
+          "inputs": [
+            {
+              "name": "user",
+              "source": "address user"
+            }
+          ],
+          "line": 43
+        },
+        "acceptescrow()": {
+          "reads": [
+            "escrow"
+          ],
+          "writes": [
+            "escrow"
+          ],
+          "guards": [
+            "require(accept, \"rejected\")",
+            "require(escrow[1].recipient != msg.sender, \"not recipient\")"
+          ],
+          "creates": [],
+          "emits": [],
+          "external_calls": [],
+          "inputs": [
+            {
+              "name": "accept",
+              "source": "bool accept"
+            }
+          ],
+          "line": 47
+        },
+        "release()": {
+          "reads": [
+            "escrow"
+          ],
+          "writes": [
+            "escrow"
+          ],
+          "guards": [
+            "require(escrow[1].currentstatus == STATUS.funded, \"not accepted\")",
+            "require(escrow[1].creator == msg.sender, \"not creator\")",
+            "if(!success) -> revert transferfailed"
+          ],
+          "creates": [],
+          "emits": [],
+          "external_calls": [],
+          "inputs": [],
+          "line": 61
+        }
+      }
+    }
+  ],
+  "actors": [
+    {
+      "name": "lab-deployer",
+      "address": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+      "index": 0
+    },
+    {
+      "name": "Bob",
+      "address": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "index": 1
+    },
+    {
+      "name": "attacker",
+      "address": "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+      "index": 2
+    },
+    {
+      "name": "Anvil #3",
+      "address": "0x90f79bf6eb2c4f870365e785982e1f101e93b906",
+      "index": 3
+    }
+  ],
+  "workflow": [
+    {
+      "index": 1,
+      "actor": "lab-deployer",
+      "contract": "Escrow",
+      "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+      "function": "createescrow(uint256,address)",
+      "args": [
+        1000000000000000000,
+        "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
+      ],
+      "value_wei": 0,
+      "reason": "source-guided bootstrap phase",
+      "inferred": true,
+      "status": "success",
+      "tx_hash": "0xad8fe3804c488a3a4c7995f638cf56ccbc678dc2e1021994f7228ba9f69cb073",
+      "calldata": "0x294861d50000000000000000000000000000000000000000000000000de0b6b3a764000000000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "gas_used": 75552,
+      "gas_price_wei": 265351510,
+      "gas_cost_wei": 20047837283520,
+      "error": null,
+      "events": [
+        {
+          "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+          "topics": [
+            "0xff741f7e0319d8b73bdf67046fd8ecbe5e3fa28d1319cf02e01443191d34b97a",
+            "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "0x000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+          ],
+          "data": "0x",
+          "event": "CreateEscrow(uint256,address)",
+          "decoded": "Event: CreateEscrow(uint256,address)\nIndexed amount: 0\nIndexed creator: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+        }
+      ],
+      "trace_edges": [
+        "CALL to=0x8a791620dd6260079bf849dc5567adc3f2fdc318"
+      ],
+      "storage_before": [],
+      "storage_after": [],
+      "storage_changes": [],
+      "balance_before": {
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266": 99999778508111066738,
+        "0x70997970c51812dc3a010c7d01b50e0d17dc79c8": 10000000000000000000000,
+        "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc": 10000000000000000000000,
+        "0x90f79bf6eb2c4f870365e785982e1f101e93b906": 10000000000000000000000,
+        "0x8a791620dd6260079bf849dc5567adc3f2fdc318": 0
+      },
+      "balance_after": {
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266": 99999758460273783218,
+        "0x70997970c51812dc3a010c7d01b50e0d17dc79c8": 10000000000000000000000,
+        "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc": 10000000000000000000000,
+        "0x90f79bf6eb2c4f870365e785982e1f101e93b906": 10000000000000000000000,
+        "0x8a791620dd6260079bf849dc5567adc3f2fdc318": 0
+      },
+      "token_balance_before": {},
+      "token_balance_after": {},
+      "error_reason": "preflight passed and the live transaction was accepted",
+      "discovered_contracts": [],
+      "preflight": "0x",
+      "runtime_contracts": [
+        {
+          "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+          "model": "Deployed Contract",
+          "label": "Deployed Contract",
+          "relation": "target",
+          "parent": null,
+          "discovered_at_step": 0,
+          "implementation": null
+        }
+      ],
+      "execution_edges": [
+        {
+          "type": "CALL",
+          "to_address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+          "from_contract": "caller",
+          "to_contract": "Escrow",
+          "function": "createescrow(uint256,address)",
+          "depth": 0,
+          "value_wei": 0,
+          "error": null,
+          "revert": null,
+          "to_label": "Deployed Contract"
+        }
+      ],
+      "failure_origin": null,
+      "diagnostics": []
+    },
+    {
+      "index": 2,
+      "actor": "lab-deployer",
+      "contract": "Escrow",
+      "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+      "function": "acceptescrow(bool)",
+      "args": [
+        true
+      ],
+      "value_wei": 0,
+      "reason": "source-guided workflow phase",
+      "inferred": true,
+      "status": "blocked",
+      "tx_hash": null,
+      "calldata": null,
+      "gas_used": null,
+      "gas_price_wei": null,
+      "gas_cost_wei": null,
+      "error": "PRECONDITION BLOCKED: Error: server returned an error response: error code 3: execution reverted, data: \"0x\"",
+      "events": [],
+      "trace_edges": [],
+      "storage_before": [],
+      "storage_after": [],
+      "storage_changes": [],
+      "balance_before": {},
+      "balance_after": {},
+      "token_balance_before": {},
+      "token_balance_after": {},
+      "error_reason": "the node returned an empty revert payload; a dependency call or ABI decoding step likely failed before a custom error was returned",
+      "discovered_contracts": [],
+      "preflight": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\"",
+      "runtime_contracts": [],
+      "execution_edges": [],
+      "failure_origin": null,
+      "diagnostics": [
+        "source guard: require(accept, \"rejected\")",
+        "source guard: require(escrow[1].recipient != msg.sender, \"not recipient\")",
+        "state write candidate: escrow"
+      ]
+    },
+    {
+      "index": 3,
+      "actor": "lab-deployer",
+      "contract": "Escrow",
+      "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+      "function": "release()",
+      "args": [],
+      "value_wei": 0,
+      "reason": "source-guided workflow phase",
+      "inferred": true,
+      "status": "blocked",
+      "tx_hash": null,
+      "calldata": null,
+      "gas_used": null,
+      "gas_price_wei": null,
+      "gas_cost_wei": null,
+      "error": "PRECONDITION BLOCKED: Error: execution reverted: not accepted\n\nContext:\n- server returned an error response: error code 3: execution reverted: not accepted, data: \"0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000c6e6f742061636365707465640000000000000000000000000000000000000000\"",
+      "events": [],
+      "trace_edges": [],
+      "storage_before": [],
+      "storage_after": [],
+      "storage_changes": [],
+      "balance_before": {},
+      "balance_after": {},
+      "token_balance_before": {},
+      "token_balance_after": {},
+      "error_reason": "the contract rejected this call under the current on-chain state",
+      "discovered_contracts": [],
+      "preflight": "Error: execution reverted: not accepted\n\nContext:\n- server returned an error response: error code 3: execution reverted: not accepted, data: \"0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000c6e6f742061636365707465640000000000000000000000000000000000000000\"",
+      "runtime_contracts": [],
+      "execution_edges": [],
+      "failure_origin": null,
+      "diagnostics": [
+        "source guard: require(escrow[1].currentstatus == STATUS.funded, \"not accepted\")",
+        "source guard: require(escrow[1].creator == msg.sender, \"not creator\")",
+        "source guard: if(!success) -> revert transferfailed",
+        "state write candidate: escrow"
+      ]
+    },
+    {
+      "index": 4,
+      "actor": "lab-deployer",
+      "contract": "Escrow",
+      "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+      "function": "release()",
+      "args": [],
+      "value_wei": 0,
+      "reason": "source-guided workflow phase",
+      "inferred": true,
+      "status": "blocked",
+      "tx_hash": null,
+      "calldata": null,
+      "gas_used": null,
+      "gas_price_wei": null,
+      "gas_cost_wei": null,
+      "error": "PRECONDITION BLOCKED: Error: execution reverted: not accepted\n\nContext:\n- server returned an error response: error code 3: execution reverted: not accepted, data: \"0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000c6e6f742061636365707465640000000000000000000000000000000000000000\"",
+      "events": [],
+      "trace_edges": [],
+      "storage_before": [],
+      "storage_after": [],
+      "storage_changes": [],
+      "balance_before": {},
+      "balance_after": {},
+      "token_balance_before": {},
+      "token_balance_after": {},
+      "error_reason": "the contract rejected this call under the current on-chain state",
+      "discovered_contracts": [],
+      "preflight": "Error: execution reverted: not accepted\n\nContext:\n- server returned an error response: error code 3: execution reverted: not accepted, data: \"0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000c6e6f742061636365707465640000000000000000000000000000000000000000\"",
+      "runtime_contracts": [],
+      "execution_edges": [],
+      "failure_origin": null,
+      "diagnostics": [
+        "source guard: require(escrow[1].currentstatus == STATUS.funded, \"not accepted\")",
+        "source guard: require(escrow[1].creator == msg.sender, \"not creator\")",
+        "source guard: if(!success) -> revert transferfailed",
+        "state write candidate: escrow"
+      ]
+    },
+    {
+      "index": 5,
+      "actor": "lab-deployer",
+      "contract": "Escrow",
+      "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+      "function": "acceptescrow(bool)",
+      "args": [
+        true
+      ],
+      "value_wei": 0,
+      "reason": "source-guided workflow phase",
+      "inferred": true,
+      "status": "blocked",
+      "tx_hash": null,
+      "calldata": null,
+      "gas_used": null,
+      "gas_price_wei": null,
+      "gas_cost_wei": null,
+      "error": "PRECONDITION BLOCKED: Error: server returned an error response: error code 3: execution reverted, data: \"0x\"",
+      "events": [],
+      "trace_edges": [],
+      "storage_before": [],
+      "storage_after": [],
+      "storage_changes": [],
+      "balance_before": {},
+      "balance_after": {},
+      "token_balance_before": {},
+      "token_balance_after": {},
+      "error_reason": "the node returned an empty revert payload; a dependency call or ABI decoding step likely failed before a custom error was returned",
+      "discovered_contracts": [],
+      "preflight": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\"",
+      "runtime_contracts": [],
+      "execution_edges": [],
+      "failure_origin": null,
+      "diagnostics": [
+        "source guard: require(accept, \"rejected\")",
+        "source guard: require(escrow[1].recipient != msg.sender, \"not recipient\")",
+        "state write candidate: escrow"
+      ]
+    }
+  ],
+  "runtime_contracts": [
+    {
+      "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+      "model": "Deployed Contract",
+      "label": "Deployed Contract",
+      "relation": "target",
+      "parent": null,
+      "discovered_at_step": 0,
+      "implementation": null
+    }
+  ]
+}

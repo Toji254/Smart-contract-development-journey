@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lowkey transaction 0xcb6b9122…55743512</title>
+<style>
+body{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;max-width:1050px;margin:32px auto;padding:0 20px;background:#111;color:#eee}
+h1{font-size:22px} h2{font-size:16px;margin-top:28px} .ok{color:#7ee787} .bad{color:#ff7b72}
+.card{border:1px solid #333;border-radius:10px;padding:16px;margin:14px 0;background:#181818}
+.grid{display:grid;grid-template-columns:180px 1fr;gap:8px 18px} code{word-break:break-all}
+a{color:#79c0ff} pre{white-space:pre-wrap;word-break:break-word}
+</style>
+</head>
+<body>
+<h1>LOWKEY // TRANSACTION CONFIRMATION</h1>
+<div class="card"><div class="ok"><b>CONFIRMED / SUCCESS</b></div>
+<div><b>Tx:</b> <code>0xcb6b912266c8315a46c6a471d3285a04005568f5435af03e62d8bfe655743512</code></div>
+<div><b>Function:</b> createescrow(uint256,address)</div>
+<div><b>Actor:</b> Anvil #3</div>
+<div><b>Contract:</b> Escrow @ <code>0xe7f1725e7734ce288f8367e1bb143e90bb3f0512</code></div></div>
+
+<h2>ON-CHAIN TRANSACTION</h2>
+<div class="card"><div class="grid">
+<div>block</div><div>5</div>
+<div>from</div><div><code>0x90f79bf6eb2c4f870365e785982e1f101e93b906</code></div>
+<div>to</div><div><code>0xe7f1725e7734ce288f8367e1bb143e90bb3f0512</code></div>
+<div>value</div><div>1000000000000000 wei</div>
+<div>nonce</div><div>0x0</div>
+<div>gas used</div><div>78292</div>
+<div>gas limit</div><div>0x13456</div>
+<div>input</div><div><code>0x294861d5000000000000000000000000000000000000000000000000000000000000000100000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c8</code></div>
+</div></div>
+
+<h2>LOWKEY OBSERVATION</h2>
+<div class="card"><pre>{
+  &quot;args&quot;: [
+    1,
+    &quot;0x70997970c51812dc3a010c7d01b50e0d17dc79c8&quot;
+  ],
+  &quot;value_wei&quot;: 1000000000000000,
+  &quot;status&quot;: &quot;success&quot;,
+  &quot;gas_used&quot;: null,
+  &quot;calldata&quot;: null
+}</pre></div>
+
+<h2>EVENTS</h2><div class="card"><ul><li>(&#x27;CreateEscrow(uint256,address)&#x27;, &#x27;Event: CreateEscrow(uint256,address)\nIndexed amount: 1000000000000000 [1e15]\nIndexed creator: 0x90F79bf6EB2c4f870365E785982E1f101E93b906&#x27;)</li></ul></div>
+
+<h2>CONFIRM YOURSELF</h2>
+<div class="card"><div>RPC: <code>http://127.0.0.1:8545</code></div><p><code>cast tx 0xcb6b912266c8315a46c6a471d3285a04005568f5435af03e62d8bfe655743512 --rpc-url http://127.0.0.1:8545</code></p><p><code>cast receipt 0xcb6b912266c8315a46c6a471d3285a04005568f5435af03e62d8bfe655743512 --rpc-url http://127.0.0.1:8545</code></p></div>
+</body>
+</html>

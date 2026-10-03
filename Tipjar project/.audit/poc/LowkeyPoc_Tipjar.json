@@ -1,0 +1,55 @@
+{
+  "calldata": "d0e30db0",
+  "evidence": {
+    "candidate": {
+      "actions": [],
+      "category": null,
+      "check": null,
+      "column": null,
+      "confidence": null,
+      "description": null,
+      "evidence_count": 0,
+      "file": null,
+      "function": null,
+      "id": null,
+      "impact": null,
+      "line": null,
+      "meaning": null,
+      "mode": "generic",
+      "next": null,
+      "pattern_id": null,
+      "title": null,
+      "tool": null,
+      "verification": null,
+      "verification_status": null
+    },
+    "focused_signal": null,
+    "latest": {
+      "calldata": "0xd0e30db0",
+      "function": "deposit()",
+      "state_diff": null,
+      "trace": null,
+      "tx_hash": "0xed41eb5a81296fe1f7426047d72ebefbd72efb7d1abd5205fa9e1db20609ba22",
+      "value": "1 wei"
+    },
+    "open_signals": 4,
+    "tools": {
+      "forge_build": null,
+      "forge_coverage": "completed",
+      "forge_tests": null,
+      "receipt": null,
+      "risk_functions": null,
+      "slither_findings": 3,
+      "source_triage_markers": null,
+      "trace": null
+    }
+  },
+  "function": "deposit()",
+  "generated_at": "2026-10-03T07:03:02",
+  "kind": "poc",
+  "note": "Audit context is carried forward for investigation. Validate the security property before treating this as a confirmed finding.",
+  "output": "/home/rogue/Smart-contract-development-journey/Tipjar project/script/LowkeyPoC_Tipjar.s.sol",
+  "status": "scaffold",
+  "target": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+  "value": "1 wei"
+}

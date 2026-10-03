@@ -1,0 +1,202 @@
+{
+  "actor": "lab-deployer (Anvil #0, 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266)",
+  "focus": {
+    "column": 5,
+    "file": "src/EthEscrow.sol",
+    "function": null,
+    "line": 13,
+    "signal_id": "SLITHER-A9C9584A34",
+    "title": "Naming convention",
+    "tool": "slither",
+    "updated_at": "2026-09-29T02:07:57+00:00"
+  },
+  "latest": {
+    "calldata": "0x294861d50000000000000000000000000000000000000000000000000de0b6b3a764000000000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "function": "createescrow(uint256,address)",
+    "state_diff": "recorded",
+    "trace": null,
+    "tx_hash": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+    "value": "0 wei"
+  },
+  "project": {
+    "backend": "foundry",
+    "kind": "foundry",
+    "languages": {
+      "solidity": 8
+    },
+    "name": "ETH Escrow",
+    "root": "/home/rogue/Smart-contract-development-journey/ETH Escrow",
+    "stacks": [
+      "foundry"
+    ]
+  },
+  "rpc": "http://127.0.0.1:8545",
+  "schema_version": 1,
+  "signals": [
+    {
+      "actions": [
+        "doctor",
+        "build"
+      ],
+      "check": "solc-version",
+      "column": 1,
+      "confidence": "High",
+      "description": "The project accepts Solidity compiler versions allowed by '^0.8.20', including releases that Slither flags for known compiler issues.",
+      "file": "src/EthEscrow.sol",
+      "first_seen": "2026-09-23T14:57:30+00:00",
+      "function": null,
+      "id": "SLITHER-ECFC4BA5CE",
+      "impact": "Informational",
+      "last_seen": "2026-09-23T14:57:30+00:00",
+      "line": 3,
+      "meaning": "The project allows a Solidity compiler version that Slither associates with known compiler bugs.",
+      "next": "Check the exact compiler version used by Foundry, compare it with the Solidity bug list, and pin a patched version that is compatible with the project.",
+      "status": "investigating",
+      "title": "Compiler version",
+      "tool": "slither",
+      "updated_at": "2026-09-23T14:56:07+00:00",
+      "why": "A compiler bug can change how otherwise-correct Solidity behaves after compilation. This is a build-safety issue, not proof that the contract is exploitable."
+    },
+    {
+      "actions": [
+        "functions",
+        "ask",
+        "state-diff",
+        "trace",
+        "generate test"
+      ],
+      "check": "low-level-calls",
+      "column": 5,
+      "confidence": "High",
+      "description": "The function release() makes a raw external call that can execute code in the receiving address.",
+      "evidence": [
+        {
+          "actor": "attacker",
+          "calldata": "86d1a69f",
+          "caller": "attacker",
+          "captured_at": "2026-09-23T15:42:42+00:00",
+          "changes_expected": 0,
+          "eth_sent_wei": 0,
+          "fallback_writes": 0,
+          "function": "release()",
+          "gas": 234368,
+          "generated_test": "test/Lowkey_state_diff_release_4b921bd835.t.sol",
+          "id": "STATE-DIFF-E208D8634532",
+          "kind": "state-diff",
+          "state_diff_json": false,
+          "storage_changes": [],
+          "success": true
+        }
+      ],
+      "file": "src/EthEscrow.sol",
+      "first_seen": "2026-09-23T14:57:30+00:00",
+      "function": "release()",
+      "id": "SLITHER-8AC4CA7688",
+      "impact": "Informational",
+      "last_seen": "2026-09-23T14:57:30+00:00",
+      "line": 61,
+      "meaning": "The contract sends a call directly to another address instead of using a higher-level typed call.",
+      "next": "Inspect the full calling function and trace the state changes before and after the call. Then reproduce the path with a hostile recipient in a Foundry test.",
+      "status": "investigating",
+      "title": "Low-level external call",
+      "tool": "slither",
+      "updated_at": "2026-09-23T15:42:42+00:00",
+      "why": "The callee can control how that call behaves. Review reentrancy, return-value handling, recipient control, and whether state is updated safely around the call."
+    },
+    {
+      "actions": [
+        "fmt"
+      ],
+      "check": "naming-convention",
+      "column": 5,
+      "confidence": "High",
+      "description": "The enum 'status' uses a naming style that does not match the project's expected Solidity convention.",
+      "file": "src/EthEscrow.sol",
+      "first_seen": "2026-09-23T14:57:30+00:00",
+      "function": null,
+      "id": "SLITHER-A9C9584A34",
+      "impact": "Informational",
+      "last_seen": "2026-09-23T14:57:30+00:00",
+      "line": 13,
+      "meaning": "A Solidity identifier does not follow the naming convention configured or expected by Slither.",
+      "next": "Rename it only if the project's style guide requires it. Do not treat this finding as a vulnerability.",
+      "status": "investigating",
+      "title": "Naming convention",
+      "tool": "slither",
+      "updated_at": "2026-09-29T02:07:57+00:00",
+      "why": "This is primarily a readability and maintainability issue. It normally has no direct security impact."
+    }
+  ],
+  "target": {
+    "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+    "artifact": "/home/rogue/Smart-contract-development-journey/ETH Escrow/out/EthEscrow.sol/Escrow.json",
+    "contract": "Escrow",
+    "source": "project-lab"
+  },
+  "tools": {
+    "audit": {
+      "backend": "foundry",
+      "exit_code": 0,
+      "status": "completed",
+      "summary": "connected Foundry audit pipeline",
+      "updated_at": "2026-09-29T02:38:51+00:00"
+    },
+    "forge": {
+      "last_command": "test",
+      "last_exit_code": 0,
+      "status": "completed",
+      "summary": "forge test",
+      "updated_at": "2026-09-29T02:38:48+00:00"
+    },
+    "forge-build": {
+      "exit_code": 0,
+      "status": "completed",
+      "summary": "build audit step",
+      "updated_at": "2026-09-29T02:38:48+00:00"
+    },
+    "forge-coverage": {
+      "attempts": 1,
+      "exit_code": 0,
+      "status": "completed",
+      "summary": "coverage audit step",
+      "updated_at": "2026-09-29T02:38:50+00:00"
+    },
+    "forge-tests": {
+      "exit_code": 0,
+      "status": "completed",
+      "summary": "tests audit step",
+      "updated_at": "2026-09-29T02:38:48+00:00"
+    },
+    "generator": {
+      "calldata_present": true,
+      "candidate_mode": "generic",
+      "candidate_signal": null,
+      "contract": "Escrow",
+      "evidence_brief": "/home/rogue/Smart-contract-development-journey/ETH Escrow/.audit/poc/LowkeyPoc_Escrow.json",
+      "function": "createescrow(uint256,address)",
+      "mode": "poc",
+      "output": "/home/rogue/Smart-contract-development-journey/ETH Escrow/script/LowkeyPoC_Escrow.s.sol",
+      "placeholder": false,
+      "status": "completed",
+      "summary": "poc artifact generated",
+      "target": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+      "updated_at": "2026-09-29T11:51:06+00:00"
+    },
+    "slither": {
+      "finding_count": 3,
+      "json": "/home/rogue/Smart-contract-development-journey/ETH Escrow/.audit/slither/latest.json",
+      "sarif": "/home/rogue/Smart-contract-development-journey/ETH Escrow/.audit/slither/latest.sarif",
+      "status": "completed",
+      "summary": "3 static-analysis finding(s) reported",
+      "updated_at": "2026-09-23T14:57:30+00:00"
+    },
+    "state-diff": {
+      "function": "release()",
+      "generated_test": "test/Lowkey_state_diff_release_4b921bd835.t.sol",
+      "status": "completed",
+      "summary": "0 storage change(s)",
+      "updated_at": "2026-09-23T15:42:42+00:00"
+    }
+  },
+  "updated_at": "2026-09-29T11:51:06+00:00"
+}

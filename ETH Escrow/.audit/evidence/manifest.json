@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "records": {
+    "source_triage": {
+      "file": ".audit/evidence/source_triage.json",
+      "recorded_at": "2026-09-29T05:38:44"
+    }
+  }
+}

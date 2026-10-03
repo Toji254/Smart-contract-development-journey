@@ -1,0 +1,19 @@
+[
+  {
+    "accepted": 7,
+    "cases": 24,
+    "contract": "Tipjar",
+    "finding_pattern_confirmed": 0,
+    "finding_patterns": 1,
+    "highlights": [
+      "chain accepted: deposit, renounceOwnership"
+    ],
+    "reverted": 17,
+    "run_id": "20261003T070302-1791000167",
+    "seed": 1791000167,
+    "stateful_confirmed": 0,
+    "stateful_stories": 0,
+    "target": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+    "timestamp": "2026-10-03 07:03:02"
+  }
+]

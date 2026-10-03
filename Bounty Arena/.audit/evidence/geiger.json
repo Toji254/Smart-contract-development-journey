@@ -1,0 +1,13 @@
+{
+  "kind": "geiger",
+  "recorded_at": "2026-09-27T05:11:44",
+  "data": {
+    "command": [
+      "forge",
+      "geiger"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": "Warning: `forge geiger` is deprecated, as it is just an alias for `forge lint --only-lint unsafe-cheatcode`\n\n"
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Slither",
+          "informationUri": "https://github.com/crytic/slither",
+          "version": "0.11.6",
+          "rules": [
+            {
+              "id": "2-1-missing-zero-check",
+              "name": "missing-zero-check",
+              "properties": {
+                "precision": "high",
+                "security-severity": "3.0"
+              },
+              "shortDescription": {
+                "text": "Missing zero address validation"
+              },
+              "help": {
+                "text": "Check that the address is not zero."
+              }
+            },
+            {
+              "id": "3-0-solc-version",
+              "name": "solc-version",
+              "properties": {
+                "precision": "very-high",
+                "security-severity": "0.0"
+              },
+              "shortDescription": {
+                "text": "Incorrect versions of Solidity"
+              },
+              "help": {
+                "text": "\nDeploy with a recent version of Solidity (at least 0.8.0) with no known severe issues.\n\nUse a simple pragma version that allows any of these versions.\nConsider using the latest version of Solidity for testing."
+              }
+            },
+            {
+              "id": "3-0-low-level-calls",
+              "name": "low-level-calls",
+              "properties": {
+                "precision": "very-high",
+                "security-severity": "0.0"
+              },
+              "shortDescription": {
+                "text": "Low-level calls"
+              },
+              "help": {
+                "text": "Avoid low-level calls. Check the call success. If the call is meant for a contract, check for code existence."
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "2-1-missing-zero-check",
+          "message": {
+            "text": "Tipjar.withdraw(address,uint256).to (src/Tipjar2.sol#15) lacks a zero-check on :\n\t\t- (success,None) = address(to).call{value: amount}() (src/Tipjar2.sol#18)\n",
+            "markdown": "[Tipjar.withdraw(address,uint256).to](src/Tipjar2.sol#L15) lacks a zero-check on :\n\t\t- [(success,None) = address(to).call{value: amount}()](src/Tipjar2.sol#L18)\n"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/Tipjar2.sol"
+                },
+                "region": {
+                  "startLine": 15,
+                  "endLine": 15
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "id": "78b891afac2c15ad41c8eae09e139e2512b11d24a94a51da859990518ad1522c"
+          }
+        },
+        {
+          "ruleId": "3-0-solc-version",
+          "message": {
+            "text": "Version constraint ^0.8.20 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)\n\t- VerbatimInvalidDeduplication\n\t- FullInlinerNonExpressionSplitArgumentEvaluationOrder\n\t- MissingSideEffectsOnSelectorAccess.\nIt is used by:\n\t- ^0.8.20 (lib/openzeppelin-contracts/contracts/access/Ownable.sol#4)\n\t- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Context.sol#4)\n\t- ^0.8.20 (src/Tipjar2.sol#2)\n",
+            "markdown": "Version constraint ^0.8.20 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)\n\t- VerbatimInvalidDeduplication\n\t- FullInlinerNonExpressionSplitArgumentEvaluationOrder\n\t- MissingSideEffectsOnSelectorAccess.\nIt is used by:\n\t- [^0.8.20](lib/openzeppelin-contracts/contracts/access/Ownable.sol#L4)\n\t- [^0.8.20](lib/openzeppelin-contracts/contracts/utils/Context.sol#L4)\n\t- [^0.8.20](src/Tipjar2.sol#L2)\n"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "lib/openzeppelin-contracts/contracts/access/Ownable.sol"
+                },
+                "region": {
+                  "startLine": 4,
+                  "endLine": 4
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "id": "3f3e25ecd3b9d090fd8cc6c3f9120d1e2c33537dbefebcf6022b11e920cc1711"
+          }
+        },
+        {
+          "ruleId": "3-0-low-level-calls",
+          "message": {
+            "text": "Low level call in Tipjar.withdraw(address,uint256) (src/Tipjar2.sol#15-22):\n\t- (success,None) = address(to).call{value: amount}() (src/Tipjar2.sol#18)\n",
+            "markdown": "Low level call in [Tipjar.withdraw(address,uint256)](src/Tipjar2.sol#L15-L22):\n\t- [(success,None) = address(to).call{value: amount}()](src/Tipjar2.sol#L18)\n"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/Tipjar2.sol"
+                },
+                "region": {
+                  "startLine": 15,
+                  "endLine": 22
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "id": "630c46e6d20e4b8b47348b269d327d4f994a45afb0fcf66bdd94d484cb777895"
+          }
+        }
+      ]
+    }
+  ]
+}

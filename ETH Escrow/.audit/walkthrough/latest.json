@@ -1,0 +1,261 @@
+{
+  "version": 5,
+  "steps": [
+    {
+      "index": 1,
+      "actor": "lab-deployer",
+      "contract": "Escrow",
+      "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+      "function": "createescrow(uint256,address)",
+      "args": [
+        1000000000000000000,
+        "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
+      ],
+      "value_wei": 0,
+      "reason": "source-guided bootstrap phase",
+      "inferred": true,
+      "status": "success",
+      "tx_hash": "0xad8fe3804c488a3a4c7995f638cf56ccbc678dc2e1021994f7228ba9f69cb073",
+      "calldata": "0x294861d50000000000000000000000000000000000000000000000000de0b6b3a764000000000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "gas_used": 75552,
+      "gas_price_wei": 265351510,
+      "gas_cost_wei": 20047837283520,
+      "error": null,
+      "events": [
+        {
+          "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+          "topics": [
+            "0xff741f7e0319d8b73bdf67046fd8ecbe5e3fa28d1319cf02e01443191d34b97a",
+            "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "0x000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+          ],
+          "data": "0x",
+          "event": "CreateEscrow(uint256,address)",
+          "decoded": "Event: CreateEscrow(uint256,address)\nIndexed amount: 0\nIndexed creator: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+        }
+      ],
+      "trace_edges": [
+        "CALL to=0x8a791620dd6260079bf849dc5567adc3f2fdc318"
+      ],
+      "storage_before": [],
+      "storage_after": [],
+      "storage_changes": [],
+      "balance_before": {
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266": 99999778508111066738,
+        "0x70997970c51812dc3a010c7d01b50e0d17dc79c8": 10000000000000000000000,
+        "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc": 10000000000000000000000,
+        "0x90f79bf6eb2c4f870365e785982e1f101e93b906": 10000000000000000000000,
+        "0x8a791620dd6260079bf849dc5567adc3f2fdc318": 0
+      },
+      "balance_after": {
+        "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266": 99999758460273783218,
+        "0x70997970c51812dc3a010c7d01b50e0d17dc79c8": 10000000000000000000000,
+        "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc": 10000000000000000000000,
+        "0x90f79bf6eb2c4f870365e785982e1f101e93b906": 10000000000000000000000,
+        "0x8a791620dd6260079bf849dc5567adc3f2fdc318": 0
+      },
+      "token_balance_before": {},
+      "token_balance_after": {},
+      "error_reason": "preflight passed and the live transaction was accepted",
+      "discovered_contracts": [],
+      "preflight": "0x",
+      "runtime_contracts": [
+        {
+          "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+          "model": "Deployed Contract",
+          "label": "Deployed Contract",
+          "relation": "target",
+          "parent": null,
+          "discovered_at_step": 0,
+          "implementation": null
+        }
+      ],
+      "execution_edges": [
+        {
+          "type": "CALL",
+          "to_address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+          "from_contract": "caller",
+          "to_contract": "Escrow",
+          "function": "createescrow(uint256,address)",
+          "depth": 0,
+          "value_wei": 0,
+          "error": null,
+          "revert": null,
+          "to_label": "Deployed Contract"
+        }
+      ],
+      "failure_origin": null,
+      "diagnostics": []
+    },
+    {
+      "index": 2,
+      "actor": "lab-deployer",
+      "contract": "Escrow",
+      "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+      "function": "acceptescrow(bool)",
+      "args": [
+        true
+      ],
+      "value_wei": 0,
+      "reason": "source-guided workflow phase",
+      "inferred": true,
+      "status": "blocked",
+      "tx_hash": null,
+      "calldata": null,
+      "gas_used": null,
+      "gas_price_wei": null,
+      "gas_cost_wei": null,
+      "error": "PRECONDITION BLOCKED: Error: server returned an error response: error code 3: execution reverted, data: \"0x\"",
+      "events": [],
+      "trace_edges": [],
+      "storage_before": [],
+      "storage_after": [],
+      "storage_changes": [],
+      "balance_before": {},
+      "balance_after": {},
+      "token_balance_before": {},
+      "token_balance_after": {},
+      "error_reason": "the node returned an empty revert payload; a dependency call or ABI decoding step likely failed before a custom error was returned",
+      "discovered_contracts": [],
+      "preflight": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\"",
+      "runtime_contracts": [],
+      "execution_edges": [],
+      "failure_origin": null,
+      "diagnostics": [
+        "source guard: require(accept, \"rejected\")",
+        "source guard: require(escrow[1].recipient != msg.sender, \"not recipient\")",
+        "state write candidate: escrow"
+      ]
+    },
+    {
+      "index": 3,
+      "actor": "lab-deployer",
+      "contract": "Escrow",
+      "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+      "function": "release()",
+      "args": [],
+      "value_wei": 0,
+      "reason": "source-guided workflow phase",
+      "inferred": true,
+      "status": "blocked",
+      "tx_hash": null,
+      "calldata": null,
+      "gas_used": null,
+      "gas_price_wei": null,
+      "gas_cost_wei": null,
+      "error": "PRECONDITION BLOCKED: Error: execution reverted: not accepted\n\nContext:\n- server returned an error response: error code 3: execution reverted: not accepted, data: \"0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000c6e6f742061636365707465640000000000000000000000000000000000000000\"",
+      "events": [],
+      "trace_edges": [],
+      "storage_before": [],
+      "storage_after": [],
+      "storage_changes": [],
+      "balance_before": {},
+      "balance_after": {},
+      "token_balance_before": {},
+      "token_balance_after": {},
+      "error_reason": "the contract rejected this call under the current on-chain state",
+      "discovered_contracts": [],
+      "preflight": "Error: execution reverted: not accepted\n\nContext:\n- server returned an error response: error code 3: execution reverted: not accepted, data: \"0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000c6e6f742061636365707465640000000000000000000000000000000000000000\"",
+      "runtime_contracts": [],
+      "execution_edges": [],
+      "failure_origin": null,
+      "diagnostics": [
+        "source guard: require(escrow[1].currentstatus == STATUS.funded, \"not accepted\")",
+        "source guard: require(escrow[1].creator == msg.sender, \"not creator\")",
+        "source guard: if(!success) -> revert transferfailed",
+        "state write candidate: escrow"
+      ]
+    },
+    {
+      "index": 4,
+      "actor": "lab-deployer",
+      "contract": "Escrow",
+      "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+      "function": "release()",
+      "args": [],
+      "value_wei": 0,
+      "reason": "source-guided workflow phase",
+      "inferred": true,
+      "status": "blocked",
+      "tx_hash": null,
+      "calldata": null,
+      "gas_used": null,
+      "gas_price_wei": null,
+      "gas_cost_wei": null,
+      "error": "PRECONDITION BLOCKED: Error: execution reverted: not accepted\n\nContext:\n- server returned an error response: error code 3: execution reverted: not accepted, data: \"0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000c6e6f742061636365707465640000000000000000000000000000000000000000\"",
+      "events": [],
+      "trace_edges": [],
+      "storage_before": [],
+      "storage_after": [],
+      "storage_changes": [],
+      "balance_before": {},
+      "balance_after": {},
+      "token_balance_before": {},
+      "token_balance_after": {},
+      "error_reason": "the contract rejected this call under the current on-chain state",
+      "discovered_contracts": [],
+      "preflight": "Error: execution reverted: not accepted\n\nContext:\n- server returned an error response: error code 3: execution reverted: not accepted, data: \"0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000c6e6f742061636365707465640000000000000000000000000000000000000000\"",
+      "runtime_contracts": [],
+      "execution_edges": [],
+      "failure_origin": null,
+      "diagnostics": [
+        "source guard: require(escrow[1].currentstatus == STATUS.funded, \"not accepted\")",
+        "source guard: require(escrow[1].creator == msg.sender, \"not creator\")",
+        "source guard: if(!success) -> revert transferfailed",
+        "state write candidate: escrow"
+      ]
+    },
+    {
+      "index": 5,
+      "actor": "lab-deployer",
+      "contract": "Escrow",
+      "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+      "function": "acceptescrow(bool)",
+      "args": [
+        true
+      ],
+      "value_wei": 0,
+      "reason": "source-guided workflow phase",
+      "inferred": true,
+      "status": "blocked",
+      "tx_hash": null,
+      "calldata": null,
+      "gas_used": null,
+      "gas_price_wei": null,
+      "gas_cost_wei": null,
+      "error": "PRECONDITION BLOCKED: Error: server returned an error response: error code 3: execution reverted, data: \"0x\"",
+      "events": [],
+      "trace_edges": [],
+      "storage_before": [],
+      "storage_after": [],
+      "storage_changes": [],
+      "balance_before": {},
+      "balance_after": {},
+      "token_balance_before": {},
+      "token_balance_after": {},
+      "error_reason": "the node returned an empty revert payload; a dependency call or ABI decoding step likely failed before a custom error was returned",
+      "discovered_contracts": [],
+      "preflight": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\"",
+      "runtime_contracts": [],
+      "execution_edges": [],
+      "failure_origin": null,
+      "diagnostics": [
+        "source guard: require(accept, \"rejected\")",
+        "source guard: require(escrow[1].recipient != msg.sender, \"not recipient\")",
+        "state write candidate: escrow"
+      ]
+    }
+  ],
+  "runtime_contracts": [
+    {
+      "address": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+      "model": "Deployed Contract",
+      "label": "Deployed Contract",
+      "relation": "target",
+      "parent": null,
+      "discovered_at_step": 0,
+      "implementation": null
+    }
+  ],
+  "observed_inputs": {}
+}

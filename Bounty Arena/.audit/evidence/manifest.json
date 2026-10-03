@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "records": {
+    "session_resume": {
+      "file": ".audit/evidence/session_resume.json",
+      "recorded_at": "2026-09-27T05:12:21"
+    },
+    "audit_start": {
+      "file": ".audit/evidence/audit_start.json",
+      "recorded_at": "2026-09-27T05:12:21"
+    },
+    "context": {
+      "file": ".audit/evidence/context.json",
+      "recorded_at": "2026-09-27T05:13:05"
+    },
+    "build": {
+      "file": ".audit/evidence/build.json",
+      "recorded_at": "2026-09-27T05:13:07"
+    },
+    "poc": {
+      "file": ".audit/evidence/poc.json",
+      "recorded_at": "2026-09-27T06:19:15"
+    },
+    "tests": {
+      "file": ".audit/evidence/tests.json",
+      "recorded_at": "2026-09-27T05:11:42"
+    },
+    "coverage": {
+      "file": ".audit/evidence/coverage.json",
+      "recorded_at": "2026-09-27T05:11:42"
+    },
+    "slither": {
+      "file": ".audit/evidence/slither.json",
+      "recorded_at": "2026-09-27T05:11:44"
+    },
+    "source_triage": {
+      "file": ".audit/evidence/source_triage.json",
+      "recorded_at": "2026-10-01T04:55:16"
+    },
+    "lint": {
+      "file": ".audit/evidence/lint.json",
+      "recorded_at": "2026-09-27T05:11:44"
+    },
+    "geiger": {
+      "file": ".audit/evidence/geiger.json",
+      "recorded_at": "2026-09-27T05:11:44"
+    }
+  },
+  "pipeline": {
+    "completed_at": "2026-09-27T05:13:07",
+    "status": "failed",
+    "steps": [
+      {
+        "label": "build",
+        "code": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "calldata": "294861d50000000000000000000000000000000000000000000000000de0b6b3a764000000000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "evidence": {
+    "candidate": {
+      "actions": [],
+      "check": null,
+      "column": null,
+      "confidence": null,
+      "description": null,
+      "evidence_count": 0,
+      "file": null,
+      "function": null,
+      "id": null,
+      "impact": null,
+      "line": null,
+      "mode": "generic",
+      "next": null,
+      "title": null,
+      "tool": null
+    },
+    "focused_signal": "SLITHER-A9C9584A34",
+    "latest": {
+      "calldata": "0x294861d50000000000000000000000000000000000000000000000000de0b6b3a764000000000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "function": "createescrow(uint256,address)",
+      "state_diff": "recorded",
+      "trace": null,
+      "tx_hash": "0xad8fe3804c488a3a4c7995f638cf56ccbc678dc2e1021994f7228ba9f69cb073",
+      "value": "0 wei"
+    },
+    "open_signals": 0,
+    "tools": {
+      "forge_build": "completed",
+      "forge_coverage": "completed",
+      "forge_tests": "completed",
+      "receipt": null,
+      "risk_functions": null,
+      "slither_findings": 3,
+      "source_triage_markers": null,
+      "trace": null
+    }
+  },
+  "function": "createescrow(uint256,address)",
+  "generated_at": "2026-09-29T14:51:06",
+  "kind": "poc",
+  "note": "Audit context is carried forward for investigation. Validate the security property before treating this as a confirmed finding.",
+  "output": "/home/rogue/Smart-contract-development-journey/ETH Escrow/script/LowkeyPoC_Escrow.s.sol",
+  "status": "scaffold",
+  "target": "0x8a791620dd6260079bf849dc5567adc3f2fdc318",
+  "value": "0 wei"
+}

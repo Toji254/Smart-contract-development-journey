@@ -1,0 +1,3 @@
+'forge clean' running (wd: /home/rogue/Smart-contract-development-journey/Bounty Arena)
+'forge config --json' running
+'forge build --build-info --deny never --skip ./test/** ./script/** --force' running (wd: /home/rogue/Smart-contract-development-journey/Bounty Arena)

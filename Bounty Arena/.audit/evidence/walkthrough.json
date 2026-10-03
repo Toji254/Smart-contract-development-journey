@@ -1,0 +1,448 @@
+{
+  "mode": "walkthrough",
+  "started_at": 1790328113.2510326,
+  "model": {
+    "rpc": "http://127.0.0.1:8545",
+    "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+    "target_contract": "ERC1967Proxy",
+    "target_source": "configured target (no live bytecode)",
+    "chain_timestamp": 1790327534,
+    "contract_count": 1,
+    "artifact_count": 27,
+    "live_nodes": [
+      {
+        "address": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+        "name": "ERC1967Proxy",
+        "code_size": 0,
+        "artifact_contract": null,
+        "discovered_from": null,
+        "getter": null
+      }
+    ],
+    "known_roles": {
+      "erc1967proxy": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0"
+    },
+    "runtime_getters": {},
+    "bootstrap": {
+      "deployments": [],
+      "live_deployments": [],
+      "scripts": [],
+      "tests": [],
+      "adversarial": [
+        {
+          "path": ".audit/poc/Poc_audit_candidate.json",
+          "sha256": "d2ef7233ef7f780bc27104e59ec895b6c4654ed4faf15bb6b84cc0b906090be0",
+          "kind": "adversarial-script",
+          "summary": {
+            "candidate": {
+              "check": "audit-candidate",
+              "mode": "generic",
+              "impact": "manual",
+              "confidence": "manual",
+              "function": null,
+              "description": "No selected Slither finding, matrix scenario, or source marker.",
+              "locations": []
+            },
+            "evidence": {
+              "slither_findings": 0,
+              "source_triage_markers": 0,
+              "matrix_scenarios": 0,
+              "notes_findings_todos": [],
+              "evidence_records": [
+                "audit_start",
+                "build",
+                "context",
+                "poc",
+                "session_resume",
+                "system_bootstrap"
+              ],
+              "trace_tx": null,
+              "storage_changes": 0,
+              "risk_functions": 0,
+              "last_tx": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+              "rpc": "http://127.0.0.1:8545"
+            },
+            "poc_file": "test/Poc_audit_candidate.t.sol"
+          }
+        }
+      ],
+      "audit_evidence": [
+        {
+          "file": ".audit/evidence/audit_start.json",
+          "sha256": "e3bc8e661a8cef2b3626faab346e4825354bedb5d5bde03e01f86c49b0a455df",
+          "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0"
+        },
+        {
+          "file": ".audit/evidence/build.json",
+          "sha256": "5b33a2e242fa7b7b3355c5a77255128da0f07a7b9be011adb26d5dd18610142d",
+          "exit_code": 1
+        },
+        {
+          "file": ".audit/evidence/context.json",
+          "sha256": "c570a4204ccec8fd093cb8e426d1f510f135c62fe1ef1b42d220a781e808f158",
+          "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+          "git_sha": null,
+          "git_branch": "master"
+        },
+        {
+          "file": ".audit/evidence/poc.json",
+          "sha256": "16813a703f12f311e59e5adc20548e401e205881a095954181b6dc3826945146",
+          "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0"
+        },
+        {
+          "file": ".audit/evidence/session_resume.json",
+          "sha256": "015fb774de97bfdf895ed4d0cb52afead27d7906895b2c69513dbdc3d1b7375d",
+          "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0"
+        }
+      ],
+      "audit_targets": [
+        {
+          "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+          "file": "audit_start.json"
+        }
+      ],
+      "initialization": [],
+      "roles": [],
+      "relationships": [],
+      "source": "system_bootstrap_manifest"
+    },
+    "system_manifest": {
+      "schema": "lowkey.system-bootstrap.v1",
+      "generated_at": "2026-09-25T09:21:53+00:00",
+      "updated_reason": "walkthrough:start",
+      "project": {
+        "root": "/home/rogue/Smart-contract-development-journey/Bounty Arena",
+        "git_sha": null,
+        "git_branch": "master"
+      },
+      "runtime": {
+        "rpc": "http://127.0.0.1:8545",
+        "chain_id": "0x7a69"
+      },
+      "actors": {
+        "actors": [
+          {
+            "name": "vault",
+            "address": "0x1234567890123456789012345678901234567890",
+            "source": "lowkey alias"
+          },
+          {
+            "name": "escrow",
+            "address": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+            "source": "lowkey alias"
+          },
+          {
+            "name": "ConfidencePoolFactory",
+            "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+            "source": "lowkey alias"
+          },
+          {
+            "name": "ConfidencePool",
+            "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+            "source": "lowkey alias"
+          },
+          {
+            "name": "Alice",
+            "address": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "source": "wallet config"
+          },
+          {
+            "name": "Bob",
+            "address": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+            "source": "wallet config"
+          },
+          {
+            "name": "attacker",
+            "address": "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+            "source": "wallet config"
+          },
+          {
+            "name": "lab-deployer",
+            "address": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "source": "wallet config"
+          }
+        ]
+      },
+      "contracts": [
+        {
+          "name": "BountyArena",
+          "artifact": "out/BountyArena.sol/BountyArena.json",
+          "abi_functions": 3,
+          "errors": 2
+        },
+        {
+          "name": "CommonBase",
+          "artifact": "out/Base.sol/CommonBase.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "Context",
+          "artifact": "out/utils/Context.sol/Context.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "IMulticall3",
+          "artifact": "out/IMulticall3.sol/IMulticall3.json",
+          "abi_functions": 16,
+          "errors": 0
+        },
+        {
+          "name": "Ownable",
+          "artifact": "out/access/Ownable.sol/Ownable.json",
+          "abi_functions": 3,
+          "errors": 2
+        },
+        {
+          "name": "Poc_audit_candidate",
+          "artifact": "out/Poc_audit_candidate.t.sol/Poc_audit_candidate.json",
+          "abi_functions": 13,
+          "errors": 0
+        },
+        {
+          "name": "ScriptBase",
+          "artifact": "out/Base.sol/ScriptBase.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "StdAssertions",
+          "artifact": "out/StdAssertions.sol/StdAssertions.json",
+          "abi_functions": 1,
+          "errors": 0
+        },
+        {
+          "name": "StdChains",
+          "artifact": "out/StdChains.sol/StdChains.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "StdCheats",
+          "artifact": "out/StdCheats.sol/StdCheats.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "StdCheatsSafe",
+          "artifact": "out/StdCheats.sol/StdCheatsSafe.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "StdConstants",
+          "artifact": "out/StdConstants.sol/StdConstants.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "StdInvariant",
+          "artifact": "out/StdInvariant.sol/StdInvariant.json",
+          "abi_functions": 10,
+          "errors": 0
+        },
+        {
+          "name": "StdStyle",
+          "artifact": "out/StdStyle.sol/StdStyle.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "StdUtils",
+          "artifact": "out/StdUtils.sol/StdUtils.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "Test",
+          "artifact": "out/Test.sol/Test.json",
+          "abi_functions": 12,
+          "errors": 0
+        },
+        {
+          "name": "TestBase",
+          "artifact": "out/Base.sol/TestBase.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "Vm",
+          "artifact": "out/Vm.sol/Vm.json",
+          "abi_functions": 560,
+          "errors": 0
+        },
+        {
+          "name": "VmSafe",
+          "artifact": "out/Vm.sol/VmSafe.json",
+          "abi_functions": 416,
+          "errors": 0
+        },
+        {
+          "name": "console",
+          "artifact": "out/console.sol/console.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "safeconsole",
+          "artifact": "out/safeconsole.sol/safeconsole.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "stdError",
+          "artifact": "out/StdError.sol/stdError.json",
+          "abi_functions": 9,
+          "errors": 0
+        },
+        {
+          "name": "stdJson",
+          "artifact": "out/StdJson.sol/stdJson.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "stdMath",
+          "artifact": "out/StdMath.sol/stdMath.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "stdStorage",
+          "artifact": "out/StdStorage.sol/stdStorage.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "stdStorageSafe",
+          "artifact": "out/StdStorage.sol/stdStorageSafe.json",
+          "abi_functions": 0,
+          "errors": 0
+        },
+        {
+          "name": "stdToml",
+          "artifact": "out/StdToml.sol/stdToml.json",
+          "abi_functions": 0,
+          "errors": 0
+        }
+      ],
+      "deployments": [],
+      "live_runtime": [],
+      "relationships": [],
+      "roles": [],
+      "initialization": [],
+      "scripts": [],
+      "sources": [
+        {
+          "path": "src/BountyArena.sol",
+          "sha256": "9d119cb47618bab884d74476b0beefea34d90afb86dfab47f5256d2b838bef1e",
+          "actions": [],
+          "lines": 25
+        }
+      ],
+      "tests": [],
+      "adversarial_evidence": [
+        {
+          "path": ".audit/poc/Poc_audit_candidate.json",
+          "sha256": "d2ef7233ef7f780bc27104e59ec895b6c4654ed4faf15bb6b84cc0b906090be0",
+          "kind": "adversarial-script",
+          "summary": {
+            "candidate": {
+              "check": "audit-candidate",
+              "mode": "generic",
+              "impact": "manual",
+              "confidence": "manual",
+              "function": null,
+              "description": "No selected Slither finding, matrix scenario, or source marker.",
+              "locations": []
+            },
+            "evidence": {
+              "slither_findings": 0,
+              "source_triage_markers": 0,
+              "matrix_scenarios": 0,
+              "notes_findings_todos": [],
+              "evidence_records": [
+                "audit_start",
+                "build",
+                "context",
+                "poc",
+                "session_resume",
+                "system_bootstrap"
+              ],
+              "trace_tx": null,
+              "storage_changes": 0,
+              "risk_functions": 0,
+              "last_tx": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+              "rpc": "http://127.0.0.1:8545"
+            },
+            "poc_file": "test/Poc_audit_candidate.t.sol"
+          }
+        }
+      ],
+      "audit_evidence": [
+        {
+          "file": ".audit/evidence/audit_start.json",
+          "sha256": "e3bc8e661a8cef2b3626faab346e4825354bedb5d5bde03e01f86c49b0a455df",
+          "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0"
+        },
+        {
+          "file": ".audit/evidence/build.json",
+          "sha256": "5b33a2e242fa7b7b3355c5a77255128da0f07a7b9be011adb26d5dd18610142d",
+          "exit_code": 1
+        },
+        {
+          "file": ".audit/evidence/context.json",
+          "sha256": "c570a4204ccec8fd093cb8e426d1f510f135c62fe1ef1b42d220a781e808f158",
+          "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+          "git_sha": null,
+          "git_branch": "master"
+        },
+        {
+          "file": ".audit/evidence/poc.json",
+          "sha256": "16813a703f12f311e59e5adc20548e401e205881a095954181b6dc3826945146",
+          "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0"
+        },
+        {
+          "file": ".audit/evidence/session_resume.json",
+          "sha256": "015fb774de97bfdf895ed4d0cb52afead27d7906895b2c69513dbdc3d1b7375d",
+          "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0"
+        }
+      ],
+      "audit_targets": [
+        {
+          "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+          "source": "audit_start.json"
+        }
+      ],
+      "known_addresses": {},
+      "deployed_contract_names": [],
+      "confidence": {
+        "confirmed": [
+          "broadcast deployment entries",
+          "source/script evidence",
+          "artifact metadata",
+          "runtime bytecode checks when RPC is available"
+        ],
+        "inferred": [
+          "constructor relationships from broadcast arguments",
+          "role/configuration labels derived from source patterns"
+        ],
+        "not_verified": [
+          "semantic correctness of every initialization step",
+          "completeness of deployment scripts",
+          "security impact of adversarial evidence"
+        ]
+      }
+    },
+    "static_system": {
+      "deployed_contracts": [],
+      "project_contracts": [
+        "BountyArena"
+      ],
+      "script_flow": {},
+      "initialization_steps": 0
+    }
+  },
+  "actions": []
+}

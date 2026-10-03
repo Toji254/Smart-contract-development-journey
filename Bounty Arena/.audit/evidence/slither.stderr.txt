@@ -1,0 +1,30 @@
+
+Detector: locked-ether
+Contract locking ether found:
+	Contract BountyArena (src/BountyArena.sol#4-46) has payable functions:
+	 - BountyArena.createbounty(address,uint256) (src/BountyArena.sol#25-45)
+	But does not have a function to withdraw the ether
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#contracts-that-lock-ether
+
+Detector: tautology
+BountyArena.createbounty(address,uint256) (src/BountyArena.sol#25-45) contains a tautology or contradiction:
+	- require(bool,string)(amount >= 0,topup) (src/BountyArena.sol#26)
+BountyArena.createbounty(address,uint256) (src/BountyArena.sol#25-45) contains a tautology or contradiction:
+	- require(bool,string)(amount >= 0,topup) (src/BountyArena.sol#40)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#tautology-or-contradiction
+
+Detector: solc-version
+Version constraint ^0.8.20 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)
+	- VerbatimInvalidDeduplication
+	- FullInlinerNonExpressionSplitArgumentEvaluationOrder
+	- MissingSideEffectsOnSelectorAccess.
+It is used by:
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/access/Ownable.sol#4)
+	- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Context.sol#4)
+	- ^0.8.20 (src/BountyArena.sol#2)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#incorrect-versions-of-solidity
+
+Detector: naming-convention
+Enum BountyArena.status (src/BountyArena.sol#7-12) is not in CapWords
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#conformance-to-solidity-naming-conventions
+. analyzed (3 contracts with 102 detectors), 5 result(s) found

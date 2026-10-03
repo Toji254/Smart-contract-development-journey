@@ -1,0 +1,7 @@
+Error: Compiler run failed:
+Error (9429): This looks like an address but has an invalid checksum. Correct checksummed address: "0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0". If this is not used as an address, please prepend '00'. For more information please see https://docs.soliditylang.org/en/develop/types.html#address-literals
+SyntaxError: This looks like an address but has an invalid checksum. Correct checksummed address: "0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0". If this is not used as an address, please prepend '00'. For more information please see https://docs.soliditylang.org/en/develop/types.html#address-literals
+ --> test/Poc_locked_ether.t.sol:8:40:
+  |
+8 |     address internal constant TARGET = 0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0;
+  |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

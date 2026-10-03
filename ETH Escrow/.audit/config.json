@@ -1,0 +1,6 @@
+{
+    "target": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+    "rpc": "http://127.0.0.1:8545",
+    "abi": "/home/rogue/Smart-contract-development-journey/ETH Escrow/out/EthEscrow.sol/Escrow.json",
+    "created": "2026-09-29T05:01:56"
+}

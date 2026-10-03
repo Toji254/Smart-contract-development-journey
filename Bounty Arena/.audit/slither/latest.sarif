@@ -1,0 +1,195 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Slither",
+          "informationUri": "https://github.com/crytic/slither",
+          "version": "0.11.6",
+          "rules": [
+            {
+              "id": "1-0-locked-ether",
+              "name": "locked-ether",
+              "properties": {
+                "precision": "very-high",
+                "security-severity": "4.0"
+              },
+              "shortDescription": {
+                "text": "Contracts that lock Ether"
+              },
+              "help": {
+                "text": "Remove the payable attribute or add a withdraw function."
+              }
+            },
+            {
+              "id": "1-0-tautology",
+              "name": "tautology",
+              "properties": {
+                "precision": "very-high",
+                "security-severity": "4.0"
+              },
+              "shortDescription": {
+                "text": "Tautology or contradiction"
+              },
+              "help": {
+                "text": "Fix the incorrect comparison by changing the value type or the comparison."
+              }
+            },
+            {
+              "id": "3-0-solc-version",
+              "name": "solc-version",
+              "properties": {
+                "precision": "very-high",
+                "security-severity": "0.0"
+              },
+              "shortDescription": {
+                "text": "Incorrect versions of Solidity"
+              },
+              "help": {
+                "text": "\nDeploy with a recent version of Solidity (at least 0.8.0) with no known severe issues.\n\nUse a simple pragma version that allows any of these versions.\nConsider using the latest version of Solidity for testing."
+              }
+            },
+            {
+              "id": "3-0-naming-convention",
+              "name": "naming-convention",
+              "properties": {
+                "precision": "very-high",
+                "security-severity": "0.0"
+              },
+              "shortDescription": {
+                "text": "Conformance to Solidity naming conventions"
+              },
+              "help": {
+                "text": "Follow the Solidity [naming convention](https://solidity.readthedocs.io/en/v0.4.25/style-guide.html#naming-conventions)."
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "1-0-locked-ether",
+          "message": {
+            "text": "Contract locking ether found:\n\tContract BountyArena (src/BountyArena.sol#4-46) has payable functions:\n\t - BountyArena.createbounty(address,uint256) (src/BountyArena.sol#25-45)\n\tBut does not have a function to withdraw the ether\n",
+            "markdown": "Contract locking ether found:\n\tContract [BountyArena](src/BountyArena.sol#L4-L46) has payable functions:\n\t - [BountyArena.createbounty(address,uint256)](src/BountyArena.sol#L25-L45)\n\tBut does not have a function to withdraw the ether\n"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/BountyArena.sol"
+                },
+                "region": {
+                  "startLine": 4,
+                  "endLine": 46
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "id": "96f18361ef81441a605041796a74db7748f4cb67c32e042fd1ba0cd4278e52a9"
+          }
+        },
+        {
+          "ruleId": "1-0-tautology",
+          "message": {
+            "text": "BountyArena.createbounty(address,uint256) (src/BountyArena.sol#25-45) contains a tautology or contradiction:\n\t- require(bool,string)(amount >= 0,topup) (src/BountyArena.sol#40)\n",
+            "markdown": "[BountyArena.createbounty(address,uint256)](src/BountyArena.sol#L25-L45) contains a tautology or contradiction:\n\t- [require(bool,string)(amount >= 0,topup)](src/BountyArena.sol#L40)\n"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/BountyArena.sol"
+                },
+                "region": {
+                  "startLine": 25,
+                  "endLine": 45
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "id": "9df788890b8ffaccc39429cdb97ca62f30b6940c6f93ca7982de8bb667c4f0d5"
+          }
+        },
+        {
+          "ruleId": "1-0-tautology",
+          "message": {
+            "text": "BountyArena.createbounty(address,uint256) (src/BountyArena.sol#25-45) contains a tautology or contradiction:\n\t- require(bool,string)(amount >= 0,topup) (src/BountyArena.sol#26)\n",
+            "markdown": "[BountyArena.createbounty(address,uint256)](src/BountyArena.sol#L25-L45) contains a tautology or contradiction:\n\t- [require(bool,string)(amount >= 0,topup)](src/BountyArena.sol#L26)\n"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/BountyArena.sol"
+                },
+                "region": {
+                  "startLine": 25,
+                  "endLine": 45
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "id": "b60ff5770988bf4046a47808c1509c7788dec6e1ed9d7836a0dc0da3122bcc7d"
+          }
+        },
+        {
+          "ruleId": "3-0-solc-version",
+          "message": {
+            "text": "Version constraint ^0.8.20 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)\n\t- VerbatimInvalidDeduplication\n\t- FullInlinerNonExpressionSplitArgumentEvaluationOrder\n\t- MissingSideEffectsOnSelectorAccess.\nIt is used by:\n\t- ^0.8.20 (lib/openzeppelin-contracts/contracts/access/Ownable.sol#4)\n\t- ^0.8.20 (lib/openzeppelin-contracts/contracts/utils/Context.sol#4)\n\t- ^0.8.20 (src/BountyArena.sol#2)\n",
+            "markdown": "Version constraint ^0.8.20 contains known severe issues (https://solidity.readthedocs.io/en/latest/bugs.html)\n\t- VerbatimInvalidDeduplication\n\t- FullInlinerNonExpressionSplitArgumentEvaluationOrder\n\t- MissingSideEffectsOnSelectorAccess.\nIt is used by:\n\t- [^0.8.20](lib/openzeppelin-contracts/contracts/access/Ownable.sol#L4)\n\t- [^0.8.20](lib/openzeppelin-contracts/contracts/utils/Context.sol#L4)\n\t- [^0.8.20](src/BountyArena.sol#L2)\n"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "lib/openzeppelin-contracts/contracts/access/Ownable.sol"
+                },
+                "region": {
+                  "startLine": 4,
+                  "endLine": 4
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "id": "06fd1abca8e0a1630c909a2f5a02d9523213de1ca96b9ba0c0ce2f5333315b91"
+          }
+        },
+        {
+          "ruleId": "3-0-naming-convention",
+          "message": {
+            "text": "Enum BountyArena.status (src/BountyArena.sol#7-12) is not in CapWords\n",
+            "markdown": "Enum [BountyArena.status](src/BountyArena.sol#L7-L12) is not in CapWords\n"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/BountyArena.sol"
+                },
+                "region": {
+                  "startLine": 7,
+                  "endLine": 12
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "id": "8c1296abd7a4cc925df5ef601b02570210c136d6a2fa4af3254e5f2fc8e7f81d"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "kind": "source_triage",
+  "recorded_at": "2026-10-01T04:55:16",
+  "data": {
+    "project": "foundry",
+    "languages": [
+      "solidity"
+    ],
+    "files_scanned": 1,
+    "count": 1,
+    "markers": [
+      {
+        "file": "src/BountyArena.sol",
+        "line": 34,
+        "language": "solidity",
+        "label": "TIMESTAMP",
+        "text": "bytes32 ID = keccak256(abi.encode(msg.sender, block.timestamp));"
+      }
+    ]
+  }
+}

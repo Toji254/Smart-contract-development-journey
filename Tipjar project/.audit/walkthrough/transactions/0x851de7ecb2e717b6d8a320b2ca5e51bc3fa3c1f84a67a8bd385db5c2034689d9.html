@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lowkey transaction 0x851de7ec…034689d9</title>
+<style>
+body{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;max-width:1050px;margin:32px auto;padding:0 20px;background:#111;color:#eee}
+h1{font-size:22px} h2{font-size:16px;margin-top:28px} .ok{color:#7ee787} .bad{color:#ff7b72}
+.card{border:1px solid #333;border-radius:10px;padding:16px;margin:14px 0;background:#181818}
+.grid{display:grid;grid-template-columns:180px 1fr;gap:8px 18px} code{word-break:break-all}
+a{color:#79c0ff} pre{white-space:pre-wrap;word-break:break-word}
+</style>
+</head>
+<body>
+<h1>LOWKEY // TRANSACTION CONFIRMATION</h1>
+<div class="card"><div class="ok"><b>CONFIRMED / SUCCESS</b></div>
+<div><b>Tx:</b> <code>0x851de7ecb2e717b6d8a320b2ca5e51bc3fa3c1f84a67a8bd385db5c2034689d9</code></div>
+<p><small>No public explorer was selected for this network. For a local Anvil/Hardhat node, use LOWKEY_TX_EXPLORER_URL to point Lowkey at a local Blockscout or other explorer.</small></p>
+<div><b>Function:</b> deposit()</div>
+<div><b>Actor:</b> Bob</div>
+<div><b>Contract:</b> Tipjar @ <code>0xe7f1725e7734ce288f8367e1bb143e90bb3f0512</code></div></div>
+
+<h2>ON-CHAIN TRANSACTION</h2>
+<div class="card"><div class="grid">
+<div>block</div><div>4</div>
+<div>from</div><div><code>0x70997970c51812dc3a010c7d01b50e0d17dc79c8</code></div>
+<div>to</div><div><code>0xe7f1725e7734ce288f8367e1bb143e90bb3f0512</code></div>
+<div>value</div><div>1000000000000000 wei</div>
+<div>nonce</div><div>0x0</div>
+<div>gas used</div><div>44811</div>
+<div>gas limit</div><div>0xaf0b</div>
+<div>input</div><div><code>0xd0e30db0</code></div>
+</div></div>
+
+<h2>LOWKEY OBSERVATION</h2>
+<div class="card"><pre>{
+  &quot;args&quot;: [],
+  &quot;value_wei&quot;: 1000000000000000,
+  &quot;lowkey_status_at_render&quot;: &quot;success&quot;,
+  &quot;on_chain_status&quot;: &quot;CONFIRMED / SUCCESS&quot;,
+  &quot;block&quot;: &quot;4&quot;,
+  &quot;gas_used&quot;: &quot;44811&quot;,
+  &quot;calldata&quot;: &quot;0xd0e30db0&quot;
+}</pre></div>
+
+<h2>EVENTS</h2><div class="card"><ul><li><b>Deposit(uint256)</b> <code>{&quot;address&quot;: &quot;0xe7f1725e7734ce288f8367e1bb143e90bb3f0512&quot;, &quot;data&quot;: &quot;0x00000000000000000000000000000000000000000000000000038d7ea4c68000&quot;, &quot;decoded&quot;: &quot;Event: Deposit(uint256)\nData: 1000000000000000 [1e15]&quot;, &quot;event&quot;: &quot;Deposit(uint256)&quot;, &quot;topics&quot;: [&quot;0x4d6ce1e535dbade1c23defba91e23b8f791ce5edc0cc320257a2b364e4e38426&quot;]}</code></li></ul></div>
+
+<h2>CONFIRM YOURSELF</h2>
+<div class="card"><div>RPC: <code>http://127.0.0.1:8545</code></div><p><code>cast tx 0x851de7ecb2e717b6d8a320b2ca5e51bc3fa3c1f84a67a8bd385db5c2034689d9 --rpc-url http://127.0.0.1:8545</code></p><p><code>cast receipt 0x851de7ecb2e717b6d8a320b2ca5e51bc3fa3c1f84a67a8bd385db5c2034689d9 --rpc-url http://127.0.0.1:8545</code></p></div>
+</body>
+</html>

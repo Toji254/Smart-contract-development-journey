@@ -1,0 +1,13 @@
+{
+  "kind": "build",
+  "recorded_at": "2026-09-27T05:13:07",
+  "data": {
+    "command": [
+      "forge",
+      "build"
+    ],
+    "exit_code": 1,
+    "stdout": "Compiling 23 files with Solc 0.8.26\nSolc 0.8.26 finished in 1.13s\n",
+    "stderr": "Error: Compiler run failed:\nError (9429): This looks like an address but has an invalid checksum. Correct checksummed address: \"0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0\". If this is not used as an address, please prepend '00'. For more information please see https://docs.soliditylang.org/en/develop/types.html#address-literals\nSyntaxError: This looks like an address but has an invalid checksum. Correct checksummed address: \"0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0\". If this is not used as an address, please prepend '00'. For more information please see https://docs.soliditylang.org/en/develop/types.html#address-literals\n --> test/Poc_locked_ether.t.sol:8:40:\n  |\n8 |     address internal constant TARGET = 0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0;\n  |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"
+  }
+}

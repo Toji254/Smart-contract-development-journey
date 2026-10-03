@@ -1,0 +1,246 @@
+{
+  "actor": "Alice (Anvil #0, 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266)",
+  "focus": {
+    "column": 1,
+    "file": "src/BountyArena.sol",
+    "function": "createbounty(address,uint256)",
+    "line": 4,
+    "signal_id": "SLITHER-E48837A118",
+    "title": "Locked Ether",
+    "tool": "slither",
+    "updated_at": "2026-09-27T04:06:32+00:00"
+  },
+  "latest": {
+    "calldata": "c455ed750000000000000000000000003c44cdddb6a900fa2b585dd299e03d12fa4293bc0000000000000000000000000000000000000000000000000000000000000006",
+    "function": "createbounty(address,uint256)",
+    "state_diff": "recorded",
+    "trace": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+    "tx_hash": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+    "value": "0"
+  },
+  "project": {
+    "backend": "foundry",
+    "kind": "foundry",
+    "languages": {
+      "solidity": 5
+    },
+    "name": "Bounty Arena",
+    "root": "/home/rogue/Smart-contract-development-journey/Bounty Arena",
+    "stacks": [
+      "foundry"
+    ]
+  },
+  "rpc": "http://127.0.0.1:8545",
+  "schema_version": 1,
+  "signals": [
+    {
+      "actions": [],
+      "check": "locked-ether",
+      "column": 1,
+      "confidence": "High",
+      "description": "Static analysis found a code pattern that deserves manual security review.",
+      "evidence": [
+        {
+          "actor": "lab-deployer",
+          "calldata": "c455ed750000000000000000000000003c44cdddb6a900fa2b585dd299e03d12fa4293bc0000000000000000000000000000000000000000000000000000000000000006",
+          "caller": "lab-deployer",
+          "captured_at": "2026-09-27T03:46:20+00:00",
+          "changes_expected": 0,
+          "eth_sent_wei": 0,
+          "fallback_writes": 0,
+          "function": "createbounty(address,uint256)",
+          "gas": 80498,
+          "generated_test": "test/Lowkey_state_diff_createbounty_f40ee5360f.t.sol",
+          "id": "STATE-DIFF-42E45A7127C2",
+          "kind": "state-diff",
+          "state_diff_json": false,
+          "storage_changes": [],
+          "success": false
+        }
+      ],
+      "file": "src/BountyArena.sol",
+      "first_seen": "2026-09-27T02:54:56+00:00",
+      "function": "createbounty(address,uint256)",
+      "id": "SLITHER-E48837A118",
+      "impact": "Medium",
+      "last_seen": "2026-09-27T02:54:56+00:00",
+      "line": 4,
+      "meaning": "",
+      "next": "",
+      "status": "investigating",
+      "title": "Locked Ether",
+      "tool": "slither",
+      "updated_at": "2026-09-27T04:06:32+00:00",
+      "why": ""
+    },
+    {
+      "actions": [],
+      "check": "tautology",
+      "column": 5,
+      "confidence": "High",
+      "description": "Static analysis found a code pattern that deserves manual security review.",
+      "file": "src/BountyArena.sol",
+      "first_seen": "2026-09-27T02:54:56+00:00",
+      "function": "createbounty(address,uint256)",
+      "id": "SLITHER-286908F108",
+      "impact": "Medium",
+      "last_seen": "2026-09-27T02:54:56+00:00",
+      "line": 25,
+      "meaning": "",
+      "next": "",
+      "status": "open",
+      "title": "Tautology",
+      "tool": "slither",
+      "why": ""
+    },
+    {
+      "actions": [
+        "doctor",
+        "build"
+      ],
+      "check": "solc-version",
+      "column": 1,
+      "confidence": "High",
+      "description": "The project accepts Solidity compiler versions allowed by '^0.8.20', including releases that Slither flags for known compiler issues.",
+      "file": "lib/openzeppelin-contracts/contracts/access/Ownable.sol",
+      "first_seen": "2026-09-27T02:54:56+00:00",
+      "function": null,
+      "id": "SLITHER-D490645A73",
+      "impact": "Informational",
+      "last_seen": "2026-09-27T02:54:56+00:00",
+      "line": 4,
+      "meaning": "The project allows a Solidity compiler version that Slither associates with known compiler bugs.",
+      "next": "Check the exact compiler version used by Foundry, compare it with the Solidity bug list, and pin a patched version that is compatible with the project.",
+      "status": "open",
+      "title": "Compiler version",
+      "tool": "slither",
+      "why": "A compiler bug can change how otherwise-correct Solidity behaves after compilation. This is a build-safety issue, not proof that the contract is exploitable."
+    },
+    {
+      "actions": [
+        "fmt"
+      ],
+      "check": "naming-convention",
+      "column": 5,
+      "confidence": "High",
+      "description": "The enum 'status' uses a naming style that does not match the project's expected Solidity convention.",
+      "file": "src/BountyArena.sol",
+      "first_seen": "2026-09-27T02:54:56+00:00",
+      "function": null,
+      "id": "SLITHER-ADEF220E28",
+      "impact": "Informational",
+      "last_seen": "2026-09-27T02:54:56+00:00",
+      "line": 7,
+      "meaning": "A Solidity identifier does not follow the naming convention configured or expected by Slither.",
+      "next": "Rename it only if the project's style guide requires it. Do not treat this finding as a vulnerability.",
+      "status": "open",
+      "title": "Naming convention",
+      "tool": "slither",
+      "why": "This is primarily a readability and maintainability issue. It normally has no direct security impact."
+    }
+  ],
+  "target": {
+    "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+    "artifact": "/home/rogue/Smart-contract-development-journey/Bounty Arena/out/BountyArena.sol/BountyArena.json",
+    "contract": "BountyArena",
+    "source": "project-lab"
+  },
+  "tools": {
+    "audit": {
+      "backend": "foundry",
+      "exit_code": 1,
+      "status": "failed",
+      "summary": "connected Foundry audit pipeline",
+      "updated_at": "2026-10-01T01:55:20+00:00"
+    },
+    "forge": {
+      "last_command": "test",
+      "last_exit_code": 1,
+      "status": "failed",
+      "summary": "forge test",
+      "updated_at": "2026-10-01T01:55:20+00:00"
+    },
+    "forge-build": {
+      "exit_code": 0,
+      "status": "completed",
+      "summary": "build audit step",
+      "updated_at": "2026-10-01T01:55:19+00:00"
+    },
+    "forge-coverage": {
+      "attempts": 1,
+      "exit_code": 0,
+      "status": "completed",
+      "summary": "coverage audit step",
+      "updated_at": "2026-09-27T03:19:29+00:00"
+    },
+    "forge-tests": {
+      "exit_code": 1,
+      "status": "failed",
+      "summary": "tests audit step",
+      "updated_at": "2026-10-01T01:55:20+00:00"
+    },
+    "generator": {
+      "calldata_present": true,
+      "candidate_mode": "generic",
+      "candidate_signal": "SLITHER-E48837A118",
+      "contract": "BountyArena",
+      "evidence_brief": "/home/rogue/Smart-contract-development-journey/Bounty Arena/.audit/poc/LowkeyPoc_BountyArena.json",
+      "function": "createbounty(address,uint256)",
+      "mode": "poc",
+      "output": "/home/rogue/Smart-contract-development-journey/Bounty Arena/script/LowkeyPoC_BountyArena.s.sol",
+      "placeholder": false,
+      "status": "completed",
+      "summary": "poc artifact generated",
+      "target": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+      "updated_at": "2026-10-01T02:28:27+00:00"
+    },
+    "slither": {
+      "finding_count": 5,
+      "json": "/home/rogue/Smart-contract-development-journey/Bounty Arena/.audit/slither/latest.json",
+      "sarif": "/home/rogue/Smart-contract-development-journey/Bounty Arena/.audit/slither/latest.sarif",
+      "status": "completed",
+      "summary": "5 static-analysis finding(s) reported",
+      "updated_at": "2026-09-27T02:54:56+00:00"
+    },
+    "source-triage": {
+      "count": 3,
+      "markers": [
+        {
+          "file": "src/BountyArena.sol",
+          "label": "ENCODE_PACKED",
+          "line": 22,
+          "text": "//bytes32 ID=keccak256(abi.encodePacked(msg.sender,block.timestamp));"
+        },
+        {
+          "file": "src/BountyArena.sol",
+          "label": "TIMESTAMP",
+          "line": 22,
+          "text": "//bytes32 ID=keccak256(abi.encodePacked(msg.sender,block.timestamp));"
+        },
+        {
+          "file": "src/BountyArena.sol",
+          "label": "TIMESTAMP",
+          "line": 29,
+          "text": "bytes32 ID=keccak256(abi.encode(msg.sender,block.timestamp));"
+        }
+      ],
+      "status": "completed",
+      "summary": "3 source review marker(s)",
+      "updated_at": "2026-09-27T02:30:48+00:00"
+    },
+    "state-diff": {
+      "function": "createbounty(address,uint256)",
+      "generated_test": "test/Lowkey_state_diff_createbounty_f40ee5360f.t.sol",
+      "status": "completed",
+      "summary": "0 storage change(s)",
+      "updated_at": "2026-09-27T03:46:20+00:00"
+    },
+    "trace": {
+      "status": "completed",
+      "summary": "transaction trace 0xbde44ea2...",
+      "tx_hash": "0xbde44ea2e53ca065222f8e8b8eeda4a16e25f6692216cd78a54a3bb976957f42",
+      "updated_at": "2026-09-27T03:36:12+00:00"
+    }
+  },
+  "updated_at": "2026-10-01T02:28:27+00:00"
+}

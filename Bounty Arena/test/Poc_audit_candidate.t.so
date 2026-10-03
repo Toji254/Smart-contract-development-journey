@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.20;
+
+import "forge-std/Test.sol";
+
+contract Poc_audit_candidate is Test {
+    address internal constant TARGET =
+        0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0;
+    event EvidenceBool(string name, bool value);
+
+    // Candidate detector: audit-candidate (manual/manual)
+    // Candidate function: <identify-function(signature)>
+    // Finding summary: No selected Slither finding, matrix scenario, or source marker.
+    // Evidence records captured: audit_start, build, context, poc, session_resume, system_bootstrap
+    // Prior trace tx: None
+    // Prior storage changes: 0
+    // Risk rows captured: 0
+
+    function test_poc_candidate() external {
+        vm.skip(true); // REMOVE after filling the proven exploit path.
+        bytes memory payload = hex"";
+        (bool ok, bytes memory data) = TARGET.call(payload);
+        assertTrue(ok, string(data));
+        // TODO: assert the violated invariant, unauthorized effect, or asset delta.
+    }
+}

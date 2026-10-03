@@ -1,0 +1,11 @@
+{
+  "kind": "context",
+  "recorded_at": "2026-09-27T05:13:05",
+  "data": {
+    "target": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
+    "rpc": "http://127.0.0.1:8545",
+    "git_sha": null,
+    "git_branch": "master",
+    "started_at": "2026-09-27T05:13:05"
+  }
+}
