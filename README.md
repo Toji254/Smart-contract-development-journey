@@ -2,7 +2,9 @@
 
 > **A hands-on Solidity learning lab focused on understanding contracts deeply enough to test them, interact with them, break their assumptions, and explain the failures.**
 
-**Portfolio snapshot:** four progressively harder builds — ETH accounting → multi-party state machines → ERC20/ERC721 interaction → an interconnected bounty protocol.
+**portfolio:** 4 progressively harder builds — eth accounting → multi-party state machines → erc20/erc721 interaction → interconnected bounty protocol.
+
+**tags:** `sol | evm | foundry | sc | security | learning`
 
 This repository is a hands-on Solidity learning journey.
 
