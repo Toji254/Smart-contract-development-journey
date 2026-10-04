@@ -1,5 +1,9 @@
 # Smart Contract Development Journey
 
+> **A hands-on Solidity learning lab focused on understanding contracts deeply enough to test them, interact with them, break their assumptions, and explain the failures.**
+
+**Portfolio snapshot:** four progressively harder builds — ETH accounting → multi-party state machines → ERC20/ERC721 interaction → an interconnected bounty protocol.
+
 This repository is a hands-on Solidity learning journey.
 
 The goal is not to collect finished contracts. The goal is to document the process of going from a plain-English requirement to a working contract, tests, manual interaction, adversarial testing, and finally a comparison with the older implementation.
