@@ -28,6 +28,53 @@ understand why it broke
 improve the design
 ~~~
 
+## Why I am learning Solidity in the AI era
+
+AI is already good enough to write large amounts of Solidity, generate tests, investigate code, and perform useful parts of a smart-contract audit. I am not learning Solidity because I believe humans will keep manually writing every line of blockchain code.
+
+I already know how to use AI as a serious building tool. I have practical experience with AI-assisted development and have evidence that I can ship working projects with it. **This repository is not an attempt to learn how to vibe-code.**
+
+I am learning Solidity because I want to understand what the AI is building.
+
+The long-term goal is **AI-assisted smart-contract security**, not competing with AI at typing Solidity.
+
+~~~text
+AI can generate code
+        ↓
+I understand the code
+        ↓
+I understand the EVM behavior
+        ↓
+I can test the assumptions
+        ↓
+I can attack the contract
+        ↓
+I can verify whether an AI finding is real
+        ↓
+I can discover what the AI missed
+~~~
+
+That distinction matters. A model can report that a function "looks vulnerable," but security work requires knowing whether the alleged exploit is actually possible, what state transitions are involved, which assumptions are supposed to hold, and how different contracts interact.
+
+So the projects in this repository are deliberate training grounds.
+
+I am building them to learn:
+
+- how Solidity actually behaves
+- how storage, state, calls, and assets move through contracts
+- how to reason about contract invariants and assumptions
+- how to test normal behavior and failure cases
+- how to manually interact with deployed contracts
+- how to think like an attacker
+- how to turn an observed weakness into a reproducible proof
+- how to use AI and security tooling without becoming dependent on their answers
+
+The projects are therefore **not the destination**. They are controlled environments for building the mental model needed to audit and reason about real protocols.
+
+The objective is not to become the best Solidity code typist.
+
+The objective is to become someone who can take an unfamiliar contract, understand what it is supposed to do, use AI and tooling to move faster, and still independently determine whether the system is actually safe.
+
 ## The rule
 
 Do not start by reading the old contract.
@@ -184,12 +231,12 @@ Use security tooling after you understand the basic behavior. Static analysis gi
 
 ## Repository philosophy
 
-Build. Break. Explain. Rebuild.
+**Build. Break. Explain. Rebuild. Use AI, but understand what it gives you.**
 
 The finish line is not “I finished four projects.”
 
 The finish line is:
 
-> Give me a plain-English smart-contract requirement and I can design the state, write the contract, test it, interact with it, and start looking for ways it can fail.
+> Give me a plain-English smart-contract requirement and I can design the state, write or direct the implementation, test it, interact with it, and start looking for ways it can fail — while using AI to make me faster, not to replace my understanding.
 
 That is what this repository is meant to document.
