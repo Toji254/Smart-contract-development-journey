@@ -28,6 +28,39 @@ understand why it broke
 improve the design
 ~~~
 
+## Knowledge Web
+
+This repository now has a living **[Solidity Knowledge Web](knowledge/README.md)** alongside the projects.
+
+It is where I record the things I actually learned while building — especially the concepts that were confusing until they finally clicked.
+
+~~~text
+question / confusion
+        ↓
+build / investigate
+        ↓
+explanation
+        ↓
+my own words
+        ↓
+project connection
+        ↓
+later discovery
+        ↓
+connected knowledge map
+~~~
+
+Say **`study`** or **`anchor`** during a Solidity discussion to mark something for the knowledge layer.
+
+The notes are deliberately not polished into a textbook:
+
+- my own explanations stay in my own words
+- the full explanation stays intact
+- mistakes are kept as part of the learning history
+- new discoveries are linked instead of silently replacing old ones
+
+**[Open the Knowledge Map →](knowledge/MAP.md)**
+
 ## Why I am learning Solidity in the AI era
 
 AI is already good enough to write large amounts of Solidity, generate tests, investigate code, and perform useful parts of a smart-contract audit. I am not learning Solidity because I believe humans will keep manually writing every line of blockchain code.
