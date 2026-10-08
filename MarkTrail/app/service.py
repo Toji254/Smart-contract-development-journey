@@ -1243,6 +1243,36 @@ class AppService:
             )
             raise AppError("Chain retry failed: " + str(exc), 502)
 
+    def admin_batches(self, user_id: int) -> list[dict]:
+        self.require_role(user_id, {"admin"})
+        conn = self.db.connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT
+                    b.id,
+                    b.status,
+                    b.student_count,
+                    b.revision,
+                    b.chain_state,
+                    b.chain_tx_hash,
+                    b.marks_hash,
+                    b.submitted_at,
+                    b.verified_at,
+                    a.name AS assessment,
+                    c.code AS course,
+                    u.full_name AS lecturer_name
+                FROM batches b
+                JOIN assessments a ON a.id = b.assessment_id
+                JOIN courses c ON c.id = a.course_id
+                JOIN users u ON u.id = b.submitted_by
+                ORDER BY b.submitted_at DESC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
     def admin_users(self, user_id: int) -> list[dict]:
         self.require_role(user_id, {"admin"})
         conn = self.db.connect()
