@@ -140,3 +140,269 @@ It is:
 > **At which points in the real marks pipeline does an independently verifiable audit record actually reduce disputes or administrative work?**
 
 That question should drive the next version.
+
+
+## Project path
+
+This is the build path for MarkTrail. Follow it in order. The point is to understand the system before adding complexity.
+
+### 1. Define the problem
+
+Map how a mark currently moves through the institution:
+
+~~~text
+Lecturer → Department → Exam / Academic Office → Portal → Student
+~~~
+
+For every stage, identify:
+
+- what information is created;
+- who controls it;
+- who can change it;
+- how submission is acknowledged;
+- what evidence remains if something goes wrong.
+
+The first version should solve one concrete problem: a student can report a missing mark and the institution can trace the issue to a resolution.
+
+### 2. Define the actors
+
+Start with four roles:
+
+- Student — views marks and reports missing assessments.
+- Lecturer — submits marks and resolves reports.
+- Reviewer — verifies submitted batches.
+- Administrator — manages roles and institutional configuration.
+
+Authorization must be enforced by the application and, where applicable, the smart contract. Hiding a button is not access control.
+
+### 3. Define the core data
+
+The application will eventually need concepts such as:
+
+~~~text
+Student
+Course
+Assessment
+Mark
+MarksBatch
+MissingMarkReport
+Resolution
+AuditRecord
+~~~
+
+A report should make it possible to answer who reported it, which student and assessment it concerns, when it was opened, its current status, who resolved it, and what the outcome was.
+
+### 4. Design the workflow before coding
+
+Core student flow:
+
+~~~text
+SEE MARKS
+   ↓
+MISSING?
+   ↓
+REPORT
+   ↓
+OPEN
+   ↓
+UNDER REVIEW
+   ↓
+RESOLVED
+~~~
+
+Core lecturer flow:
+
+~~~text
+PREPARE MARKS
+   ↓
+VALIDATE
+   ↓
+SUBMIT BATCH
+   ↓
+RESOLVE EXCEPTIONS
+   ↓
+AMEND WHEN NECESSARY
+~~~
+
+Write down every allowed state transition before implementing the contract.
+
+### 5. Build the application first
+
+The first UI should work without wallets or blockchain transactions.
+
+Build:
+
+- student assessment status;
+- missing-mark reporting;
+- lecturer issue queue;
+- mark resolution;
+- resolution history;
+- basic submission history.
+
+This proves that the human workflow is useful before blockchain complexity is introduced.
+
+### 6. Build the Solidity audit layer
+
+The first smart contract should have a narrow responsibility:
+
+~~~text
+batch submission
+      ↓
+verification
+      ↓
+amendment
+      ↓
+permanent revision history
+~~~
+
+It should not become the entire marks database.
+
+The contract should record commitments to batches, not actual student marks.
+
+### 7. Understand the commitment
+
+The application should create a canonical representation of a marks batch and derive a cryptographic commitment from it.
+
+Do not simply concatenate predictable values and call the result private. A production scheme must consider random salts, canonical encoding, guessing attacks, and how a later verifier reconstructs exactly what was committed.
+
+The important invariant is:
+
+> The application must be able to prove which exact version of a batch was committed without publishing the students' marks.
+
+### 8. Test the contract
+
+Start with ordinary tests:
+
+- authorized lecturer can submit;
+- unauthorized caller cannot submit;
+- duplicate batch submission fails;
+- authorized reviewer can verify;
+- unauthorized reviewer cannot verify;
+- amendment requires the correct state;
+- every amendment preserves the previous revision;
+- invalid identifiers and empty commitments fail.
+
+Then move to fuzzing, invariant testing, Slither review, and manual attack scenarios.
+
+### 9. Define the important security invariants
+
+The protocol should always preserve rules such as:
+
+~~~text
+A student cannot become a lecturer.
+
+An unauthorized account cannot submit a batch.
+
+An unauthorized account cannot verify a batch.
+
+A verified revision cannot be silently erased.
+
+A mark amendment must leave an audit history.
+
+A missing-mark report cannot be resolved twice.
+~~~
+
+Add tests for these invariants rather than assuming the happy path is enough.
+
+### 10. Connect the application and chain
+
+Only after the local application and contract work independently should the backend connect them.
+
+~~~text
+Frontend
+   ↓
+Backend
+   ├── private database
+   │      ↓
+   │   actual marks
+   │
+   └── MarkTrailAudit
+          ↓
+       commitments
+~~~
+
+The blockchain transaction should be an implementation detail for normal users.
+
+### 11. Handle discrepancies
+
+A production system must be able to detect cases where:
+
+~~~text
+database record ≠ committed record
+~~~
+
+That mismatch should become an explicit operational issue instead of being silently overwritten.
+
+### 12. Validate with people
+
+Do not start with a university-wide deployment.
+
+Start with synthetic data and a small pilot. Watch a few students and at least one lecturer use the workflow. The questions are:
+
+- Did students understand what was missing?
+- Did reporting remove the need to chase people?
+- Did lecturers find the issue queue useful?
+- Did the audit trail make disputes easier to explain?
+- What part of the current university process did the prototype misunderstand?
+
+Real user feedback should change the design.
+
+## What MarkTrail aims to become
+
+The first target is missing marks.
+
+The longer-term aim is broader: make academic records traceable, easier to reconcile, and harder to alter silently.
+
+~~~text
+Missing marks
+     ↓
+Mark submissions
+     ↓
+Amendments
+     ↓
+Academic record history
+     ↓
+Transcript / certificate verification
+~~~
+
+That expansion should only happen after the original problem is genuinely solved.
+
+## What success looks like
+
+### Student
+
+> I reported my missing mark once, I could see what was happening, and I did not have to chase multiple people.
+
+### Lecturer
+
+> I can see what I submitted and handle missing-mark reports in one place.
+
+### Administrator
+
+> When something goes wrong, we can identify where it happened instead of guessing.
+
+## Development rule
+
+Build the smallest complete path first.
+
+~~~text
+problem
+   ↓
+workflow
+   ↓
+application prototype
+   ↓
+Solidity audit layer
+   ↓
+tests
+   ↓
+attack the assumptions
+   ↓
+real-user validation
+   ↓
+only then expand
+~~~
+
+The project is not successful because it uses blockchain.
+
+It is successful when MarkTrail makes the missing-mark problem materially easier for students, lecturers, and academic administrators.
