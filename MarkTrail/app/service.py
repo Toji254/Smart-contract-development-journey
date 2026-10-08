@@ -1065,12 +1065,14 @@ class AppService:
         }
 
     def batch_audit(self, user_id: int, batch_id: str) -> dict:
-        self.require_role(user_id, {"student", "lecturer", "reviewer", "admin"})
+        user = self.require_role(user_id, {"student", "lecturer", "reviewer", "admin"})
         conn = self.db.connect()
         try:
             batch = conn.execute(
                 """
-                SELECT b.*, a.name AS assessment, c.code AS course, c.title AS course_title
+                SELECT b.*, a.name AS assessment, a.course_id,
+                       c.code AS course, c.title AS course_title,
+                       c.lecturer_id
                 FROM batches b
                 JOIN assessments a ON a.id = b.assessment_id
                 JOIN courses c ON c.id = a.course_id
@@ -1080,6 +1082,21 @@ class AppService:
             ).fetchone()
             if not batch:
                 raise AppError("Batch not found.", 404)
+
+            if user["role"] == "student":
+                allowed = conn.execute(
+                    """
+                    SELECT 1
+                    FROM enrollments
+                    WHERE course_id = ? AND student_id = ?
+                    """,
+                    (batch["course_id"], user_id),
+                ).fetchone()
+                if not allowed:
+                    raise AppError("You do not have access to this batch.", 403)
+
+            if user["role"] == "lecturer" and batch["lecturer_id"] != user_id:
+                raise AppError("You do not have access to this batch.", 403)
 
             events = conn.execute(
                 """
@@ -1103,16 +1120,19 @@ class AppService:
                 (batch_id,),
             ).fetchall()
 
-            history = conn.execute(
-                """
-                SELECT mh.*, u.full_name AS actor_name
-                FROM mark_history mh
-                JOIN users u ON u.id = mh.actor_id
-                WHERE mh.batch_id = ?
-                ORDER BY mh.created_at
-                """,
-                (batch_id,),
-            ).fetchall()
+            history = []
+            if user["role"] != "student":
+                history_rows = conn.execute(
+                    """
+                    SELECT mh.*, u.full_name AS actor_name
+                    FROM mark_history mh
+                    JOIN users u ON u.id = mh.actor_id
+                    WHERE mh.batch_id = ?
+                    ORDER BY mh.created_at
+                    """,
+                    (batch_id,),
+                ).fetchall()
+                history = [dict(row) for row in history_rows]
 
             return {
                 "batch": dict(batch),
@@ -1124,7 +1144,7 @@ class AppService:
                     for row in events
                 ],
                 "revisions": [dict(row) for row in revisions],
-                "mark_history": [dict(row) for row in history],
+                "mark_history": history,
             }
         finally:
             conn.close()
