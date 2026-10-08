@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>MarkTrail Prototype</title>
+    <meta
+      name="description"
+      content="MarkTrail prototype: traceable academic marks and missing-mark resolution."
+    >
+    <link rel="stylesheet" href="style.css">
+  </head>
+
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">PROTOTYPE</p>
+        <h1>MarkTrail</h1>
+        <p class="tagline">Know where your mark went.</p>
+      </div>
+
+      <div class="demo-pill">
+        <span class="dot"></span>
+        Demo data only
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">MARKS OPERATIONS</p>
+          <h2>From “my mark is missing” to a traceable resolution.</h2>
+          <p>
+            This prototype shows the student and lecturer workflows before a
+            real university integration exists.
+          </p>
+        </div>
+
+        <div class="flow">
+          <span>Submit</span>
+          <span>→</span>
+          <span>Track</span>
+          <span>→</span>
+          <span>Resolve</span>
+          <span>→</span>
+          <span>Audit</span>
+        </div>
+      </section>
+
+      <nav class="tabs" aria-label="Prototype view">
+        <button class="tab active" data-view="student">Student</button>
+        <button class="tab" data-view="lecturer">Lecturer</button>
+        <button class="tab" data-view="audit">Audit trail</button>
+      </nav>
+
+      <section id="student-view" class="view active">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">STUDENT VIEW</p>
+            <h3>Jane Doe · STU-104</h3>
+          </div>
+          <span class="status-chip">CSC 201</span>
+        </div>
+
+        <div id="student-summary" class="summary-grid"></div>
+        <div id="student-assessments" class="card-stack"></div>
+
+        <div class="explain-box">
+          <strong>What changed?</strong>
+          <p>
+            A student no longer needs to start with a WhatsApp message. The
+            missing assessment becomes a trackable issue and enters the
+            lecturer’s queue.
+          </p>
+        </div>
+      </section>
+
+      <section id="lecturer-view" class="view">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">LECTURER VIEW</p>
+            <h3>CSC 201 · Mark issues</h3>
+          </div>
+          <span id="open-count" class="status-chip"></span>
+        </div>
+
+        <div id="lecturer-queue" class="card-stack"></div>
+
+        <div class="explain-box">
+          <strong>The point of the queue</strong>
+          <p>
+            Instead of scattered messages, the lecturer gets a structured list
+            of exceptions that can be resolved and tracked.
+          </p>
+        </div>
+      </section>
+
+      <section id="audit-view" class="view">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">AUDIT LAYER</p>
+            <h3>What happened to CSC 201 · CAT 2?</h3>
+          </div>
+          <span class="status-chip">Off-chain demo</span>
+        </div>
+
+        <div class="audit-explainer">
+          <div>
+            <span class="mini-label">PRIVATE DATA</span>
+            <p>Actual marks stay in the application database.</p>
+          </div>
+          <div class="arrow">→</div>
+          <div>
+            <span class="mini-label">COMMITMENT</span>
+            <p>A hash represents the submitted batch.</p>
+          </div>
+          <div class="arrow">→</div>
+          <div>
+            <span class="mini-label">CHAIN</span>
+            <p>The contract keeps the revision history.</p>
+          </div>
+        </div>
+
+        <div id="audit-timeline" class="timeline"></div>
+
+        <div class="hash-card">
+          <div>
+            <span class="mini-label">CURRENT DEMO FINGERPRINT</span>
+            <code id="demo-hash">calculating…</code>
+          </div>
+          <p>
+            This browser fingerprint is only a UI demonstration. It is not a
+            blockchain transaction hash.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      MarkTrail prototype · No real student records · No blockchain transaction
+      is sent by this page.
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
