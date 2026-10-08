@@ -341,7 +341,7 @@ class Database:
             INSERT INTO batches
             (id, assessment_id, submitted_by, status, student_count, marks_hash,
              commitment_salt, revision, chain_state, submitted_at, verified_by, verified_at)
-            VALUES (?, ?, ?, 'VERIFIED', ?, ?, ?, 1, 'LOCAL_ONLY', ?, ?, ?, ?)
+            VALUES (?, ?, ?, 'VERIFIED', ?, ?, ?, 1, 'LOCAL_ONLY', ?, ?, ?)
             """,
             (
                 batch_id,
