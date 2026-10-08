@@ -1,6 +1,6 @@
 # MarkTrail
 
-> A prototype for making academic marks traceable from lecturer submission to student resolution.
+> A full-stack MVP for making academic marks traceable from lecturer submission to student resolution.
 
 MarkTrail starts from a simple problem:
 
@@ -406,3 +406,122 @@ only then expand
 The project is not successful because it uses blockchain.
 
 It is successful when MarkTrail makes the missing-mark problem materially easier for students, lecturers, and academic administrators.
+
+## Full MVP implementation
+
+The project now includes a complete runnable local stack rather than only a visual mock.
+
+### Application layer
+
+The Python application provides:
+
+- session-based login;
+- role-based access for students, lecturers, reviewers, and administrators;
+- course and roster management;
+- assessment creation;
+- CSV validation and batch submission;
+- missing-mark reports;
+- lecturer resolution;
+- controlled mark amendments;
+- reviewer verification before publication;
+- audit events;
+- database/chain reconciliation hooks.
+
+The application uses SQLite and only Python's standard library so the architecture stays easy to inspect.
+
+### Blockchain layer
+
+The Solidity contract is MarkTrailAudit.
+
+It provides:
+
+- owner management;
+- lecturer authorization;
+- reviewer authorization;
+- batch commitment submission;
+- verification;
+- amendment revisions;
+- permanent revision history;
+- events and custom errors.
+
+The backend can use Foundry's cast command to write to and read from any configured EVM RPC.
+
+### End-to-end lifecycle
+
+~~~text
+ADMIN
+  ↓
+create users / course / roster / assessments
+
+LECTURER
+  ↓
+validate CSV
+  ↓
+submit batch
+  ↓
+chain commitment
+  ↓
+REVIEWER
+  ↓
+verify
+  ↓
+published to students
+
+STUDENT
+  ↓
+sees missing mark
+  ↓
+opens report
+
+LECTURER
+  ↓
+enters mark / no mark
+  ↓
+new batch revision
+  ↓
+REVIEWER verifies amendment
+  ↓
+new value published
+~~~
+
+### Local development
+
+~~~bash
+cd MarkTrail
+python3 run.py
+~~~
+
+Open http://127.0.0.1:8000.
+
+Tests:
+
+~~~bash
+python3 -m unittest discover -s tests -v
+forge build
+forge test -vv
+~~~
+
+### Chain configuration
+
+The default mode is local-only. Set these variables to enable Foundry-backed chain writes:
+
+~~~text
+MARKTRAIL_CHAIN_MODE=cast
+MARKTRAIL_CHAIN_RPC=http://127.0.0.1:8545
+MARKTRAIL_CONTRACT=0x...
+MARKTRAIL_CHAIN_PRIVATE_KEY=0x...
+~~~
+
+For a real institutional deployment, the single server-side signing key used by this MVP must be replaced by appropriate institutional custody, role separation, monitoring, and operational controls.
+
+### What this aims to become
+
+MarkTrail starts by solving missing marks.
+
+The longer-term purpose is to make academic records traceable enough that students, lecturers, and administrators can answer three questions quickly:
+
+1. What was submitted?
+2. What changed?
+3. Where did the failure happen?
+
+The project should earn the right to expand only after the missing-mark workflow works for real users.
