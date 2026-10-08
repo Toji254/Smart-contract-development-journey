@@ -2,8 +2,8 @@
 pragma solidity ^0.8.24;
 
 /// @title MarkTrailAudit
-/// @notice Minimal on-chain audit layer for academic mark batches.
-/// @dev Actual marks stay off-chain. The contract records commitments and history.
+/// @notice On-chain audit layer for academic mark batches.
+/// @dev Actual marks remain off-chain. The contract stores commitments and revision history.
 contract MarkTrailAudit {
     enum BatchStatus {
         NONE,
@@ -32,7 +32,6 @@ contract MarkTrailAudit {
 
     mapping(address => bool) public lecturers;
     mapping(address => bool) public reviewers;
-
     mapping(bytes32 => Batch) private batches;
     mapping(bytes32 => Revision[]) private revisions;
 
@@ -42,10 +41,12 @@ contract MarkTrailAudit {
     error ZeroAddress();
     error EmptyIdentifier();
     error EmptyHash();
+    error EmptyReason();
     error BatchAlreadyExists();
     error BatchNotFound();
     error InvalidStatus();
 
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event LecturerUpdated(address indexed account, bool enabled);
     event ReviewerUpdated(address indexed account, bool enabled);
 
@@ -70,6 +71,7 @@ contract MarkTrailAudit {
 
     constructor() {
         owner = msg.sender;
+        emit OwnershipTransferred(address(0), msg.sender);
     }
 
     modifier onlyOwner() {
@@ -87,6 +89,13 @@ contract MarkTrailAudit {
         _;
     }
 
+    function transferOwnership(address newOwner) external onlyOwner {
+        if (newOwner == address(0)) revert ZeroAddress();
+        address previousOwner = owner;
+        owner = newOwner;
+        emit OwnershipTransferred(previousOwner, newOwner);
+    }
+
     function setLecturer(address account, bool enabled) external onlyOwner {
         if (account == address(0)) revert ZeroAddress();
 
@@ -102,7 +111,7 @@ contract MarkTrailAudit {
     }
 
     /// @notice Register the first commitment for a marks batch.
-    /// @dev The caller should hash a canonical, salted representation off-chain.
+    /// @dev The application should hash a canonical, salted representation off-chain.
     function submitBatch(
         bytes32 batchId,
         bytes32 courseId,
@@ -151,7 +160,7 @@ contract MarkTrailAudit {
         );
     }
 
-    /// @notice Mark a submitted or amended batch as verified by an authorized reviewer.
+    /// @notice Verify the current batch revision and make it eligible for publication.
     function verifyBatch(bytes32 batchId) external onlyReviewer {
         Batch storage batch = batches[batchId];
 
@@ -170,7 +179,7 @@ contract MarkTrailAudit {
     }
 
     /// @notice Record a new commitment after a verified batch is changed.
-    /// @dev The previous commitment remains permanently queryable through getRevision.
+    /// @dev The previous commitment remains queryable through getRevision.
     function amendBatch(
         bytes32 batchId,
         bytes32 newMarksHash,
@@ -181,7 +190,7 @@ contract MarkTrailAudit {
         if (batch.status == BatchStatus.NONE) revert BatchNotFound();
         if (batch.status != BatchStatus.VERIFIED) revert InvalidStatus();
         if (newMarksHash == bytes32(0)) revert EmptyHash();
-        if (reasonHash == bytes32(0)) revert EmptyHash();
+        if (reasonHash == bytes32(0)) revert EmptyReason();
 
         batch.status = BatchStatus.AMENDED;
         batch.revisionCount += 1;
@@ -253,6 +262,30 @@ contract MarkTrailAudit {
         if (batches[batchId].status == BatchStatus.NONE) revert BatchNotFound();
 
         Revision memory revision = revisions[batchId][index];
+
+        return (
+            revision.marksHash,
+            revision.reasonHash,
+            revision.actor,
+            revision.timestamp
+        );
+    }
+
+    function getCurrentRevision(
+        bytes32 batchId
+    )
+        external
+        view
+        returns (
+            bytes32 marksHash,
+            bytes32 reasonHash,
+            address actor,
+            uint64 timestamp
+        )
+    {
+        if (batches[batchId].status == BatchStatus.NONE) revert BatchNotFound();
+
+        Revision memory revision = revisions[batchId][revisions[batchId].length - 1];
 
         return (
             revision.marksHash,

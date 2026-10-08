@@ -114,7 +114,6 @@ input:focus, select:focus, textarea:focus { border-color: #6b7785; box-shadow: 0
 .muted { color: var(--muted); font-size: .86rem; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .code-input { margin-top: 12px; min-height: 150px; font-family: "SFMono-Regular", Consolas, monospace; font-size: .84rem; }
-.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .preview { margin-top: 12px; padding: 12px; border-radius: 14px; background: #f5f7fa; border: 1px solid var(--border); }
 .preview ul { margin: 7px 0 0 18px; padding: 0; }
 

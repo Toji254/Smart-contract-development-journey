@@ -1,0 +1,39 @@
+name: MarkTrail
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - feat/marktrail-prototype
+
+jobs:
+  application-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: MarkTrail
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python syntax check
+        run: python -m compileall -q app run.py tests
+      - name: Application tests
+        run: python -m unittest discover -s tests -v
+      - name: Shell syntax check
+        run: bash -n scripts/start.sh
+
+  solidity-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: MarkTrail
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Foundry build
+        run: forge build
+      - name: Foundry tests
+        run: forge test -vv
