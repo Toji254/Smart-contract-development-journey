@@ -214,6 +214,9 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         if method == "POST" and match:
             return self._send_json(self.service.retry_chain(user_id, match.group(1)))
 
+        if method == "GET" and path == "/api/admin/batches":
+            return self._send_json({"batches": self.service.admin_batches(user_id)})
+
         if method == "GET" and path == "/api/admin/users":
             return self._send_json({"users": self.service.admin_users(user_id)})
 
