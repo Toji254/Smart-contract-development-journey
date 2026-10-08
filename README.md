@@ -219,6 +219,7 @@ Only now inspect the old implementation and ask what you understood now that you
 | [ETH Escrow](ETH%20Escrow/README.md) | 2 | Multi-party state machines |
 | [Purchase NFT with ERC20 Tokens](Purchase%20NFT%20with%20ERC20%20tokens/README.md) | 3 | ERC20 + ERC721 interaction |
 | [BountyArena](Bounty%20Arena/README.md) | 4 | Interconnected protocol design |
+| [MarkTrail](MarkTrail/README.md) | 5 | Real-world academic records system + Solidity audit layer |
 
 That progression is intentional:
 
@@ -230,6 +231,8 @@ multi-party state machine
 cross-contract token interaction
             ↓
 full interconnected protocol
+            ↓
+real-world academic records system
 ~~~
 
 ## Standard checkpoints

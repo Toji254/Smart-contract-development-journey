@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MarkTrail — Academic marks, without the mystery</title>
+  <meta name="description" content="MarkTrail makes academic marks traceable from submission to resolution.">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+
+  <section id="login-screen" class="login-screen">
+    <div class="login-card">
+      <div class="brand-mark">MT</div>
+      <p class="eyebrow">MARKTRAIL</p>
+      <h1>Academic marks,<br>without the mystery.</h1>
+      <p class="lead">
+        Track submissions, surface missing marks, resolve issues, and preserve an audit trail.
+      </p>
+
+      <form id="login-form">
+        <label>
+          Username
+          <input id="login-username" autocomplete="username" required>
+        </label>
+        <label>
+          Password
+          <input id="login-password" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="button primary full" type="submit">Sign in</button>
+      </form>
+
+      <div class="demo-accounts">
+        <div class="mini-label">DEMO ACCOUNTS</div>
+        <code>student / student123</code>
+        <code>lecturer / lecturer123</code>
+        <code>reviewer / reviewer123</code>
+        <code>admin / admin123</code>
+      </div>
+    </div>
+  </section>
+
+  <div id="app-shell" class="app-shell hidden">
+    <header class="topbar">
+      <div>
+        <div class="brand">MarkTrail</div>
+        <div class="tagline">Know where your mark went.</div>
+      </div>
+      <div class="topbar-actions">
+        <span id="chain-indicator" class="pill neutral">checking chain…</span>
+        <span id="user-chip" class="pill"></span>
+        <button id="logout-button" class="button ghost">Log out</button>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">ACADEMIC RECORDS</p>
+          <h1 id="page-title">Dashboard</h1>
+          <p id="page-subtitle" class="lead">A traceable workflow for marks and missing-mark issues.</p>
+        </div>
+        <div id="dashboard-stats" class="stat-grid"></div>
+      </section>
+
+      <nav id="nav" class="nav"></nav>
+
+      <section id="student-panel" class="panel hidden">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">STUDENT</p>
+            <h2>My marks</h2>
+          </div>
+          <button class="button secondary" data-refresh>Refresh</button>
+        </div>
+        <div id="student-marks" class="table-wrap"></div>
+
+        <div class="split">
+          <div>
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">ISSUES</p>
+                <h2>My reports</h2>
+              </div>
+            </div>
+            <div id="student-reports"></div>
+          </div>
+          <div class="callout">
+            <strong>Why this exists</strong>
+            <p>
+              A missing mark becomes a trackable issue instead of a WhatsApp hunt.
+              The lecturer gets a structured request and the final resolution remains visible.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="lecturer-panel" class="panel hidden">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">LECTURER</p>
+            <h2>Marks operations</h2>
+          </div>
+          <button class="button secondary" data-refresh>Refresh</button>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3>Submit an assessment batch</h3>
+              <p class="muted">CSV headers: <code>student_id,mark</code></p>
+            </div>
+          </div>
+          <div class="form-grid">
+            <label>
+              Assessment
+              <select id="lecturer-assessment"></select>
+            </label>
+            <label>
+              CSV file
+              <input id="marks-file" type="file" accept=".csv,text/csv">
+            </label>
+          </div>
+          <textarea id="marks-csv" class="code-input" rows="7" placeholder="student_id,mark&#10;4,18&#10;5,15"></textarea>
+          <div class="actions">
+            <button id="preview-batch" class="button secondary">Validate batch</button>
+            <button id="submit-batch" class="button primary">Submit batch</button>
+          </div>
+          <div id="batch-preview" class="preview hidden"></div>
+        </div>
+
+        <div class="section-head compact">
+          <div>
+            <p class="eyebrow">INCOMING</p>
+            <h2>Missing-mark queue</h2>
+          </div>
+        </div>
+        <div id="lecturer-reports"></div>
+
+        <div class="section-head compact">
+          <div>
+            <p class="eyebrow">SUBMISSIONS</p>
+            <h2>Assessment batches</h2>
+          </div>
+        </div>
+        <div id="lecturer-batches" class="table-wrap"></div>
+      </section>
+
+      <section id="reviewer-panel" class="panel hidden">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">REVIEWER</p>
+            <h2>Verification queue</h2>
+          </div>
+          <button class="button secondary" data-refresh>Refresh</button>
+        </div>
+        <div id="reviewer-batches"></div>
+      </section>
+
+      <section id="admin-panel" class="panel hidden">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">ADMIN</p>
+            <h2>Institution setup</h2>
+          </div>
+          <button class="button secondary" data-refresh>Refresh</button>
+        </div>
+
+        <div class="admin-grid">
+          <div class="card">
+            <div class="card-head">
+              <h3>Create user</h3>
+            </div>
+            <form id="create-user-form" class="stack">
+              <input name="username" placeholder="username" required>
+              <input name="full_name" placeholder="Full name" required>
+              <select name="role" required>
+                <option value="student">Student</option>
+                <option value="lecturer">Lecturer</option>
+                <option value="reviewer">Reviewer</option>
+                <option value="admin">Admin</option>
+              </select>
+              <input name="password" type="password" placeholder="temporary password" required minlength="8">
+              <button class="button primary">Create user</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h3>Create course</h3>
+            </div>
+            <form id="create-course-form" class="stack">
+              <input name="code" placeholder="CSC 202" required>
+              <input name="title" placeholder="Course title" required>
+              <select name="lecturer_id" id="course-lecturer" required></select>
+              <button class="button primary">Create course</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h3>Enroll students</h3>
+              <p class="muted">Enter numeric user IDs, comma-separated.</p>
+            </div>
+            <form id="enroll-form" class="stack">
+              <select name="course_id" id="enroll-course" required></select>
+              <input name="student_ids" placeholder="4,5,6" required>
+              <button class="button primary">Enroll</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h3>Create assessment</h3>
+            </div>
+            <form id="create-assessment-form" class="stack">
+              <select name="course_id" id="assessment-course" required></select>
+              <input name="name" placeholder="CAT 1" required>
+              <input name="max_mark" type="number" step="0.01" min="0.01" placeholder="20" required>
+              <button class="button primary">Create assessment</button>
+            </form>
+          </div>
+        </div>
+
+        <div class="split">
+          <div>
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">USERS</p>
+                <h2>Users</h2>
+              </div>
+            </div>
+            <div id="admin-users" class="table-wrap"></div>
+          </div>
+          <div>
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">COURSES</p>
+                <h2>Courses</h2>
+              </div>
+            </div>
+            <div id="admin-courses" class="table-wrap"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="audit-panel" class="panel hidden">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">AUDIT TRAIL</p>
+            <h2>Trace a batch</h2>
+          </div>
+        </div>
+
+        <div class="card">
+          <label>
+            Batch
+            <select id="audit-batch"></select>
+          </label>
+          <div class="actions">
+            <button id="load-audit" class="button primary">Load audit</button>
+            <button id="reconcile-audit" class="button secondary">Reconcile with chain</button>
+          </div>
+        </div>
+
+        <div id="audit-result"></div>
+      </section>
+    </main>
+
+    <footer>
+      MarkTrail is a runnable development MVP. Demo data only. Do not use this deployment for real student records.
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
