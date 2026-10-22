@@ -499,6 +499,22 @@ amended mark after the portal operator records the import. Each handoff is
 timestamped in the audit trail. A rejected report is closed with a reason; if
 the mark is still missing, the student can open a new report.
 
+### Handoff tracking, notifications, and reports
+
+The audit view shows the current handoff owner, how long the batch has waited,
+and the recorded duration and handler for earlier stages. Students receive
+in-app notifications when a report is rejected, a lecturer submits an
+amendment, or marks are published. They can mark each notification as read.
+
+Authorized users can download a CSV audit report for a batch. It includes
+workflow events and stage timing; mark-level history is available only to
+non-student roles.
+
+Portal import is still recorded manually by a portal operator. Automatic
+verification is not implemented. It needs an institution-approved API or
+sandbox, its documentation, and authorized non-production access; do not use
+personal portal passwords or session cookies.
+
 ### Local development
 
 ~~~bash

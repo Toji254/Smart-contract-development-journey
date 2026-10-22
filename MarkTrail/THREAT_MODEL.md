@@ -38,6 +38,11 @@ The application enforces institutional authorization.
 
 The smart contract provides an additional independent audit boundary.
 
+Batch preview and submission are lecturer-only operations, and the lecturer
+must be assigned to the assessment's course. Audit API responses never include
+the commitment salt. Student audit views expose only a limited set of public
+workflow metadata; staff notes and report references remain staff-only.
+
 ## Main threats
 
 ### Unauthorized mark changes

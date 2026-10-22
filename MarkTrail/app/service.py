@@ -6,6 +6,7 @@ import io
 import json
 import secrets
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from .chain import ChainClient, ChainError
@@ -74,6 +75,225 @@ class AppService:
                 utc_now(),
             ),
         )
+
+    @staticmethod
+    def _notify(
+        conn,
+        user_id: int,
+        event_type: str,
+        title: str,
+        body: str,
+        created_at: str | None = None,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO notifications (user_id, event_type, title, body, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, event_type, title, body, created_at or utc_now()),
+        )
+
+    def student_notifications(self, user_id: int) -> list[dict]:
+        self.require_role(user_id, {"student"})
+        conn = self.db.connect()
+        try:
+            return [
+                dict(row)
+                for row in conn.execute(
+                    """
+                    SELECT id, event_type, title, body, created_at, read_at
+                    FROM notifications
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT 100
+                    """,
+                    (user_id,),
+                ).fetchall()
+            ]
+        finally:
+            conn.close()
+
+    def mark_notification_read(self, user_id: int, notification_id: int) -> dict:
+        self.require_role(user_id, {"student"})
+        with self.db.transaction() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE notifications SET read_at = ?
+                WHERE id = ? AND user_id = ? AND read_at IS NULL
+                """,
+                (utc_now(), notification_id, user_id),
+            )
+            if cursor.rowcount == 0:
+                exists = conn.execute(
+                    "SELECT 1 FROM notifications WHERE id = ? AND user_id = ?",
+                    (notification_id, user_id),
+                ).fetchone()
+                if not exists:
+                    raise AppError("Notification not found.", 404)
+        return {"id": notification_id, "read": True}
+
+    @staticmethod
+    def _timestamp(value: str) -> datetime:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    def _pipeline_summary(self, conn, batch) -> dict:
+        labels = {
+            "DEPARTMENT_REVIEW": ("Department / reviewer", "reviewer"),
+            "EXAM_OFFICE": ("Exam office", "exam_office"),
+            "PORTAL_IMPORT": ("Portal operator", "portal_operator"),
+            "PUBLISHED": ("Published to students", None),
+        }
+        rows = conn.execute(
+            """
+            SELECT ae.action, ae.created_at, u.full_name AS actor_name
+            FROM audit_events ae
+            LEFT JOIN users u ON u.id = ae.actor_id
+            WHERE ae.entity_type = 'BATCH' AND ae.entity_id = ?
+              AND ae.action IN (
+                  'BATCH_SUBMITTED','BATCH_AMENDED','BATCH_VERIFIED',
+                  'EXAM_OFFICE_PROCESSED','PORTAL_IMPORTED'
+              )
+            ORDER BY ae.created_at, ae.id
+            """,
+            (batch["id"],),
+        ).fetchall()
+
+        completed: list[dict] = []
+        active: dict | None = None
+
+        def close_stage(ended_at: str, actor_name: str | None) -> None:
+            nonlocal active
+            if active is None:
+                return
+            duration = max(
+                0,
+                int((self._timestamp(ended_at) - self._timestamp(active["started_at"])).total_seconds()),
+            )
+            completed.append(
+                {
+                    **active,
+                    "completed_at": ended_at,
+                    "duration_seconds": duration,
+                    "completed_by": actor_name,
+                }
+            )
+            active = None
+
+        starts = {
+            "BATCH_SUBMITTED": "DEPARTMENT_REVIEW",
+            "BATCH_AMENDED": "DEPARTMENT_REVIEW",
+            "BATCH_VERIFIED": "EXAM_OFFICE",
+            "EXAM_OFFICE_PROCESSED": "PORTAL_IMPORT",
+            "PORTAL_IMPORTED": "PUBLISHED",
+        }
+        for row in rows:
+            action = row["action"]
+            when = row["created_at"]
+            actor = row["actor_name"]
+            if action in {"BATCH_SUBMITTED", "BATCH_AMENDED"}:
+                close_stage(when, actor)
+            elif action == "BATCH_VERIFIED":
+                close_stage(when, actor)
+            elif action == "EXAM_OFFICE_PROCESSED":
+                close_stage(when, actor)
+            elif action == "PORTAL_IMPORTED":
+                close_stage(when, actor)
+
+            stage = starts[action]
+            active = (
+                {
+                    "stage": stage,
+                    "owner": labels[stage][0],
+                    "owner_role": labels[stage][1],
+                    "started_at": when,
+                }
+                if stage != "PUBLISHED"
+                else None
+            )
+
+        current_stage = batch["pipeline_stage"]
+        if current_stage == "PUBLISHED":
+            active = None
+        elif active is None or active["stage"] != current_stage:
+            started_at = (
+                batch["submitted_at"]
+                if current_stage == "DEPARTMENT_REVIEW"
+                else batch["verified_at"] or batch["submitted_at"]
+            )
+            active = {
+                "stage": current_stage,
+                "owner": labels[current_stage][0],
+                "owner_role": labels[current_stage][1],
+                "started_at": started_at,
+            }
+
+        now = datetime.now(timezone.utc)
+        current_wait = 0
+        if active:
+            current_wait = max(
+                0,
+                int((now - self._timestamp(active["started_at"])).total_seconds()),
+            )
+        return {
+            "current_stage": current_stage,
+            "current_owner": labels[current_stage][0],
+            "current_owner_role": labels[current_stage][1],
+            "waiting_since": active["started_at"] if active else None,
+            "waiting_seconds": current_wait,
+            "stages": completed
+            + (
+                [
+                    {
+                        **active,
+                        "completed_at": None,
+                        "duration_seconds": current_wait,
+                        "completed_by": None,
+                    }
+                ]
+                if active
+                else []
+            ),
+        }
+
+    def batch_pipeline(self, user_id: int, batch_id: str) -> dict:
+        self.require_role(
+            user_id,
+            {
+                "student", "lecturer", "reviewer", "exam_office",
+                "portal_operator", "admin",
+            },
+        )
+        conn = self.db.connect()
+        try:
+            batch = conn.execute(
+                """
+                SELECT b.id, b.status, b.pipeline_stage, b.submitted_at, b.verified_at,
+                       a.course_id, c.lecturer_id
+                FROM batches b
+                JOIN assessments a ON a.id = b.assessment_id
+                JOIN courses c ON c.id = a.course_id
+                WHERE b.id = ?
+                """,
+                (batch_id,),
+            ).fetchone()
+            if not batch:
+                raise AppError("Batch not found.", 404)
+            user = self.user(user_id)
+            if user["role"] == "student":
+                allowed = conn.execute(
+                    "SELECT 1 FROM enrollments WHERE course_id = ? AND student_id = ?",
+                    (batch["course_id"], user_id),
+                ).fetchone()
+                if not allowed:
+                    raise AppError("You do not have access to this batch.", 403)
+            if user["role"] == "lecturer" and batch["lecturer_id"] != user_id:
+                raise AppError("You do not have access to this batch.", 403)
+            return {"batch_id": batch_id, **self._pipeline_summary(conn, batch)}
+        finally:
+            conn.close()
 
     def dashboard(self, user_id: int) -> dict:
         user = self.require_role(
@@ -478,6 +698,18 @@ class AppService:
                 "REPORT_REJECTED",
                 {"assessment_id": report["assessment_id"], "reason": reason},
             )
+            student_id = conn.execute(
+                "SELECT student_id FROM missing_reports WHERE id = ?",
+                (report_id,),
+            ).fetchone()["student_id"]
+            self._notify(
+                conn,
+                int(student_id),
+                "REPORT_REJECTED",
+                "Missing-mark report rejected",
+                reason,
+                now,
+            )
         return {"report_id": report_id, "status": "REJECTED"}
 
     def exam_office_batches(self, user_id: int) -> list[dict]:
@@ -609,6 +841,48 @@ class AppService:
                 "PORTAL_IMPORTED",
                 {"revision": batch["revision"], "published": True},
             )
+            assessment = conn.execute(
+                "SELECT assessment_id FROM batches WHERE id = ?",
+                (batch_id,),
+            ).fetchone()
+            students = conn.execute(
+                """
+                SELECT student_id FROM enrollments
+                WHERE course_id = (
+                    SELECT course_id FROM assessments WHERE id = ?
+                )
+                """,
+                (assessment["assessment_id"],),
+            ).fetchall()
+            reports = conn.execute(
+                """
+                SELECT student_id FROM missing_reports
+                WHERE assessment_id = ? AND status = 'RESOLVED'
+                  AND resolved_at = ?
+                """,
+                (assessment["assessment_id"], now),
+            ).fetchall()
+            resolved_students = {int(report["student_id"]) for report in reports}
+            for student in students:
+                student_id = int(student["student_id"])
+                if student_id in resolved_students:
+                    self._notify(
+                        conn,
+                        student_id,
+                        "REPORT_RESOLVED",
+                        "Missing-mark report resolved",
+                        "Your reported assessment outcome has been published.",
+                        now,
+                    )
+                else:
+                    self._notify(
+                        conn,
+                        student_id,
+                        "MARKS_PUBLISHED",
+                        "Marks published",
+                        "Marks for this assessment have been imported and published.",
+                        now,
+                    )
         return {
             "batch_id": batch_id,
             "pipeline_stage": "PUBLISHED",
@@ -671,6 +945,7 @@ class AppService:
         return rows
 
     def _batch_context(self, user_id: int, assessment_id: str):
+        self.require_role(user_id, {"lecturer"})
         conn = self.db.connect()
         try:
             row = conn.execute(
@@ -687,11 +962,7 @@ class AppService:
             if not row:
                 raise AppError("Assessment not found.", 404)
 
-            user = conn.execute(
-                "SELECT role FROM users WHERE id = ?",
-                (user_id,),
-            ).fetchone()
-            if user["role"] == "lecturer" and row["lecturer_id"] != user_id:
+            if row["lecturer_id"] != user_id:
                 raise AppError("You are not the lecturer for this course.", 403)
 
             students = conn.execute(
@@ -1167,6 +1438,14 @@ class AppService:
                     "reason": reason_text,
                 },
             )
+            self._notify(
+                tx,
+                target_student_id,
+                "MARK_AMENDED",
+                "Mark amendment submitted",
+                "A proposed mark update is awaiting department review and publication.",
+                now,
+            )
 
         chain_tx = None
         if self.chain.enabled:
@@ -1307,9 +1586,11 @@ class AppService:
         try:
             batch = conn.execute(
                 """
-                SELECT b.*, a.name AS assessment, a.course_id,
-                       c.code AS course, c.title AS course_title,
-                       c.lecturer_id
+                SELECT b.id, b.assessment_id, b.status, b.student_count,
+                       b.marks_hash, b.revision, b.chain_state, b.chain_tx_hash,
+                       b.submitted_at, b.verified_at, b.pipeline_stage,
+                       a.name AS assessment, a.course_id,
+                       c.code AS course, c.title AS course_title, c.lecturer_id
                 FROM batches b
                 JOIN assessments a ON a.id = b.assessment_id
                 JOIN courses c ON c.id = a.course_id
@@ -1337,10 +1618,11 @@ class AppService:
 
             events = conn.execute(
                 """
-                SELECT ae.*, u.full_name AS actor_name
+                SELECT ae.created_at, ae.action, ae.actor_id, ae.chain_tx_hash,
+                       ae.metadata_json, u.full_name AS actor_name
                 FROM audit_events ae
                 LEFT JOIN users u ON u.id = ae.actor_id
-                WHERE ae.entity_id = ?
+                WHERE ae.entity_type = 'BATCH' AND ae.entity_id = ?
                 ORDER BY ae.created_at
                 """,
                 (batch_id,),
@@ -1356,6 +1638,18 @@ class AppService:
                 """,
                 (batch_id,),
             ).fetchall()
+            revision_data = []
+            for row in revisions:
+                revision = dict(row)
+                if user["role"] == "student":
+                    revision = {
+                        key: revision[key]
+                        for key in (
+                            "revision", "marks_hash", "kind", "chain_state",
+                            "chain_tx_hash", "created_at", "actor_name",
+                        )
+                    }
+                revision_data.append(revision)
 
             history = []
             if user["role"] != "student":
@@ -1371,20 +1665,136 @@ class AppService:
                 ).fetchall()
                 history = [dict(row) for row in history_rows]
 
-            return {
-                "batch": dict(batch),
-                "events": [
-                    {
-                        **dict(row),
-                        "metadata": json.loads(row["metadata_json"]),
+            safe_batch_fields = (
+                "id", "assessment_id", "status", "student_count", "marks_hash",
+                "revision", "chain_state", "chain_tx_hash", "submitted_at",
+                "verified_at", "pipeline_stage", "assessment", "course_id",
+                "course", "course_title",
+            )
+            event_data = []
+            for row in events:
+                metadata = json.loads(row["metadata_json"])
+                event = {
+                    "created_at": row["created_at"],
+                    "action": row["action"],
+                    "actor_name": row["actor_name"],
+                    "chain_tx_hash": row["chain_tx_hash"],
+                }
+                if user["role"] == "student":
+                    public_metadata = {
+                        "revision", "from_stage", "to_stage", "published",
+                        "student_count", "submitted_count", "missing_count",
+                        "chain_state",
                     }
-                    for row in events
-                ],
-                "revisions": [dict(row) for row in revisions],
+                    metadata = {
+                        key: value
+                        for key, value in metadata.items()
+                        if key in public_metadata
+                    }
+                else:
+                    event["actor_id"] = row["actor_id"]
+                event["metadata"] = metadata
+                event_data.append(event)
+
+            return {
+                "batch": {key: batch[key] for key in safe_batch_fields},
+                "pipeline": self._pipeline_summary(conn, batch),
+                "events": event_data,
+                "revisions": revision_data,
                 "mark_history": history,
             }
         finally:
             conn.close()
+
+    def batch_report_csv(self, user_id: int, batch_id: str) -> str:
+        report = self.batch_audit(user_id, batch_id)
+        rows = [["MarkTrail batch audit report"], ["Field", "Value"]]
+        batch = report["batch"]
+        for key in (
+            "id",
+            "course",
+            "assessment",
+            "status",
+            "pipeline_stage",
+            "revision",
+            "student_count",
+            "submitted_at",
+            "verified_at",
+            "marks_hash",
+            "chain_state",
+            "chain_tx_hash",
+        ):
+            rows.append([key, batch.get(key)])
+
+        rows.extend(
+            [
+                [],
+                ["Pipeline stage", "Started", "Completed", "Duration seconds", "Owner", "Completed by"],
+            ]
+        )
+        for stage in report["pipeline"]["stages"]:
+            rows.append(
+                [
+                    stage["stage"],
+                    stage["started_at"],
+                    stage["completed_at"],
+                    stage["duration_seconds"],
+                    stage["owner"],
+                    stage["completed_by"],
+                ]
+            )
+
+        rows.extend([[], ["Event time", "Actor", "Action", "Details"]])
+        for event in report["events"]:
+            rows.append(
+                [
+                    event["created_at"],
+                    event["actor_name"],
+                    event["action"],
+                    json.dumps(event["metadata"], sort_keys=True),
+                ]
+            )
+
+        if report["mark_history"]:
+            rows.extend(
+                [
+                    [],
+                    [
+                        "Mark change time",
+                        "Student ID",
+                        "Actor",
+                        "Action",
+                        "Previous mark",
+                        "New mark",
+                        "Reason",
+                    ],
+                ]
+            )
+            for item in report["mark_history"]:
+                rows.append(
+                    [
+                        item["created_at"],
+                        item["student_id"],
+                        item["actor_name"],
+                        item["action"],
+                        item["old_mark"],
+                        item["new_mark"],
+                        item["reason"],
+                    ]
+                )
+
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        for row in rows:
+            writer.writerow(
+                [
+                    "'" + str(value)
+                    if isinstance(value, str) and value.startswith(("=", "+", "-", "@", "\t", "\r"))
+                    else value
+                    for value in row
+                ]
+            )
+        return output.getvalue()
 
     def reconcile_batch(self, user_id: int, batch_id: str) -> dict:
         self.require_role(user_id, {"reviewer", "admin"})

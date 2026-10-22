@@ -136,6 +136,8 @@ tr:last-child td { border-bottom: 0; }
   border: 1px solid var(--border); border-radius: 16px; padding: 15px;
   background: #fff; margin-bottom: 9px;
 }
+.notification.read { background: var(--soft); }
+.notification small { color: var(--muted); font-size: .78rem; }
 .issue-top { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
 .issue-title { font-weight: 900; }
 .stack { display: grid; gap: 10px; }

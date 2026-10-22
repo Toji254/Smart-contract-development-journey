@@ -173,10 +173,45 @@ async function loadDashboard() {
 }
 
 async function loadStudent() {
-  const [marksData, reportsData] = await Promise.all([
+  const [marksData, reportsData, notificationData] = await Promise.all([
     api("/api/student/marks"),
-    api("/api/student/reports")
+    api("/api/student/reports"),
+    api("/api/student/notifications")
   ]);
+  const notifications = notificationData.notifications;
+  const unreadCount = notifications.filter((item) => !item.read_at).length;
+  $("#student-notifications").innerHTML =
+    '<div class="section-head compact"><div><p class="eyebrow">UPDATES</p><h2>Notifications' +
+    (unreadCount ? " · " + unreadCount + " new" : "") +
+    "</h2></div></div>" +
+    (notifications.length
+      ? notifications.map((item) =>
+          '<div class="issue notification' +
+          (item.read_at ? " read" : "") +
+          '"><div class="issue-top"><div><strong>' +
+          esc(item.title) +
+          '</strong><p class="muted">' +
+          esc(item.body) +
+          '</p><small>' +
+          esc(item.created_at) +
+          "</small></div>" +
+          (!item.read_at
+            ? '<button class="button ghost" data-notification-read="' + esc(item.id) + '">Mark read</button>'
+            : "") +
+          "</div></div>"
+        ).join("")
+      : '<div class="card"><p class="muted">No notifications yet.</p></div>');
+
+  $("#student-notifications").querySelectorAll("[data-notification-read]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await api("/api/student/notifications/" + encodeURIComponent(button.dataset.notificationRead) + "/read", { method: "POST" });
+        await loadStudent();
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+  });
 
   $("#student-marks").innerHTML =
     marksData.marks.length === 0
@@ -705,6 +740,21 @@ async function loadAudit(batchId) {
                 "</small></div>"
             )
             .join("");
+    const pipeline = data.pipeline.stages
+      .map((stage) =>
+        '<div class="timeline-item"><strong>' +
+        esc(stage.owner) +
+        " · " +
+        (stage.completed_at ? "completed" : "waiting") +
+        '</strong><span>Started ' +
+        esc(stage.started_at) +
+        (stage.completed_at ? " · completed " + esc(stage.completed_at) : "") +
+        " · waited " +
+        esc(formatDuration(stage.duration_seconds)) +
+        (stage.completed_by ? " · handled by " + esc(stage.completed_by) : "") +
+        "</span></div>"
+      )
+      .join("");
 
     $("#audit-result").innerHTML =
       '<div class="card"><p class="eyebrow">BATCH</p><h3>' +
@@ -717,7 +767,17 @@ async function loadAudit(batchId) {
       badge(data.batch.chain_state) +
       '</p><div class="hash-box"><div class="mini-label">CURRENT COMMITMENT</div><code>' +
       esc(data.batch.marks_hash) +
-      "</code></div></div>" +
+      '</code></div><p class="muted">' +
+      (data.pipeline.current_stage === "PUBLISHED"
+        ? "<strong>Published to students</strong>"
+        : "Currently with <strong>" +
+          esc(data.pipeline.current_owner) +
+          "</strong> · waiting " +
+          esc(formatDuration(data.pipeline.waiting_seconds)) +
+          (data.pipeline.waiting_since ? " since " + esc(data.pipeline.waiting_since) : "")) +
+      '</p></div><div class="card"><p class="eyebrow">HANDOFF TIMING</p><div class="timeline">' +
+      (pipeline || '<p class="muted">No handoff events recorded yet.</p>') +
+      "</div></div>" +
       '<div class="card"><p class="eyebrow">REVISIONS</p><div class="timeline">' +
       revisions +
       '</div></div><div class="card"><p class="eyebrow">MARK HISTORY</p><div class="timeline">' +
@@ -728,6 +788,16 @@ async function loadAudit(batchId) {
   } catch (error) {
     toast(error.message, "error");
   }
+}
+
+function formatDuration(seconds) {
+  const total = Math.max(0, Number(seconds) || 0);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (days) return days + "d " + hours + "h";
+  if (hours) return hours + "h " + minutes + "m";
+  return minutes + "m";
 }
 
 async function loadAuditSelector() {
@@ -824,6 +894,20 @@ $("#submit-batch").addEventListener("click", submitBatch);
 $("#load-audit").addEventListener("click", () => {
   const batchId = $("#audit-batch").value;
   if (batchId) loadAudit(batchId);
+});
+
+$("#download-audit").addEventListener("click", () => {
+  const batchId = $("#audit-batch").value || $("#audit-batch").dataset.selected;
+  if (!batchId) {
+    toast("Choose a batch first.", "error");
+    return;
+  }
+  const link = document.createElement("a");
+  link.href = "/api/audit/batch/" + encodeURIComponent(batchId) + "/report.csv";
+  link.download = "marktrail-audit.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 });
 
 $("#reconcile-audit").addEventListener("click", async () => {

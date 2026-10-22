@@ -312,6 +312,16 @@ class Database:
                     created_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    event_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    read_at TEXT
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_assessment_marks_student
                     ON assessment_marks(student_id);
 
@@ -320,6 +330,9 @@ class Database:
 
                 CREATE INDEX IF NOT EXISTS idx_audit_entity
                     ON audit_events(entity_type, entity_id, created_at);
+
+                CREATE INDEX IF NOT EXISTS idx_notifications_user_created
+                    ON notifications(user_id, created_at);
                 """
             )
 
@@ -497,19 +510,44 @@ class Database:
                 (assessment_id, sid, mark, status, mark, status, batch_id, now),
             )
 
-        conn.execute(
-            """
-            INSERT INTO audit_events
-            (entity_type, entity_id, actor_id, action, metadata_json, created_at)
-            VALUES ('BATCH', ?, ?, 'BATCH_VERIFIED', ?, ?)
-            """,
-            (
-                batch_id,
-                lecturer_id,
-                json.dumps({"reason": reason, "chain_state": "LOCAL_ONLY"}),
-                now,
-            ),
-        )
+        stage_actors = {
+            row["username"]: row["id"]
+            for row in conn.execute(
+                """
+                SELECT id, username FROM users
+                WHERE username IN ('reviewer', 'exam_office', 'portal_operator')
+                """
+            ).fetchall()
+        }
+        seed_events = [
+            (lecturer_id, "BATCH_SUBMITTED", {"reason": reason}),
+            (stage_actors.get("reviewer", lecturer_id), "BATCH_VERIFIED", {"published": False}),
+        ]
+        if "exam_office" in stage_actors and "portal_operator" in stage_actors:
+            seed_events.extend(
+                [
+                    (stage_actors["exam_office"], "EXAM_OFFICE_PROCESSED", {}),
+                    (stage_actors["portal_operator"], "PORTAL_IMPORTED", {"published": True}),
+                ]
+            )
+        for actor_id, action, metadata in seed_events:
+            conn.execute(
+                """
+                INSERT INTO audit_events
+                (entity_type, entity_id, actor_id, action, metadata_json, created_at)
+                VALUES ('BATCH', ?, ?, ?, ?, ?)
+                """,
+                (
+                    batch_id,
+                    actor_id,
+                    action,
+                    json.dumps(
+                        {"chain_state": "LOCAL_ONLY", **metadata},
+                        sort_keys=True,
+                    ),
+                    now,
+                ),
+            )
 
     def cleanup_sessions(self) -> None:
         with self.transaction() as conn:

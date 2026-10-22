@@ -135,6 +135,17 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/api/student/reports":
             return self._send_json({"reports": self.service.student_reports(user_id)})
 
+        if method == "GET" and path == "/api/student/notifications":
+            return self._send_json(
+                {"notifications": self.service.student_notifications(user_id)}
+            )
+
+        match = re.fullmatch(r"/api/student/notifications/(\d+)/read", path)
+        if method == "POST" and match:
+            return self._send_json(
+                self.service.mark_notification_read(user_id, int(match.group(1)))
+            )
+
         if method == "POST" and path == "/api/student/reports":
             body = self._body()
             return self._send_json(
@@ -318,6 +329,30 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         if method == "GET" and match:
             return self._send_json(
                 self.service.batch_audit(user_id, match.group(1))
+            )
+
+        match = re.fullmatch(
+            r"/api/audit/batch/(0x[a-fA-F0-9]{64})/report\.csv",
+            path,
+        )
+        if method == "GET" and match:
+            body = self.service.batch_report_csv(user_id, match.group(1)).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header(
+                "Content-Disposition",
+                f'attachment; filename="marktrail-audit-{match.group(1)[2:14]}.csv"',
+            )
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        match = re.fullmatch(r"/api/audit/batch/(0x[a-fA-F0-9]{64})/pipeline", path)
+        if method == "GET" and match:
+            return self._send_json(
+                self.service.batch_pipeline(user_id, match.group(1))
             )
 
         match = re.fullmatch(r"/api/admin/reconcile/(0x[a-fA-F0-9]{64})", path)
