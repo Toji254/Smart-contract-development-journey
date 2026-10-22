@@ -119,6 +119,10 @@ The application validates:
 
 Sessions must be protected by secure cookies, HTTPS, expiration, and production-grade session management before real deployment.
 
+Demo seeding is disabled by default, and secure session cookies are enabled by
+default. Enabling demo credentials or disabling the cookie `Secure` attribute
+is only appropriate for local HTTP development.
+
 ## Security invariant
 
 The most important product-level rule is:
@@ -143,3 +147,5 @@ It does not replace:
 - privacy/legal review;
 - an independent smart-contract audit;
 - secure production key management.
+- production-grade HTTP serving, database operations, backups, monitoring,
+  and account lifecycle controls.

@@ -6,6 +6,7 @@ import io
 import json
 import secrets
 import uuid
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any
 
@@ -1786,15 +1787,25 @@ class AppService:
         output = io.StringIO(newline="")
         writer = csv.writer(output)
         for row in rows:
-            writer.writerow(
-                [
-                    "'" + str(value)
-                    if isinstance(value, str) and value.startswith(("=", "+", "-", "@", "\t", "\r"))
-                    else value
-                    for value in row
-                ]
-            )
+            writer.writerow([self._sanitize_csv_cell(value) for value in row])
         return output.getvalue()
+
+    @staticmethod
+    def _sanitize_csv_cell(value: Any) -> Any:
+        if not isinstance(value, str) or not value:
+            return value
+
+        normalized = unicodedata.normalize("NFKC", value)
+        if value[0] in "\t\r\n":
+            return "'" + value
+
+        for char in normalized:
+            if char.isspace() or unicodedata.category(char) in {"Cc", "Cf"}:
+                continue
+            if char in "=+-@":
+                return "'" + value
+            break
+        return value
 
     def reconcile_batch(self, user_id: int, batch_id: str) -> dict:
         self.require_role(user_id, {"reviewer", "admin"})

@@ -15,4 +15,4 @@ run:
 	$(PYTHON) run.py
 
 reset:
-	$(PYTHON) run.py --reset
+	$(PYTHON) run.py --reset --seed-demo

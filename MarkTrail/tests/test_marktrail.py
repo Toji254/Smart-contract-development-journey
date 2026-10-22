@@ -129,14 +129,39 @@ class MarkTrailTests(unittest.TestCase):
         conn.close()
         with self.db.transaction() as conn:
             conn.execute(
-                "UPDATE batches SET chain_tx_hash = '=1+1' WHERE id = ?",
+                "UPDATE batches SET chain_tx_hash = '＝1+1' WHERE id = ?",
                 (batch["id"],),
             )
 
         report = self.service.batch_report_csv(self.student["id"], batch["id"])
         rows = list(csv.reader(io.StringIO(report)))
-        self.assertIn(["chain_tx_hash", "'=1+1"], rows)
+        self.assertIn(["chain_tx_hash", "'＝1+1"], rows)
         self.assertFalse(any("Student ID" in cell for row in rows for cell in row))
+
+    def test_csv_cell_sanitizer_handles_ascii_unicode_and_whitespace_prefixes(self):
+        dangerous = [
+            "=1+1",
+            "+1+1",
+            "-1+1",
+            "@SUM(A1:A2)",
+            "\t=1+1",
+            "\r=1+1",
+            "\n=1+1",
+            " \t=1+1",
+            "＝1+1",
+            "＋1+1",
+            "－1+1",
+            "＠SUM(A1:A2)",
+            "\u200b=1+1",
+        ]
+        for value in dangerous:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    self.service._sanitize_csv_cell(value),
+                    "'" + value,
+                )
+        self.assertEqual(self.service._sanitize_csv_cell("ordinary text"), "ordinary text")
+        self.assertEqual(self.service._sanitize_csv_cell(12.5), 12.5)
 
     def test_student_batch_audit_excludes_salt_and_private_event_notes(self):
         conn = self.db.connect()
@@ -364,6 +389,11 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(rows[0]["published_mark"], 19)
         self.assertEqual(rows[0]["published_status"], "RECORDED")
         self.assertEqual(rows[1]["published_mark"], 16)
+        for student_id in (self.student["id"], self.other_student["id"]):
+            notifications = self.service.student_notifications(student_id)
+            self.assertEqual(len(notifications), 1)
+            self.assertEqual(notifications[0]["event_type"], "MARKS_PUBLISHED")
+            self.assertIn("published", notifications[0]["body"].lower())
 
     def test_missing_mark_resolution_requires_reviewer_before_publication(self):
         report_id = self.service.report_missing_mark(
@@ -408,6 +438,7 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(batch["revision"], 2)
         notifications = self.service.student_notifications(self.student["id"])
         self.assertEqual(notifications[0]["event_type"], "MARK_AMENDED")
+        self.assertIn("awaiting department review", notifications[0]["body"])
 
         self.service.verify_batch(self.reviewer["id"], result["batch_id"])
         self.service.process_exam_office_batch(
@@ -444,6 +475,10 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(
             [item["event_type"] for item in notifications].count("MARKS_PUBLISHED"),
             0,
+        )
+        self.assertEqual(
+            [item["event_type"] for item in notifications].count("MARK_AMENDED"),
+            1,
         )
 
     def test_no_mark_resolution_is_distinguished_from_missing(self):

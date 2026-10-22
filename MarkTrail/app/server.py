@@ -410,7 +410,8 @@ class MarkTrailServer(ThreadingHTTPServer):
 
 def run(host: str | None = None, port: int | None = None):
     db = Database()
-    db.init(seed_demo=os.getenv("MARKTRAIL_SEED_DEMO", "1") == "1")
+    seed_demo = os.getenv("MARKTRAIL_SEED_DEMO", "0") == "1"
+    db.init(seed_demo=seed_demo)
     service = AppService(db)
 
     bind_host = host or os.getenv("MARKTRAIL_HOST", "127.0.0.1")
@@ -418,11 +419,12 @@ def run(host: str | None = None, port: int | None = None):
 
     server = MarkTrailServer((bind_host, bind_port), db, service)
     print(f"MarkTrail running at http://{bind_host}:{bind_port}")
-    print(
-        "Demo accounts: admin/admin123 · lecturer/lecturer123 · "
-        "reviewer/reviewer123 · exam_office/office123 · "
-        "portal_operator/portal123 · student/student123"
-    )
+    if seed_demo:
+        print(
+            "Demo accounts enabled: admin/admin123 · lecturer/lecturer123 · "
+            "reviewer/reviewer123 · exam_office/office123 · "
+            "portal_operator/portal123 · student/student123"
+        )
     print("Blockchain mode:", service.chain.config.mode)
 
     try:

@@ -11,7 +11,7 @@ SESSION_MAX_AGE = 12 * 60 * 60
 
 
 def _secure_cookie_enabled() -> bool:
-    return os.getenv("MARKTRAIL_COOKIE_SECURE", "0") == "1"
+    return os.getenv("MARKTRAIL_COOKIE_SECURE", "1") == "1"
 
 
 def session_cookie(session_id: str) -> str:

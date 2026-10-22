@@ -519,7 +519,7 @@ personal portal passwords or session cookies.
 
 ~~~bash
 cd MarkTrail
-python3 run.py
+MARKTRAIL_SEED_DEMO=1 MARKTRAIL_COOKIE_SECURE=0 python3 run.py
 ~~~
 
 Open http://127.0.0.1:8000.
@@ -535,9 +535,26 @@ portal_operator / portal123
 admin / admin123
 ~~~
 
-When serving the application over HTTPS, set `MARKTRAIL_COOKIE_SECURE=1` so
-the session cookie is only sent over secure connections. Leave it unset for
-local HTTP development.
+The server defaults to no demo data and HTTPS-only session cookies. The
+command above explicitly opts into synthetic demo accounts and an insecure
+cookie for local HTTP only. Never use demo accounts or disable secure cookies
+in an externally accessible deployment.
+
+For a new installation without demo users, create the first administrator
+interactively with `python3 run.py --create-admin`, then start the server with
+demo seeding disabled. The command prompts for the username, name, and
+password; the password is not passed on the command line.
+
+### Production readiness
+
+Safe defaults do not make the current server production-ready. It uses
+Python's built-in HTTP server and SQLite, and portal imports are still entered
+manually. Do not store real student records in this deployment. A production
+launch still needs an institution-approved hosting and database design,
+HTTPS termination, backups and recovery testing, operational monitoring,
+account lifecycle controls, and an independent security/privacy review.
+Portal automation also requires an approved university API and test
+environment.
 
 Tests:
 
@@ -546,6 +563,10 @@ python3 -m unittest discover -s tests -v
 forge build
 forge test -vv
 ~~~
+
+For a local demo database initialization or reset, opt in explicitly with
+`python3 run.py --init --seed-demo` or `make reset`. Initialization and server
+startup do not seed demo credentials by default.
 
 ### Chain configuration
 
