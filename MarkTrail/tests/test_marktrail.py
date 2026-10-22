@@ -4,6 +4,8 @@ import csv
 import io
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from pathlib import Path
 
 from app.db import Database
@@ -318,6 +320,100 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(preview["enrolled_count"], 2)
         self.assertEqual(preview["submitted_count"], 1)
         self.assertEqual(preview["missing_count"], 1)
+
+    def test_batch_validation_rejects_non_finite_marks(self):
+        self._create_fresh_assessment()
+        for value in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(value=value):
+                csv_text = f"student_id,mark\n4,{value}\n"
+                preview = self.service.preview_batch(
+                    self.lecturer["id"], "assessment-cat3", csv_text
+                )
+                self.assertFalse(preview["valid"])
+                self.assertTrue(any("finite number" in error for error in preview["errors"]))
+                with self.assertRaises(AppError):
+                    self.service.submit_batch(
+                        self.lecturer["id"], "assessment-cat3", csv_text
+                    )
+
+        conn = self.db.connect()
+        try:
+            self.assertIsNone(
+                conn.execute(
+                    "SELECT 1 FROM batches WHERE assessment_id = 'assessment-cat3'"
+                ).fetchone()
+            )
+        finally:
+            conn.close()
+
+    def test_amendments_reject_non_finite_marks(self):
+        report_id = self.service.report_missing_mark(
+            self.student["id"], self.assessment["id"]
+        )["id"]
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(AppError, "finite number"):
+                    self.service.resolve_report(
+                        self.lecturer["id"],
+                        report_id,
+                        "MARK_ENTERED",
+                        value,
+                        "Correction",
+                    )
+
+        conn = self.db.connect()
+        try:
+            mark = conn.execute(
+                """
+                SELECT candidate_mark, candidate_status
+                FROM assessment_marks
+                WHERE assessment_id = ? AND student_id = ?
+                """,
+                (self.assessment["id"], self.student["id"]),
+            ).fetchone()
+            report = conn.execute(
+                "SELECT status FROM missing_reports WHERE id = ?",
+                (report_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertIsNone(mark["candidate_mark"])
+        self.assertEqual(mark["candidate_status"], "MISSING")
+        self.assertEqual(report["status"], "OPEN")
+
+    def test_concurrent_missing_reports_create_only_one_active_report(self):
+        barrier = Barrier(2)
+
+        def open_report():
+            barrier.wait()
+            try:
+                return self.service.report_missing_mark(
+                    self.student["id"], self.assessment["id"]
+                )
+            except AppError as exc:
+                return exc
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(lambda _: open_report(), range(2)))
+
+        self.assertEqual(sum(isinstance(result, dict) for result in results), 1)
+        errors = [result for result in results if isinstance(result, AppError)]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("open report", errors[0].message)
+
+        conn = self.db.connect()
+        try:
+            active_count = conn.execute(
+                """
+                SELECT COUNT(*) AS count FROM missing_reports
+                WHERE assessment_id = ? AND student_id = ?
+                  AND status IN ('OPEN','PENDING_REVIEW')
+                """,
+                (self.assessment["id"], self.student["id"]),
+            ).fetchone()["count"]
+        finally:
+            conn.close()
+        self.assertEqual(active_count, 1)
 
     def test_lecturer_can_submit_new_batch(self):
         self._create_fresh_assessment()

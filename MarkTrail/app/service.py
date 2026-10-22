@@ -4,7 +4,9 @@ import csv
 import hashlib
 import io
 import json
+import math
 import secrets
+import sqlite3
 import uuid
 import unicodedata
 from datetime import datetime, timezone
@@ -523,23 +525,30 @@ class AppService:
             conn.close()
 
         report_id = "report-" + uuid.uuid4().hex[:16]
-        with self.db.transaction() as tx:
-            tx.execute(
-                """
-                INSERT INTO missing_reports
-                (id, assessment_id, student_id, status, opened_at)
-                VALUES (?, ?, ?, 'OPEN', ?)
-                """,
-                (report_id, assessment_id, user_id, utc_now()),
-            )
-            self._audit(
-                tx,
-                "REPORT",
-                report_id,
-                user_id,
-                "REPORT_OPENED",
-                {"assessment_id": assessment_id},
-            )
+        try:
+            with self.db.transaction(immediate=True) as tx:
+                tx.execute(
+                    """
+                    INSERT INTO missing_reports
+                    (id, assessment_id, student_id, status, opened_at)
+                    VALUES (?, ?, ?, 'OPEN', ?)
+                    """,
+                    (report_id, assessment_id, user_id, utc_now()),
+                )
+                self._audit(
+                    tx,
+                    "REPORT",
+                    report_id,
+                    user_id,
+                    "REPORT_OPENED",
+                    {"assessment_id": assessment_id},
+                )
+        except sqlite3.IntegrityError as exc:
+            if "missing_reports.assessment_id" not in str(exc):
+                raise
+            raise AppError(
+                "You already have an open report for this assessment."
+            ) from exc
         return {"id": report_id, "status": "OPEN"}
 
     def lecturer_assessments(self, user_id: int) -> list[dict]:
@@ -1009,6 +1018,10 @@ class AppService:
                 errors.append(f"Row {index}: mark for {sid} is not numeric.")
                 continue
 
+            if not math.isfinite(mark):
+                errors.append(f"Row {index}: mark for {sid} must be a finite number.")
+                continue
+
             if mark < 0 or mark > float(assessment["max_mark"]):
                 errors.append(
                     f"Row {index}: mark for {sid} must be between 0 and {assessment['max_mark']}."
@@ -1275,6 +1288,12 @@ class AppService:
             if resolution_type == "MARK_ENTERED":
                 if mark is None:
                     raise AppError("A mark is required.")
+                if (
+                    isinstance(mark, bool)
+                    or not isinstance(mark, (int, float))
+                    or not math.isfinite(mark)
+                ):
+                    raise AppError("Mark must be a finite number.")
                 if mark < 0 or mark > float(report["max_mark"]):
                     raise AppError(f"Mark must be between 0 and {report['max_mark']}.")
                 new_mark = float(mark)

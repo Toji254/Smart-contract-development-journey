@@ -498,6 +498,9 @@ Reviewer approval is not the same as publication. Students only see a new or
 amended mark after the portal operator records the import. Each handoff is
 timestamped in the audit trail. A rejected report is closed with a reason; if
 the mark is still missing, the student can open a new report.
+Only finite numeric marks are accepted for batch submissions and amendments.
+The database enforces at most one open or pending-review report per student
+and assessment, including when requests arrive concurrently.
 
 ### Handoff tracking, notifications, and reports
 

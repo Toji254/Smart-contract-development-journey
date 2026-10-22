@@ -122,6 +122,13 @@ class DatabaseMigrationTests(unittest.TestCase):
                 """,
                 (now,),
             )
+            conn.execute(
+                """
+                INSERT INTO missing_reports (id, assessment_id, student_id, status, opened_at)
+                VALUES ('report-duplicate', 'assessment-1', 1, 'OPEN', ?)
+                """,
+                (now,),
+            )
             conn.commit()
             conn.close()
 
@@ -146,6 +153,12 @@ class DatabaseMigrationTests(unittest.TestCase):
                 report = migrated.execute(
                     "SELECT status FROM missing_reports WHERE id = 'report-1'"
                 ).fetchone()
+                duplicate_report = migrated.execute(
+                    """
+                    SELECT status, lecturer_note FROM missing_reports
+                    WHERE id = 'report-duplicate'
+                    """
+                ).fetchone()
 
             check = db.connect()
             try:
@@ -159,7 +172,21 @@ class DatabaseMigrationTests(unittest.TestCase):
                 "DEPARTMENT_REVIEW",
             )
             self.assertEqual(report["status"], "OPEN")
+            self.assertEqual(duplicate_report["status"], "REJECTED")
+            self.assertIn("Automatically closed during migration", duplicate_report["lecturer_note"])
             self.assertEqual(violations, [])
+            for status in ("OPEN", "PENDING_REVIEW"):
+                with self.subTest(active_status=status):
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        with db.transaction() as migrated:
+                            migrated.execute(
+                                """
+                                INSERT INTO missing_reports
+                                (id, assessment_id, student_id, status, opened_at)
+                                VALUES (?, 'assessment-1', 1, ?, ?)
+                                """,
+                                (f"report-third-{status}", status, now),
+                            )
 
 
 if __name__ == "__main__":

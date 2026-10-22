@@ -52,10 +52,10 @@ class Database:
         return conn
 
     @contextmanager
-    def transaction(self) -> Iterator[sqlite3.Connection]:
+    def transaction(self, immediate: bool = False) -> Iterator[sqlite3.Connection]:
         conn = self.connect()
         try:
-            conn.execute("BEGIN")
+            conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
             yield conn
             conn.commit()
         except Exception:
@@ -158,6 +158,41 @@ class Database:
                     UPDATE batches
                     SET pipeline_stage = 'DEPARTMENT_REVIEW'
                     WHERE status IN ('SUBMITTED','AMENDED')
+                    """
+                )
+
+            reports_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'missing_reports'"
+            ).fetchone()
+            if reports_table:
+                conn.execute(
+                    """
+                    UPDATE missing_reports
+                    SET status = 'REJECTED',
+                        lecturer_note = CASE
+                            WHEN lecturer_note IS NULL OR lecturer_note = ''
+                            THEN 'Automatically closed during migration because another active report exists.'
+                            ELSE lecturer_note || ' | Automatically closed during migration because another active report exists.'
+                        END
+                    WHERE id IN (
+                        SELECT id FROM (
+                            SELECT id,
+                                   ROW_NUMBER() OVER (
+                                       PARTITION BY assessment_id, student_id
+                                       ORDER BY opened_at, id
+                                   ) AS active_position
+                            FROM missing_reports
+                            WHERE status IN ('OPEN','PENDING_REVIEW')
+                        )
+                        WHERE active_position > 1
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_missing_reports_one_active
+                    ON missing_reports(assessment_id, student_id)
+                    WHERE status IN ('OPEN','PENDING_REVIEW')
                     """
                 )
 
@@ -327,6 +362,10 @@ class Database:
 
                 CREATE INDEX IF NOT EXISTS idx_reports_assessment_status
                     ON missing_reports(assessment_id, status);
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_missing_reports_one_active
+                    ON missing_reports(assessment_id, student_id)
+                    WHERE status IN ('OPEN','PENDING_REVIEW');
 
                 CREATE INDEX IF NOT EXISTS idx_audit_entity
                     ON audit_events(entity_type, entity_id, created_at);
