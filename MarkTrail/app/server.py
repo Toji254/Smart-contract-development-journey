@@ -181,6 +181,17 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                 201,
             )
 
+        match = re.fullmatch(r"/api/lecturer/reports/([^/]+)/reject", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.service.reject_report(
+                    user_id,
+                    match.group(1),
+                    str(body.get("reason", "")),
+                )
+            )
+
         match = re.fullmatch(r"/api/lecturer/reports/([^/]+)/resolve", path)
         if method == "POST" and match:
             body = self._body()
@@ -202,6 +213,28 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/api/reviewer/batches":
             return self._send_json(
                 {"batches": self.service.reviewer_batches(user_id)}
+            )
+
+        if method == "GET" and path == "/api/exam-office/batches":
+            return self._send_json(
+                {"batches": self.service.exam_office_batches(user_id)}
+            )
+
+        match = re.fullmatch(r"/api/exam-office/batches/(0x[a-fA-F0-9]{64})/process", path)
+        if method == "POST" and match:
+            return self._send_json(
+                self.service.process_exam_office_batch(user_id, match.group(1))
+            )
+
+        if method == "GET" and path == "/api/portal/batches":
+            return self._send_json(
+                {"batches": self.service.portal_batches(user_id)}
+            )
+
+        match = re.fullmatch(r"/api/portal/batches/(0x[a-fA-F0-9]{64})/publish", path)
+        if method == "POST" and match:
+            return self._send_json(
+                self.service.publish_portal_batch(user_id, match.group(1))
             )
 
         match = re.fullmatch(r"/api/reviewer/batches/(0x[a-fA-F0-9]{64})/verify", path)
@@ -352,7 +385,8 @@ def run(host: str | None = None, port: int | None = None):
     print(f"MarkTrail running at http://{bind_host}:{bind_port}")
     print(
         "Demo accounts: admin/admin123 · lecturer/lecturer123 · "
-        "reviewer/reviewer123 · student/student123"
+        "reviewer/reviewer123 · exam_office/office123 · "
+        "portal_operator/portal123 · student/student123"
     )
     print("Blockchain mode:", service.chain.config.mode)
 

@@ -77,9 +77,11 @@ on-chain commitment
     ↓
 CONFIRMED
     ↓
-reviewer verification
+department reviewer approval
     ↓
-VERIFIED
+exam-office processing
+    ↓
+portal operator imports and publishes
 ~~~
 
 ## Development warning

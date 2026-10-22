@@ -68,6 +68,10 @@ reviewer verification
 new published state
 ~~~
 
+A reviewer approval alone does not publish a new mark. The exam office must
+record processing, then a portal operator must record import. Students see the
+new revision only after that final step.
+
 ### Replay and duplicate actions
 
 The system must reject duplicate batch identifiers and prevent repeated open reports for the same student and assessment.
@@ -115,6 +119,9 @@ Sessions must be protected by secure cookies, HTTPS, expiration, and production-
 The most important product-level rule is:
 
 > **A student should never see an amended mark as final until the amended batch has passed the required review step.**
+
+For the current workflow, the batch must also be processed by the exam office
+and imported by a portal operator before the amended mark becomes visible.
 
 The important contract-level rule is:
 

@@ -16,7 +16,7 @@
       <p class="eyebrow">MARKTRAIL</p>
       <h1>Academic marks,<br>without the mystery.</h1>
       <p class="lead">
-        Track submissions, surface missing marks, resolve issues, and preserve an audit trail.
+        Track submissions, follow each office handoff, resolve issues, and preserve an audit trail.
       </p>
 
       <form id="login-form">
@@ -36,6 +36,8 @@
         <code>student / student123</code>
         <code>lecturer / lecturer123</code>
         <code>reviewer / reviewer123</code>
+        <code>exam_office / office123</code>
+        <code>portal_operator / portal123</code>
         <code>admin / admin123</code>
       </div>
     </div>
@@ -158,6 +160,28 @@
         <div id="reviewer-batches"></div>
       </section>
 
+      <section id="exam-office-panel" class="panel hidden">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">EXAM OFFICE</p>
+            <h2>Processing queue</h2>
+          </div>
+          <button class="button secondary" data-refresh>Refresh</button>
+        </div>
+        <div id="exam-office-batches"></div>
+      </section>
+
+      <section id="portal-operator-panel" class="panel hidden">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">PORTAL OPERATIONS</p>
+            <h2>Ready to import</h2>
+          </div>
+          <button class="button secondary" data-refresh>Refresh</button>
+        </div>
+        <div id="portal-batches"></div>
+      </section>
+
       <section id="admin-panel" class="panel hidden">
         <div class="section-head">
           <div>
@@ -179,6 +203,8 @@
                 <option value="student">Student</option>
                 <option value="lecturer">Lecturer</option>
                 <option value="reviewer">Reviewer</option>
+                <option value="exam_office">Exam office</option>
+                <option value="portal_operator">Portal operator</option>
                 <option value="admin">Admin</option>
               </select>
               <input name="password" type="password" placeholder="temporary password" required minlength="8">

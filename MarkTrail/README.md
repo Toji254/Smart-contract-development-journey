@@ -166,12 +166,16 @@ The first version should solve one concrete problem: a student can report a miss
 
 ### 2. Define the actors
 
-Start with four roles:
+The initial application used four roles:
 
 - Student — views marks and reports missing assessments.
 - Lecturer — submits marks and resolves reports.
 - Reviewer — verifies submitted batches.
 - Administrator — manages roles and institutional configuration.
+
+The runnable MVP also separates department review from later handoffs:
+reviewers represent the department/HOD, while exam-office staff and portal
+operators record their own processing steps.
 
 Authorization must be enforced by the application and, where applicable, the smart contract. Hiding a button is not access control.
 
@@ -416,14 +420,14 @@ The project now includes a complete runnable local stack rather than only a visu
 The Python application provides:
 
 - session-based login;
-- role-based access for students, lecturers, reviewers, and administrators;
+- role-based access for students, lecturers, department reviewers, exam-office staff, portal operators, and administrators;
 - course and roster management;
 - assessment creation;
 - CSV validation and batch submission;
 - missing-mark reports;
-- lecturer resolution;
+- lecturer resolution or rejection with a recorded reason;
 - controlled mark amendments;
-- reviewer verification before publication;
+- department review, exam-office processing, and portal import before publication;
 - audit events;
 - database/chain reconciliation hooks.
 
@@ -463,26 +467,37 @@ chain commitment
   ↓
 REVIEWER
   ↓
-verify
+department review
   ↓
-published to students
+EXAM OFFICE
+  ↓
+record processing
+  ↓
+PORTAL OPERATOR
+  ↓
+import and publish
+  ↓
+STUDENT
+  ↓
+sees published mark
 
 STUDENT
   ↓
-sees missing mark
+reports missing mark
   ↓
-opens report
-
 LECTURER
   ↓
-enters mark / no mark
+enter mark / no mark / reject with reason
   ↓
-new batch revision
+reviewer → exam office → portal import
   ↓
-REVIEWER verifies amendment
-  ↓
-new value published
+updated mark published
 ~~~
+
+Reviewer approval is not the same as publication. Students only see a new or
+amended mark after the portal operator records the import. Each handoff is
+timestamped in the audit trail. A rejected report is closed with a reason; if
+the mark is still missing, the student can open a new report.
 
 ### Local development
 
@@ -492,6 +507,21 @@ python3 run.py
 ~~~
 
 Open http://127.0.0.1:8000.
+
+Demo accounts:
+
+~~~text
+student / student123
+lecturer / lecturer123
+reviewer / reviewer123
+exam_office / office123
+portal_operator / portal123
+admin / admin123
+~~~
+
+When serving the application over HTTPS, set `MARKTRAIL_COOKIE_SECURE=1` so
+the session cookie is only sent over secure connections. Leave it unset for
+local HTTP development.
 
 Tests:
 

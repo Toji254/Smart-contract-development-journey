@@ -41,6 +41,12 @@ class MarkTrailTests(unittest.TestCase):
         self.reviewer = conn.execute(
             "SELECT id FROM users WHERE username = 'reviewer'"
         ).fetchone()
+        self.exam_office = conn.execute(
+            "SELECT id FROM users WHERE username = 'exam_office'"
+        ).fetchone()
+        self.portal_operator = conn.execute(
+            "SELECT id FROM users WHERE username = 'portal_operator'"
+        ).fetchone()
         self.assessment = conn.execute(
             "SELECT id FROM assessments WHERE id = 'assessment-cat2'"
         ).fetchone()
@@ -98,7 +104,7 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(result["status"], "SUBMITTED")
         self.assertEqual(result["chain_state"], "LOCAL_ONLY")
 
-    def test_reviewer_verification_publishes_candidate_marks(self):
+    def test_marks_publish_only_after_ordered_office_handoffs(self):
         self._create_fresh_assessment()
         self.service.submit_batch(
             self.lecturer["id"],
@@ -112,7 +118,24 @@ class MarkTrailTests(unittest.TestCase):
         ).fetchone()
         conn.close()
 
-        self.service.verify_batch(self.reviewer["id"], batch["id"])
+        verified = self.service.verify_batch(self.reviewer["id"], batch["id"])
+        self.assertEqual(verified["pipeline_stage"], "EXAM_OFFICE")
+
+        marks = self.service.student_marks(self.student["id"])
+        cat3 = next(row for row in marks if row["assessment_id"] == "assessment-cat3")
+        self.assertEqual(cat3["status"], "AWAITING_PUBLICATION")
+        self.assertIsNone(cat3["mark"])
+
+        with self.assertRaises(AppError):
+            self.service.publish_portal_batch(
+                self.portal_operator["id"], batch["id"]
+            )
+
+        processed = self.service.process_exam_office_batch(
+            self.exam_office["id"], batch["id"]
+        )
+        self.assertEqual(processed["pipeline_stage"], "PORTAL_IMPORT")
+        self.service.publish_portal_batch(self.portal_operator["id"], batch["id"])
 
         conn = self.db.connect()
         rows = conn.execute(
@@ -172,6 +195,12 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(batch["revision"], 2)
 
         self.service.verify_batch(self.reviewer["id"], result["batch_id"])
+        self.service.process_exam_office_batch(
+            self.exam_office["id"], result["batch_id"]
+        )
+        self.service.publish_portal_batch(
+            self.portal_operator["id"], result["batch_id"]
+        )
 
         conn = self.db.connect()
         mark = conn.execute(
@@ -221,6 +250,36 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(mark["candidate_status"], "NO_MARK")
         self.assertIsNone(mark["published_mark"])
         self.assertEqual(mark["published_status"], "MISSING")
+
+    def test_rejection_is_visible_and_student_can_report_again(self):
+        report_id = self.service.report_missing_mark(
+            self.student["id"], self.assessment["id"]
+        )["id"]
+
+        with self.assertRaises(AppError):
+            self.service.reject_report(self.lecturer["id"], report_id, "  ")
+
+        result = self.service.reject_report(
+            self.lecturer["id"],
+            report_id,
+            "The mark sheet shows the assessment was not attempted.",
+        )
+        self.assertEqual(result["status"], "REJECTED")
+
+        student_reports = self.service.student_reports(self.student["id"])
+        rejected = next(row for row in student_reports if row["id"] == report_id)
+        self.assertEqual(rejected["status"], "REJECTED")
+        self.assertEqual(
+            rejected["lecturer_note"],
+            "The mark sheet shows the assessment was not attempted.",
+        )
+        lecturer_reports = self.service.lecturer_reports(self.lecturer["id"])
+        self.assertTrue(any(row["id"] == report_id for row in lecturer_reports))
+
+        reopened = self.service.report_missing_mark(
+            self.student["id"], self.assessment["id"]
+        )
+        self.assertEqual(reopened["status"], "OPEN")
 
 
 if __name__ == "__main__":

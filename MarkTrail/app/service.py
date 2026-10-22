@@ -76,7 +76,13 @@ class AppService:
         )
 
     def dashboard(self, user_id: int) -> dict:
-        user = self.require_role(user_id, {"student", "lecturer", "reviewer", "admin"})
+        user = self.require_role(
+            user_id,
+            {
+                "student", "lecturer", "reviewer", "exam_office",
+                "portal_operator", "admin",
+            },
+        )
         conn = self.db.connect()
         try:
             counts: dict[str, int] = {}
@@ -87,7 +93,8 @@ class AppService:
                         COUNT(*) AS total,
                         SUM(
                             CASE
-                                WHEN am.published_status = 'MISSING' OR am.published_status IS NULL
+                                WHEN b.pipeline_stage = 'PUBLISHED'
+                                 AND (am.published_status = 'MISSING' OR am.published_status IS NULL)
                                 THEN 1 ELSE 0
                             END
                         ) AS missing
@@ -125,9 +132,23 @@ class AppService:
                 }
             elif user["role"] == "reviewer":
                 row = conn.execute(
-                    "SELECT COUNT(*) AS n FROM batches WHERE status IN ('SUBMITTED','AMENDED')"
+                    """
+                    SELECT COUNT(*) AS n FROM batches
+                    WHERE status IN ('SUBMITTED','AMENDED')
+                      AND pipeline_stage = 'DEPARTMENT_REVIEW'
+                    """
                 ).fetchone()
                 counts = {"pending_verification": int(row["n"] or 0)}
+            elif user["role"] == "exam_office":
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM batches WHERE pipeline_stage = 'EXAM_OFFICE'"
+                ).fetchone()
+                counts = {"pending_processing": int(row["n"] or 0)}
+            elif user["role"] == "portal_operator":
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM batches WHERE pipeline_stage = 'PORTAL_IMPORT'"
+                ).fetchone()
+                counts = {"pending_import": int(row["n"] or 0)}
             else:
                 rows = conn.execute(
                     """
@@ -135,7 +156,8 @@ class AppService:
                         (SELECT COUNT(*) FROM users) AS users,
                         (SELECT COUNT(*) FROM courses) AS courses,
                         (SELECT COUNT(*) FROM assessments) AS assessments,
-                        (SELECT COUNT(*) FROM missing_reports WHERE status != 'RESOLVED') AS issues
+                        (SELECT COUNT(*) FROM missing_reports
+                         WHERE status IN ('OPEN','PENDING_REVIEW')) AS issues
                     """
                 ).fetchone()
                 counts = {
@@ -162,6 +184,7 @@ class AppService:
                     c.code,
                     c.title,
                     COALESCE(b.status, 'NOT_SUBMITTED') AS batch_status,
+                    COALESCE(b.pipeline_stage, 'NOT_SUBMITTED') AS pipeline_stage,
                     am.published_mark,
                     COALESCE(am.published_status, 'MISSING') AS published_status,
                     b.id AS batch_id
@@ -185,8 +208,20 @@ class AppService:
                     "course_title": row["title"],
                     "batch_status": row["batch_status"],
                     "mark": row["published_mark"],
-                    "status": row["published_status"],
+                    "status": (
+                        row["published_status"]
+                        if (
+                            row["pipeline_stage"] == "PUBLISHED"
+                            or row["published_mark"] is not None
+                        )
+                        else (
+                            "NOT_SUBMITTED"
+                            if row["pipeline_stage"] == "NOT_SUBMITTED"
+                            else "AWAITING_PUBLICATION"
+                        )
+                    ),
                     "batch_id": row["batch_id"],
+                    "pipeline_stage": row["pipeline_stage"],
                 }
                 for row in rows
             ]
@@ -232,7 +267,8 @@ class AppService:
                 SELECT
                     a.id, a.name, a.course_id,
                     am.published_status,
-                    b.status AS batch_status
+                    b.status AS batch_status,
+                    b.pipeline_stage
                 FROM assessments a
                 LEFT JOIN assessment_marks am
                     ON am.assessment_id = a.id AND am.student_id = ?
@@ -244,7 +280,10 @@ class AppService:
             ).fetchone()
             if not row:
                 raise AppError("Assessment not found for this student.", 404)
-            if row["batch_status"] != "VERIFIED":
+            if (
+                row["batch_status"] != "VERIFIED"
+                or row["pipeline_stage"] != "PUBLISHED"
+            ):
                 raise AppError("This assessment is not published yet.")
             if row["published_status"] != "MISSING":
                 raise AppError("This assessment does not currently have a missing mark.")
@@ -298,13 +337,16 @@ class AppService:
                     b.id AS batch_id,
                     b.status AS batch_status,
                     b.revision,
-                    b.chain_state
+                    b.chain_state,
+                    b.pipeline_stage
                 FROM assessments a
                 JOIN courses c ON c.id = a.course_id
                 LEFT JOIN enrollments e ON e.course_id = c.id
                 LEFT JOIN batches b ON b.assessment_id = a.id
                 WHERE c.lecturer_id = ?
-                GROUP BY a.id, c.code, c.title, b.id, b.status, b.revision, b.chain_state
+                GROUP BY
+                    a.id, c.code, c.title, b.id, b.status, b.revision,
+                    b.chain_state, b.pipeline_stage
                 ORDER BY c.code, a.created_at
                 """,
                 (user_id,),
@@ -322,6 +364,7 @@ class AppService:
                 SELECT
                     b.id,
                     b.status,
+                    b.pipeline_stage,
                     b.student_count,
                     b.revision,
                     b.chain_state,
@@ -368,9 +411,15 @@ class AppService:
                 JOIN assessments a ON a.id = r.assessment_id
                 JOIN courses c ON c.id = a.course_id
                 JOIN users u ON u.id = r.student_id
+                JOIN batches b ON b.assessment_id = a.id
                 WHERE c.lecturer_id = ?
                 ORDER BY
-                    CASE r.status WHEN 'OPEN' THEN 0 WHEN 'PENDING_REVIEW' THEN 1 ELSE 2 END,
+                    CASE r.status
+                        WHEN 'OPEN' THEN 0
+                        WHEN 'PENDING_REVIEW' THEN 1
+                        WHEN 'REJECTED' THEN 2
+                        ELSE 3
+                    END,
                     r.opened_at DESC
                 """,
                 (user_id,),
@@ -378,6 +427,193 @@ class AppService:
             return [dict(row) for row in rows]
         finally:
             conn.close()
+
+    def reject_report(self, user_id: int, report_id: str, reason: str) -> dict:
+        self.require_role(user_id, {"lecturer"})
+        reason = reason.strip()
+        if not reason:
+            raise AppError("A reason is required to reject a report.")
+
+        with self.db.transaction() as conn:
+            report = conn.execute(
+                """
+                SELECT r.id, r.status, a.id AS assessment_id, b.status AS batch_status,
+                       b.pipeline_stage
+                FROM missing_reports r
+                JOIN assessments a ON a.id = r.assessment_id
+                JOIN courses c ON c.id = a.course_id
+                JOIN batches b ON b.assessment_id = a.id
+                WHERE r.id = ? AND c.lecturer_id = ?
+                """,
+                (report_id, user_id),
+            ).fetchone()
+            if not report:
+                raise AppError("Report not found.", 404)
+            if report["status"] != "OPEN":
+                raise AppError("Only open reports can be rejected.")
+            if (
+                report["batch_status"] != "VERIFIED"
+                or report["pipeline_stage"] != "PUBLISHED"
+            ):
+                raise AppError("The assessment is not currently published.")
+
+            now = utc_now()
+            conn.execute(
+                """
+                UPDATE missing_reports
+                SET status = 'REJECTED',
+                    resolution_type = 'REPORT_REJECTED',
+                    lecturer_note = ?,
+                    resolved_by = ?,
+                    resolved_at = ?
+                WHERE id = ?
+                """,
+                (reason, user_id, now, report_id),
+            )
+            self._audit(
+                conn,
+                "REPORT",
+                report_id,
+                user_id,
+                "REPORT_REJECTED",
+                {"assessment_id": report["assessment_id"], "reason": reason},
+            )
+        return {"report_id": report_id, "status": "REJECTED"}
+
+    def exam_office_batches(self, user_id: int) -> list[dict]:
+        self.require_role(user_id, {"exam_office"})
+        conn = self.db.connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT b.id, b.status, b.pipeline_stage, b.student_count, b.revision,
+                       b.submitted_at, a.name AS assessment, c.code AS course,
+                       u.full_name AS lecturer_name
+                FROM batches b
+                JOIN assessments a ON a.id = b.assessment_id
+                JOIN courses c ON c.id = a.course_id
+                JOIN users u ON u.id = b.submitted_by
+                WHERE b.pipeline_stage = 'EXAM_OFFICE'
+                ORDER BY b.verified_at, b.submitted_at
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def portal_batches(self, user_id: int) -> list[dict]:
+        self.require_role(user_id, {"portal_operator"})
+        conn = self.db.connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT b.id, b.status, b.pipeline_stage, b.student_count, b.revision,
+                       b.submitted_at, a.name AS assessment, c.code AS course,
+                       u.full_name AS lecturer_name
+                FROM batches b
+                JOIN assessments a ON a.id = b.assessment_id
+                JOIN courses c ON c.id = a.course_id
+                JOIN users u ON u.id = b.submitted_by
+                WHERE b.pipeline_stage = 'PORTAL_IMPORT'
+                ORDER BY b.verified_at, b.submitted_at
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def _advance_handoff(
+        self,
+        user_id: int,
+        batch_id: str,
+        required_role: str,
+        from_stage: str,
+        to_stage: str,
+        action: str,
+    ) -> dict:
+        self.require_role(user_id, {required_role})
+        now = utc_now()
+        with self.db.transaction() as conn:
+            batch = conn.execute(
+                "SELECT status, pipeline_stage FROM batches WHERE id = ?",
+                (batch_id,),
+            ).fetchone()
+            if not batch:
+                raise AppError("Batch not found.", 404)
+            if batch["status"] != "VERIFIED" or batch["pipeline_stage"] != from_stage:
+                raise AppError("This batch is not ready for this handoff.")
+            conn.execute(
+                "UPDATE batches SET pipeline_stage = ? WHERE id = ?",
+                (to_stage, batch_id),
+            )
+            self._audit(
+                conn,
+                "BATCH",
+                batch_id,
+                user_id,
+                action,
+                {"from_stage": from_stage, "to_stage": to_stage},
+            )
+        return {"batch_id": batch_id, "pipeline_stage": to_stage}
+
+    def process_exam_office_batch(self, user_id: int, batch_id: str) -> dict:
+        return self._advance_handoff(
+            user_id,
+            batch_id,
+            "exam_office",
+            "EXAM_OFFICE",
+            "PORTAL_IMPORT",
+            "EXAM_OFFICE_PROCESSED",
+        )
+
+    def publish_portal_batch(self, user_id: int, batch_id: str) -> dict:
+        self.require_role(user_id, {"portal_operator"})
+        now = utc_now()
+        with self.db.transaction() as conn:
+            batch = conn.execute(
+                "SELECT status, pipeline_stage, revision FROM batches WHERE id = ?",
+                (batch_id,),
+            ).fetchone()
+            if not batch:
+                raise AppError("Batch not found.", 404)
+            if batch["status"] != "VERIFIED" or batch["pipeline_stage"] != "PORTAL_IMPORT":
+                raise AppError("This batch is not ready for portal publication.")
+            conn.execute(
+                """
+                UPDATE assessment_marks
+                SET published_mark = candidate_mark,
+                    published_status = candidate_status,
+                    updated_at = ?
+                WHERE batch_id = ?
+                """,
+                (now, batch_id),
+            )
+            conn.execute(
+                "UPDATE batches SET pipeline_stage = 'PUBLISHED' WHERE id = ?",
+                (batch_id,),
+            )
+            conn.execute(
+                """
+                UPDATE missing_reports
+                SET status = 'RESOLVED', resolved_at = ?, resolved_by = ?
+                WHERE assessment_id = (SELECT assessment_id FROM batches WHERE id = ?)
+                  AND status = 'PENDING_REVIEW'
+                """,
+                (now, user_id, batch_id),
+            )
+            self._audit(
+                conn,
+                "BATCH",
+                batch_id,
+                user_id,
+                "PORTAL_IMPORTED",
+                {"revision": batch["revision"], "published": True},
+            )
+        return {
+            "batch_id": batch_id,
+            "pipeline_stage": "PUBLISHED",
+            "status": "VERIFIED",
+        }
 
     def reviewer_batches(self, user_id: int) -> list[dict]:
         self.require_role(user_id, {"reviewer"})
@@ -388,6 +624,7 @@ class AppService:
                 SELECT
                     b.id,
                     b.status,
+                    b.pipeline_stage,
                     b.student_count,
                     b.revision,
                     b.chain_state,
@@ -588,8 +825,8 @@ class AppService:
                 """
                 INSERT INTO batches
                 (id, assessment_id, submitted_by, status, student_count, marks_hash,
-                 commitment_salt, revision, chain_state, submitted_at)
-                VALUES (?, ?, ?, 'SUBMITTED', ?, ?, ?, 1, ?, ?)
+                 commitment_salt, revision, chain_state, submitted_at, pipeline_stage)
+                VALUES (?, ?, ?, 'SUBMITTED', ?, ?, ?, 1, ?, ?, 'DEPARTMENT_REVIEW')
                 """,
                 (
                     batch_id,
@@ -740,7 +977,8 @@ class AppService:
             report = conn.execute(
                 """
                 SELECT r.*, a.name AS assessment, a.max_mark, a.course_id,
-                       b.id AS batch_id, b.status AS batch_status, b.revision AS current_revision,
+                       b.id AS batch_id, b.status AS batch_status,
+                       b.pipeline_stage, b.revision AS current_revision,
                        b.chain_state, b.marks_hash, b.commitment_salt
                 FROM missing_reports r
                 JOIN assessments a ON a.id = r.assessment_id
@@ -754,7 +992,10 @@ class AppService:
                 raise AppError("Report not found.", 404)
             if report["status"] != "OPEN":
                 raise AppError("Only open missing-mark reports can be resolved.")
-            if report["batch_status"] != "VERIFIED":
+            if (
+                report["batch_status"] != "VERIFIED"
+                or report["pipeline_stage"] != "PUBLISHED"
+            ):
                 raise AppError("The current published batch is not eligible for amendment.")
             if report["chain_state"] == "ERROR":
                 raise AppError("The current batch has a chain error. Reconcile or retry the chain before amending.")
@@ -876,7 +1117,8 @@ class AppService:
                     commitment_salt = ?,
                     revision = ?,
                     chain_state = ?,
-                    chain_tx_hash = NULL
+                    chain_tx_hash = NULL,
+                    pipeline_stage = 'DEPARTMENT_REVIEW'
                 WHERE id = ?
                 """,
                 (new_hash, salt, new_revision, chain_state, report["batch_id"]),
@@ -984,7 +1226,10 @@ class AppService:
         finally:
             conn.close()
 
-        if batch["status"] not in {"SUBMITTED", "AMENDED"}:
+        if (
+            batch["status"] not in {"SUBMITTED", "AMENDED"}
+            or batch["pipeline_stage"] != "DEPARTMENT_REVIEW"
+        ):
             raise AppError("Only submitted or amended batches can be verified.")
         if batch["chain_state"] in {"ERROR", "PENDING"}:
             raise AppError("The batch must have a confirmed or local-only audit state before verification.")
@@ -1013,7 +1258,8 @@ class AppService:
                     chain_state = ?,
                     chain_tx_hash = COALESCE(?, chain_tx_hash),
                     verified_by = ?,
-                    verified_at = ?
+                    verified_at = ?,
+                    pipeline_stage = 'EXAM_OFFICE'
                 WHERE id = ?
                 """,
                 (
@@ -1025,47 +1271,38 @@ class AppService:
                 ),
             )
 
-            tx.execute(
-                """
-                UPDATE assessment_marks
-                SET published_mark = candidate_mark,
-                    published_status = candidate_status,
-                    updated_at = ?
-                WHERE batch_id = ?
-                """,
-                (now, batch_id),
-            )
-
-            tx.execute(
-                """
-                UPDATE missing_reports
-                SET status = 'RESOLVED', resolved_at = ?, resolved_by = ?
-                WHERE assessment_id = (SELECT assessment_id FROM batches WHERE id = ?)
-                  AND status = 'PENDING_REVIEW'
-                """,
-                (now, user_id, batch_id),
-            )
-
             self._audit(
                 tx,
                 "BATCH",
                 batch_id,
                 user_id,
                 "BATCH_VERIFIED",
-                {"revision": batch["revision"], "published": True},
+                {
+                    "revision": batch["revision"],
+                    "from_stage": "DEPARTMENT_REVIEW",
+                    "to_stage": "EXAM_OFFICE",
+                    "published": False,
+                },
                 chain_tx_hash=chain_tx,
             )
 
         return {
             "batch_id": batch_id,
             "status": "VERIFIED",
+            "pipeline_stage": "EXAM_OFFICE",
             "revision": int(batch["revision"]),
             "chain_state": "CONFIRMED" if self.chain.enabled else "LOCAL_ONLY",
             "chain_tx_hash": chain_tx,
         }
 
     def batch_audit(self, user_id: int, batch_id: str) -> dict:
-        user = self.require_role(user_id, {"student", "lecturer", "reviewer", "admin"})
+        user = self.require_role(
+            user_id,
+            {
+                "student", "lecturer", "reviewer", "exam_office",
+                "portal_operator", "admin",
+            },
+        )
         conn = self.db.connect()
         try:
             batch = conn.execute(
@@ -1252,6 +1489,7 @@ class AppService:
                 SELECT
                     b.id,
                     b.status,
+                    b.pipeline_stage,
                     b.student_count,
                     b.revision,
                     b.chain_state,
@@ -1318,7 +1556,10 @@ class AppService:
         self.require_role(user_id, {"admin"})
         if not username.strip() or not full_name.strip():
             raise AppError("Username and full name are required.")
-        if role not in {"student", "lecturer", "reviewer", "admin"}:
+        if role not in {
+            "student", "lecturer", "reviewer", "exam_office",
+            "portal_operator", "admin",
+        }:
             raise AppError("Invalid role.")
         if len(password) < 8:
             raise AppError("Password must be at least 8 characters.")

@@ -18,7 +18,6 @@ function toast(message, type = "success") {
   $("#toast-region").appendChild(node);
   setTimeout(() => node.remove(), 3500);
 }
-
 async function api(path, options = {}) {
   const response = await fetch(path, {
     credentials: "same-origin",
@@ -48,13 +47,15 @@ function esc(value) {
 
 function badge(value) {
   const map = {
-    VERIFIED: ["success", "Verified / published"],
+    VERIFIED: ["success", "Department approved"],
     SUBMITTED: ["warning", "Awaiting review"],
     AMENDED: ["info", "Amended / review needed"],
     OPEN: ["warning", "Open"],
     PENDING_REVIEW: ["info", "Pending review"],
     RESOLVED: ["success", "Resolved"],
+    REJECTED: ["warning", "Rejected"],
     MISSING: ["warning", "Missing"],
+    AWAITING_PUBLICATION: ["info", "Awaiting publication"],
     RECORDED: ["success", "Recorded"],
     NO_MARK: ["info", "No mark awarded"],
     CONFIRMED: ["success", "Chain confirmed"],
@@ -62,7 +63,14 @@ function badge(value) {
     ERROR: ["warning", "Chain error"],
     PENDING: ["warning", "Chain pending"]
   };
-  const entry = map[value] || ["muted", value || "Unknown"];
+  const stages = {
+    DEPARTMENT_REVIEW: ["warning", "Awaiting department review"],
+    EXAM_OFFICE: ["info", "At exam office"],
+    PORTAL_IMPORT: ["info", "Awaiting portal import"],
+    PUBLISHED: ["success", "Published"],
+    NOT_SUBMITTED: ["muted", "Not submitted"]
+  };
+  const entry = map[value] || stages[value] || ["muted", value || "Unknown"];
   return '<span class="badge ' + entry[0] + '">' + esc(entry[1]) + "</span>";
 }
 
@@ -74,6 +82,8 @@ function showView(view) {
     student: { home: "student-panel", marks: "student-panel", reports: "student-panel", audit: "audit-panel" },
     lecturer: { home: "lecturer-panel", batches: "lecturer-panel", reports: "lecturer-panel", audit: "audit-panel" },
     reviewer: { home: "reviewer-panel", verify: "reviewer-panel", audit: "audit-panel" },
+    exam_office: { home: "exam-office-panel", process: "exam-office-panel", audit: "audit-panel" },
+    portal_operator: { home: "portal-operator-panel", import: "portal-operator-panel", audit: "audit-panel" },
     admin: { home: "admin-panel", setup: "admin-panel", audit: "audit-panel" }
   };
   const id = panelMap[role]?.[view] || panelMap[role]?.home;
@@ -91,6 +101,8 @@ function updatePageHeading(view) {
     reports: ["Mark issues", "Track reported missing marks to resolution."],
     batches: ["Assessment batches", "Submit and inspect lecturer batches."],
     verify: ["Verification queue", "Review batches before they become published."],
+    process: ["Exam office", "Record processing before the portal import."],
+    import: ["Portal import", "Publish approved marks after the import is confirmed."],
     setup: ["Institution setup", "Users, courses, rosters, and assessments."],
     audit: ["Audit trail", "Trace a batch revision by revision."]
   };
@@ -105,6 +117,8 @@ function buildNav() {
     student: [["home", "Dashboard"], ["marks", "My marks"], ["audit", "Audit"]],
     lecturer: [["home", "Dashboard"], ["batches", "Batches"], ["reports", "Issues"], ["audit", "Audit"]],
     reviewer: [["home", "Dashboard"], ["verify", "Verify"], ["audit", "Audit"]],
+    exam_office: [["home", "Dashboard"], ["process", "Process"], ["audit", "Audit"]],
+    portal_operator: [["home", "Dashboard"], ["import", "Portal import"], ["audit", "Audit"]],
     admin: [["home", "Dashboard"], ["setup", "Setup"], ["audit", "Audit"]]
   };
   $("#nav").innerHTML = (views[role] || [])
@@ -121,14 +135,19 @@ function buildNav() {
 function renderStats(dashboard) {
   const counts = dashboard.counts || {};
   const role = dashboard.user.role;
-  const entries =
-    role === "student"
-      ? [["Assessments", counts.assessments], ["Missing", counts.missing]]
-      : role === "lecturer"
-        ? [["Batches", counts.batches], ["Open issues", counts.issues]]
-        : role === "reviewer"
-          ? [["Pending verification", counts.pending_verification]]
-          : [["Users", counts.users], ["Courses", counts.courses], ["Assessments", counts.assessments], ["Open issues", counts.issues]];
+  const roleStats = {
+    student: [["Assessments", counts.assessments], ["Missing", counts.missing]],
+    lecturer: [["Batches", counts.batches], ["Open issues", counts.issues]],
+    reviewer: [["Pending verification", counts.pending_verification]],
+    exam_office: [["Pending processing", counts.pending_processing]],
+    portal_operator: [["Pending import", counts.pending_import]]
+  };
+  const entries = roleStats[role] || [
+    ["Users", counts.users],
+    ["Courses", counts.courses],
+    ["Assessments", counts.assessments],
+    ["Open issues", counts.issues]
+  ];
 
   $("#dashboard-stats").innerHTML = entries
     .map(([label, value]) => '<div class="stat"><strong>' + esc(value) + '</strong><span>' + esc(label) + "</span></div>")
@@ -166,11 +185,12 @@ async function loadStudent() {
         marksData.marks
           .map((mark) => {
             const action =
-              mark.status === "MISSING" && mark.batch_status === "VERIFIED"
+              mark.status === "MISSING" && mark.batch_status === "VERIFIED" && mark.pipeline_stage === "PUBLISHED"
                 ? '<button class="button secondary" data-report="' + esc(mark.assessment_id) + '">Report missing</button>'
                 : "";
             const display =
-              mark.status === "MISSING"
+              mark.mark === null ||
+              ["MISSING", "NO_MARK", "AWAITING_PUBLICATION", "NOT_SUBMITTED"].includes(mark.status)
                 ? "—"
                 : Number(mark.mark).toFixed(mark.mark % 1 ? 2 : 0) + "/" + mark.max_mark;
             return (
@@ -183,7 +203,7 @@ async function loadStudent() {
               "</strong></td><td>" +
               badge(mark.status) +
               "</td><td>" +
-              badge(mark.batch_status) +
+              badge(mark.pipeline_stage) +
               " " +
               action +
               "</td></tr>"
@@ -259,7 +279,9 @@ async function loadLecturer() {
                 esc(report.id) +
                 '">Enter mark</button><button class="button secondary" data-no-mark="' +
                 esc(report.id) +
-                '">No mark awarded</button></div>';
+                '">No mark awarded</button><button class="button ghost" data-reject-report="' +
+                esc(report.id) +
+                '">Reject report</button></div>';
             }
             return (
               '<div class="issue"><div class="issue-top"><div><div class="issue-title">' +
@@ -285,6 +307,9 @@ async function loadLecturer() {
   $("#lecturer-reports").querySelectorAll("[data-no-mark]").forEach((button) => {
     button.addEventListener("click", () => resolveReport(button.dataset.noMark, false));
   });
+  $("#lecturer-reports").querySelectorAll("[data-reject-report]").forEach((button) => {
+    button.addEventListener("click", () => rejectReport(button.dataset.rejectReport));
+  });
 
   $("#lecturer-batches").innerHTML =
     state.batches.length === 0
@@ -298,7 +323,7 @@ async function loadLecturer() {
               "</td><td>" +
               esc(batch.assessment) +
               "</td><td>" +
-              badge(batch.status) +
+              badge(batch.pipeline_stage) +
               "</td><td>" +
               esc(batch.revision) +
               "</td><td>" +
@@ -341,9 +366,24 @@ async function resolveReport(reportId, withMark) {
         note
       })
     });
-    toast("Resolution recorded. Reviewer approval is now required.");
+    toast("Resolution recorded. Reviewer, exam office, and portal steps are still required.");
     await loadLecturer();
     await loadDashboard();
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+async function rejectReport(reportId) {
+  const reason = window.prompt("Why are you rejecting this report?");
+  if (reason === null) return;
+  try {
+    await api("/api/lecturer/reports/" + encodeURIComponent(reportId) + "/reject", {
+      method: "POST",
+      body: JSON.stringify({ reason })
+    });
+    toast("Report rejected. The student can report again if the mark is still missing.");
+    await loadLecturer();
   } catch (error) {
     toast(error.message, "error");
   }
@@ -358,9 +398,11 @@ async function loadReviewer() {
       ? '<div class="card"><p class="muted">No batches found.</p></div>'
       : state.batches
           .map((batch) => {
-            const canVerify = ["SUBMITTED", "AMENDED"].includes(batch.status) && ["CONFIRMED", "LOCAL_ONLY"].includes(batch.chain_state);
+            const canVerify = ["SUBMITTED", "AMENDED"].includes(batch.status) &&
+              batch.pipeline_stage === "DEPARTMENT_REVIEW" &&
+              ["CONFIRMED", "LOCAL_ONLY"].includes(batch.chain_state);
             const action = canVerify
-              ? '<button class="button primary" data-verify="' + esc(batch.id) + '">Verify & publish</button>'
+              ? '<button class="button primary" data-verify="' + esc(batch.id) + '">Approve for exam office</button>'
               : "";
             const retry =
               batch.chain_state === "ERROR"
@@ -377,7 +419,9 @@ async function loadReviewer() {
               esc(batch.student_count) +
               " students</div></div>" +
               badge(batch.status) +
-              '</div><p class="muted">Chain: ' +
+              '</div><p class="muted">Handoff: ' +
+              badge(batch.pipeline_stage) +
+              " · Chain: " +
               badge(batch.chain_state) +
               "</p><div class=\"actions\">" +
               action +
@@ -393,7 +437,7 @@ async function loadReviewer() {
     button.addEventListener("click", async () => {
       try {
         await api("/api/reviewer/batches/" + encodeURIComponent(button.dataset.verify) + "/verify", { method: "POST" });
-        toast("Batch verified and published.");
+        toast("Department review complete. Batch sent to the exam office.");
         await loadReviewer();
         await loadDashboard();
       } catch (error) {
@@ -419,14 +463,85 @@ async function loadReviewer() {
   });
 }
 
+async function loadExamOffice() {
+  const data = await api("/api/exam-office/batches");
+  $("#exam-office-batches").innerHTML = data.batches.length
+    ? data.batches.map((batch) =>
+        '<div class="issue"><div class="issue-top"><div><div class="issue-title">' +
+        esc(batch.course + " · " + batch.assessment) +
+        '</div><div class="muted">' +
+        esc(batch.lecturer_name + " · " + batch.student_count + " students · revision " + batch.revision) +
+        "</div></div>" +
+        badge(batch.pipeline_stage) +
+        '</div><div class="actions"><button class="button primary" data-process-batch="' +
+        esc(batch.id) +
+        '">Mark processed</button><button class="button secondary" data-audit-batch="' +
+        esc(batch.id) +
+        '">Audit</button></div></div>'
+      ).join("")
+    : '<div class="card"><p class="muted">No batches waiting for exam-office processing.</p></div>';
+
+  $("#exam-office-batches").querySelectorAll("[data-process-batch]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await api("/api/exam-office/batches/" + encodeURIComponent(button.dataset.processBatch) + "/process", { method: "POST" });
+        toast("Processing recorded. The batch is now ready for portal import.");
+        await loadExamOffice();
+        await loadDashboard();
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+  });
+  $("#exam-office-batches").querySelectorAll("[data-audit-batch]").forEach((button) => {
+    button.addEventListener("click", () => openAuditForBatch(button.dataset.auditBatch));
+  });
+}
+
+async function loadPortalOperator() {
+  const data = await api("/api/portal/batches");
+  $("#portal-batches").innerHTML = data.batches.length
+    ? data.batches.map((batch) =>
+        '<div class="issue"><div class="issue-top"><div><div class="issue-title">' +
+        esc(batch.course + " · " + batch.assessment) +
+        '</div><div class="muted">' +
+        esc(batch.lecturer_name + " · " + batch.student_count + " students · revision " + batch.revision) +
+        "</div></div>" +
+        badge(batch.pipeline_stage) +
+        '</div><div class="actions"><button class="button primary" data-publish-batch="' +
+        esc(batch.id) +
+        '">Import and publish</button><button class="button secondary" data-audit-batch="' +
+        esc(batch.id) +
+        '">Audit</button></div></div>'
+      ).join("")
+    : '<div class="card"><p class="muted">No batches waiting for portal import.</p></div>';
+
+  $("#portal-batches").querySelectorAll("[data-publish-batch]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!window.confirm("Import and publish these marks to students?")) return;
+      try {
+        await api("/api/portal/batches/" + encodeURIComponent(button.dataset.publishBatch) + "/publish", { method: "POST" });
+        toast("Marks imported and published to students.");
+        await loadPortalOperator();
+        await loadDashboard();
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+  });
+  $("#portal-batches").querySelectorAll("[data-audit-batch]").forEach((button) => {
+    button.addEventListener("click", () => openAuditForBatch(button.dataset.auditBatch));
+  });
+}
+
 async function loadAdmin() {
-  const [users, courses, batches] = await Promise.all([
+  const [users, coursesData, batches] = await Promise.all([
     api("/api/admin/users"),
     api("/api/admin/courses"),
     api("/api/admin/batches")
   ]);
   state.adminUsers = users.users;
-  state.adminCourses = courses.courses;
+  state.adminCourses = coursesData.courses;
   state.adminBatches = batches.batches;
 
   const lecturers = state.adminUsers.filter((user) => user.role === "lecturer");
@@ -625,6 +740,14 @@ async function loadAuditSelector() {
     const data = await api("/api/reviewer/batches");
     batches = data.batches;
   }
+  if (batches.length === 0 && state.user.role === "exam_office") {
+    const data = await api("/api/exam-office/batches");
+    batches = data.batches;
+  }
+  if (batches.length === 0 && state.user.role === "portal_operator") {
+    const data = await api("/api/portal/batches");
+    batches = data.batches;
+  }
   if (batches.length === 0 && state.user.role === "admin") {
     const data = await api("/api/admin/batches");
     batches = data.batches;
@@ -652,6 +775,8 @@ async function loadCurrentView() {
     if (state.user.role === "student") await loadStudent();
     if (state.user.role === "lecturer") await loadLecturer();
     if (state.user.role === "reviewer") await loadReviewer();
+    if (state.user.role === "exam_office") await loadExamOffice();
+    if (state.user.role === "portal_operator") await loadPortalOperator();
     if (state.user.role === "admin") await loadAdmin();
     if (state.navView === "audit") await loadAuditSelector();
   } catch (error) {
