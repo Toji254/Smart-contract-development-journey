@@ -27,9 +27,10 @@ class AuthTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_login_creates_session_for_active_user(self):
-        session_id = login(self.db, "student", "student123")
+        result = login(self.db, "student", "student123")
 
-        self.assertIsNotNone(session_id)
+        self.assertIsNotNone(result)
+        session_id, must_change = result
         user = current_user(
             self.db,
             f"{SESSION_COOKIE}={session_id}",

@@ -11,13 +11,43 @@ const state = {
 
 const $ = (selector) => document.querySelector(selector);
 
+// ── Theme ────────────────────────────────────────────────────
+function initTheme() {
+  const saved = localStorage.getItem("marktrail-theme");
+  const theme = saved || "light";
+  document.documentElement.setAttribute("data-theme", theme);
+  updateThemeIcon(theme);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") || "light";
+  const next = current === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("marktrail-theme", next);
+  updateThemeIcon(next);
+}
+
+function updateThemeIcon(theme) {
+  const sun = $("#theme-icon-sun");
+  const moon = $("#theme-icon-moon");
+  if (sun && moon) {
+    sun.classList.toggle("hidden", theme === "dark");
+    moon.classList.toggle("hidden", theme !== "dark");
+  }
+}
+
+initTheme();
+$("#theme-toggle").addEventListener("click", toggleTheme);
+
+// ── Utils ────────────────────────────────────────────────────
 function toast(message, type = "success") {
   const node = document.createElement("div");
   node.className = "toast " + type;
   node.textContent = message;
   $("#toast-region").appendChild(node);
-  setTimeout(() => node.remove(), 3500);
+  setTimeout(() => node.remove(), 4000);
 }
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     credentials: "same-origin",
@@ -55,12 +85,13 @@ function badge(value) {
     RESOLVED: ["success", "Resolved"],
     REJECTED: ["warning", "Rejected"],
     MISSING: ["warning", "Missing"],
+    OVERDUE: ["warning", "Overdue"],
     AWAITING_PUBLICATION: ["info", "Awaiting publication"],
     RECORDED: ["success", "Recorded"],
     NO_MARK: ["info", "No mark awarded"],
     CONFIRMED: ["success", "Chain confirmed"],
     LOCAL_ONLY: ["muted", "Local-only"],
-    ERROR: ["warning", "Chain error"],
+    ERROR: ["error", "Chain error"],
     PENDING: ["warning", "Chain pending"]
   };
   const stages = {
@@ -74,6 +105,7 @@ function badge(value) {
   return '<span class="badge ' + entry[0] + '">' + esc(entry[1]) + "</span>";
 }
 
+// ── Navigation ───────────────────────────────────────────────
 function showView(view) {
   state.navView = view;
   document.querySelectorAll(".panel").forEach((panel) => panel.classList.add("hidden"));
@@ -132,6 +164,7 @@ function buildNav() {
   });
 }
 
+// ── Dashboard stats ──────────────────────────────────────────
 function renderStats(dashboard) {
   const counts = dashboard.counts || {};
   const role = dashboard.user.role;
@@ -172,6 +205,7 @@ async function loadDashboard() {
   showView("home");
 }
 
+// ── Student ──────────────────────────────────────────────────
 async function loadStudent() {
   const [marksData, reportsData, notificationData] = await Promise.all([
     api("/api/student/marks"),
@@ -213,39 +247,42 @@ async function loadStudent() {
     });
   });
 
-  $("#student-marks").innerHTML =
-    marksData.marks.length === 0
-      ? '<div class="card"><p class="muted">No assessments found.</p></div>'
-      : "<table><thead><tr><th>Course</th><th>Assessment</th><th>Mark</th><th>Status</th><th>Batch</th></tr></thead><tbody>" +
-        marksData.marks
-          .map((mark) => {
-            const action =
-              mark.status === "MISSING" && mark.batch_status === "VERIFIED" && mark.pipeline_stage === "PUBLISHED"
-                ? '<button class="button secondary" data-report="' + esc(mark.assessment_id) + '">Report missing</button>'
-                : "";
-            const display =
-              mark.mark === null ||
-              ["MISSING", "NO_MARK", "AWAITING_PUBLICATION", "NOT_SUBMITTED"].includes(mark.status)
-                ? "—"
-                : Number(mark.mark).toFixed(mark.mark % 1 ? 2 : 0) + "/" + mark.max_mark;
-            return (
-              "<tr><td>" +
-              esc(mark.course) +
-              "</td><td>" +
-              esc(mark.assessment) +
-              "</td><td><strong>" +
-              display +
-              "</strong></td><td>" +
-              badge(mark.status) +
-              "</td><td>" +
-              badge(mark.pipeline_stage) +
-              " " +
-              action +
-              "</td></tr>"
-            );
-          })
-          .join("") +
-        "</tbody></table>";
+  // Group marks by course
+  const byCourse = {};
+  for (const mark of marksData.marks) {
+    const key = mark.course;
+    if (!byCourse[key]) byCourse[key] = { title: mark.course_title, marks: [] };
+    byCourse[key].marks.push(mark);
+  }
+
+  let marksHtml = "";
+  for (const [code, group] of Object.entries(byCourse)) {
+    marksHtml += '<div class="card"><h3>' + esc(code) + ' — ' + esc(group.title) + '</h3>';
+    marksHtml += "<table><thead><tr><th>Assessment</th><th>Mark</th><th>Status</th><th>Pipeline</th><th></th></tr></thead><tbody>";
+    for (const mark of group.marks) {
+      const action =
+        mark.status === "MISSING" && mark.batch_status === "VERIFIED" && mark.pipeline_stage === "PUBLISHED"
+          ? '<button class="button secondary" data-report="' + esc(mark.assessment_id) + '">Report missing</button>'
+          : "";
+      const display =
+        mark.mark === null ||
+        ["MISSING", "NO_MARK", "AWAITING_PUBLICATION", "NOT_SUBMITTED", "OVERDUE"].includes(mark.status)
+          ? "—"
+          : Number(mark.mark).toFixed(mark.mark % 1 ? 2 : 0) + "/" + mark.max_mark;
+      const deadline = mark.submission_deadline
+        ? '<br><small class="muted">Due: ' + esc(mark.submission_deadline) + '</small>'
+        : "";
+      marksHtml +=
+        "<tr><td>" + esc(mark.assessment) + deadline +
+        "</td><td><strong>" + display +
+        "</strong></td><td>" + badge(mark.status) +
+        "</td><td>" + badge(mark.pipeline_stage) +
+        "</td><td>" + action + "</td></tr>";
+    }
+    marksHtml += "</tbody></table></div>";
+  }
+  if (!marksHtml) marksHtml = '<div class="card"><p class="muted">No assessments found.</p></div>';
+  $("#student-marks").innerHTML = marksHtml;
 
   $("#student-marks").querySelectorAll("[data-report]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -282,6 +319,7 @@ async function loadStudent() {
           .join("");
 }
 
+// ── Lecturer ─────────────────────────────────────────────────
 async function loadLecturer() {
   const [assessmentsData, batchesData, reportsData] = await Promise.all([
     api("/api/lecturer/assessments"),
@@ -302,6 +340,7 @@ async function loadLecturer() {
     })
     .join("");
 
+  // Render reports with inline forms instead of window.prompt
   $("#lecturer-reports").innerHTML =
     state.reports.length === 0
       ? '<div class="card"><p class="muted">No missing-mark issues.</p></div>'
@@ -310,13 +349,14 @@ async function loadLecturer() {
             let actions = "";
             if (report.status === "OPEN") {
               actions =
-                '<div class="actions"><button class="button primary" data-resolve-mark="' +
-                esc(report.id) +
-                '">Enter mark</button><button class="button secondary" data-no-mark="' +
-                esc(report.id) +
-                '">No mark awarded</button><button class="button ghost" data-reject-report="' +
-                esc(report.id) +
-                '">Reject report</button></div>';
+                '<div class="resolve-form" id="resolve-' + esc(report.id) + '">' +
+                '<label>Mark <input type="number" step="0.01" min="0" class="resolve-mark" placeholder="e.g. 17"></label>' +
+                '<label>Note <input type="text" class="resolve-note" placeholder="Missing mark restored" value="Missing mark restored."></label>' +
+                '<div class="actions">' +
+                '<button class="button primary" data-resolve-mark="' + esc(report.id) + '">Submit mark</button>' +
+                '<button class="button secondary" data-no-mark="' + esc(report.id) + '">No mark awarded</button>' +
+                '<button class="button ghost" data-reject-report="' + esc(report.id) + '">Reject report</button>' +
+                '</div></div>';
             }
             return (
               '<div class="issue"><div class="issue-top"><div><div class="issue-title">' +
@@ -336,20 +376,43 @@ async function loadLecturer() {
           })
           .join("");
 
+  // Bind inline resolution forms
   $("#lecturer-reports").querySelectorAll("[data-resolve-mark]").forEach((button) => {
-    button.addEventListener("click", () => resolveReport(button.dataset.resolveMark, true));
+    button.addEventListener("click", () => {
+      const form = button.closest(".resolve-form");
+      const markInput = form.querySelector(".resolve-mark");
+      const noteInput = form.querySelector(".resolve-note");
+      const mark = Number(markInput.value);
+      if (!Number.isFinite(mark) || mark < 0) {
+        toast("Enter a valid numeric mark.", "error");
+        return;
+      }
+      resolveReport(button.dataset.resolveMark, "MARK_ENTERED", mark, noteInput.value || "Missing mark restored.");
+    });
   });
   $("#lecturer-reports").querySelectorAll("[data-no-mark]").forEach((button) => {
-    button.addEventListener("click", () => resolveReport(button.dataset.noMark, false));
+    button.addEventListener("click", () => {
+      const form = button.closest(".resolve-form");
+      const noteInput = form.querySelector(".resolve-note");
+      resolveReport(button.dataset.noMark, "NO_MARK_AWARDED", null, noteInput.value || "Student did not have an awarded mark.");
+    });
   });
   $("#lecturer-reports").querySelectorAll("[data-reject-report]").forEach((button) => {
-    button.addEventListener("click", () => rejectReport(button.dataset.rejectReport));
+    button.addEventListener("click", () => {
+      const form = button.closest(".resolve-form");
+      const noteInput = form.querySelector(".resolve-note");
+      if (!noteInput.value.trim()) {
+        toast("Please provide a reason for rejection.", "error");
+        return;
+      }
+      rejectReport(button.dataset.rejectReport, noteInput.value);
+    });
   });
 
   $("#lecturer-batches").innerHTML =
     state.batches.length === 0
       ? '<div class="card"><p class="muted">No submitted batches.</p></div>'
-      : "<table><thead><tr><th>Course</th><th>Assessment</th><th>Status</th><th>Revision</th><th>Chain</th><th>Batch</th></tr></thead><tbody>" +
+      : "<table><thead><tr><th>Course</th><th>Assessment</th><th>Status</th><th>Revision</th><th>Chain</th><th>Actions</th></tr></thead><tbody>" +
         state.batches
           .map(
             (batch) =>
@@ -363,9 +426,13 @@ async function loadLecturer() {
               esc(batch.revision) +
               "</td><td>" +
               badge(batch.chain_state) +
-              "</td><td><button class=\"button secondary\" data-audit-batch=\"" +
+              '</td><td><div class="actions" style="margin-top:0"><button class="button secondary" data-audit-batch="' +
               esc(batch.id) +
-              '">Audit</button></td></tr>'
+              '">Audit</button>' +
+              (batch.chain_state === "ERROR"
+                ? ' <button class="button secondary" data-retry-batch="' + esc(batch.id) + '">Retry chain</button>'
+                : "") +
+              "</div></td></tr>"
           )
           .join("") +
         "</tbody></table>";
@@ -373,30 +440,27 @@ async function loadLecturer() {
   $("#lecturer-batches").querySelectorAll("[data-audit-batch]").forEach((button) => {
     button.addEventListener("click", () => openAuditForBatch(button.dataset.auditBatch));
   });
+  $("#lecturer-batches").querySelectorAll("[data-retry-batch]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await api("/api/lecturer/batches/" + encodeURIComponent(button.dataset.retryBatch) + "/retry-chain", {
+          method: "POST"
+        });
+        toast("Blockchain submission retried successfully.");
+        await loadLecturer();
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+  });
 }
 
-async function resolveReport(reportId, withMark) {
-  let mark = null;
-  if (withMark) {
-    const raw = window.prompt("Enter the mark:", "17");
-    if (raw === null) return;
-    mark = Number(raw);
-    if (!Number.isFinite(mark)) {
-      toast("Enter a numeric mark.", "error");
-      return;
-    }
-  }
-  const note = window.prompt(
-    withMark ? "Resolution note:" : "Why was no mark awarded?",
-    withMark ? "Missing mark restored." : "Student did not have an awarded mark."
-  );
-  if (note === null) return;
-
+async function resolveReport(reportId, resolutionType, mark, note) {
   try {
     await api("/api/lecturer/reports/" + encodeURIComponent(reportId) + "/resolve", {
       method: "POST",
       body: JSON.stringify({
-        resolution_type: withMark ? "MARK_ENTERED" : "NO_MARK_AWARDED",
+        resolution_type: resolutionType,
         mark,
         note
       })
@@ -409,9 +473,7 @@ async function resolveReport(reportId, withMark) {
   }
 }
 
-async function rejectReport(reportId) {
-  const reason = window.prompt("Why are you rejecting this report?");
-  if (reason === null) return;
+async function rejectReport(reportId, reason) {
   try {
     await api("/api/lecturer/reports/" + encodeURIComponent(reportId) + "/reject", {
       method: "POST",
@@ -424,6 +486,7 @@ async function rejectReport(reportId) {
   }
 }
 
+// ── Reviewer ─────────────────────────────────────────────────
 async function loadReviewer() {
   const data = await api("/api/reviewer/batches");
   state.batches = data.batches;
@@ -452,13 +515,13 @@ async function loadReviewer() {
               esc(batch.revision) +
               " · " +
               esc(batch.student_count) +
-              " students</div></div>" +
+              ' students</div></div>' +
               badge(batch.status) +
               '</div><p class="muted">Handoff: ' +
               badge(batch.pipeline_stage) +
               " · Chain: " +
               badge(batch.chain_state) +
-              "</p><div class=\"actions\">" +
+              '</p><div class="actions">' +
               action +
               retry +
               '<button class="button secondary" data-audit-batch="' +
@@ -498,6 +561,7 @@ async function loadReviewer() {
   });
 }
 
+// ── Exam Office ──────────────────────────────────────────────
 async function loadExamOffice() {
   const data = await api("/api/exam-office/batches");
   $("#exam-office-batches").innerHTML = data.batches.length
@@ -533,6 +597,7 @@ async function loadExamOffice() {
   });
 }
 
+// ── Portal Operator ──────────────────────────────────────────
 async function loadPortalOperator() {
   const data = await api("/api/portal/batches");
   $("#portal-batches").innerHTML = data.batches.length
@@ -569,6 +634,7 @@ async function loadPortalOperator() {
   });
 }
 
+// ── Admin ────────────────────────────────────────────────────
 async function loadAdmin() {
   const [users, coursesData, batches] = await Promise.all([
     api("/api/admin/users"),
@@ -589,14 +655,16 @@ async function loadAdmin() {
     (course) => '<option value="' + esc(course.id) + '">' + esc(course.code + " · " + course.title) + "</option>"
   ).join("");
   $("#assessment-course").innerHTML = $("#enroll-course").innerHTML;
+  $("#bulk-enroll-course").innerHTML = $("#enroll-course").innerHTML;
 
   $("#admin-users").innerHTML =
-    "<table><thead><tr><th>ID</th><th>User</th><th>Role</th><th>Status</th></tr></thead><tbody>" +
+    "<table><thead><tr><th>ID</th><th>User</th><th>Reg #</th><th>Role</th><th>Status</th></tr></thead><tbody>" +
     state.adminUsers.map(
       (user) =>
         "<tr><td>" + esc(user.id) + "</td><td><strong>" +
-        esc(user.full_name) + "</strong><div class=\"muted\">" +
+        esc(user.full_name) + '</strong><div class="muted">' +
         esc(user.username) + "</div></td><td>" +
+        esc(user.reg_number || "—") + "</td><td>" +
         badge(user.role) + "</td><td>" +
         (user.active ? badge("RECORDED") : badge("MISSING")) +
         "</td></tr>"
@@ -607,15 +675,70 @@ async function loadAdmin() {
     "<table><thead><tr><th>Course</th><th>Lecturer</th><th>Students</th><th>Assessments</th></tr></thead><tbody>" +
     state.adminCourses.map(
       (course) =>
-        "<tr><td><strong>" + esc(course.code) + "</strong><div class=\"muted\">" +
+        "<tr><td><strong>" + esc(course.code) + '</strong><div class="muted">' +
         esc(course.title) + "</div></td><td>" +
         esc(course.lecturer_name || "Unassigned") + "</td><td>" +
         esc(course.students) + "</td><td>" +
         esc(course.assessments) + "</td></tr>"
     ).join("") +
     "</tbody></table>";
+
+  const batchesContainer = $("#admin-batches");
+  if (batchesContainer) {
+    batchesContainer.innerHTML =
+      state.adminBatches.length === 0
+        ? '<div class="card"><p class="muted">No mark batches created yet.</p></div>'
+        : "<table><thead><tr><th>Course · Assessment</th><th>Lecturer</th><th>Students</th><th>Pipeline Stage</th><th>Rev</th><th>Chain Status</th><th>Actions</th></tr></thead><tbody>" +
+          state.adminBatches.map(
+            (b) =>
+              "<tr><td><strong>" + esc(b.course + " · " + b.assessment) + '</strong><div class="muted"><code>' + esc(b.id.slice(0, 10)) + '…</code></div></td>' +
+              "<td>" + esc(b.lecturer_name) + "</td>" +
+              "<td>" + esc(b.student_count) + "</td>" +
+              "<td>" + badge(b.pipeline_stage) + "</td>" +
+              "<td>" + esc(b.revision) + "</td>" +
+              "<td>" + badge(b.chain_state) + "</td>" +
+              '<td><div class="actions" style="margin-top:0"><button class="button secondary" data-audit-batch="' + esc(b.id) + '">Audit</button>' +
+              (b.chain_state === "ERROR"
+                ? ' <button class="button secondary" data-admin-retry="' + esc(b.id) + '">Retry chain</button>'
+                : "") +
+              "</div></td></tr>"
+          ).join("") +
+          "</tbody></table>";
+
+    batchesContainer.querySelectorAll("[data-audit-batch]").forEach((btn) => {
+      btn.addEventListener("click", () => openAuditForBatch(btn.dataset.auditBatch));
+    });
+    batchesContainer.querySelectorAll("[data-admin-retry]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        try {
+          await api("/api/admin/batches/" + encodeURIComponent(btn.dataset.adminRetry) + "/retry-chain", {
+            method: "POST"
+          });
+          toast("Chain retry succeeded.");
+          await loadAdmin();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      });
+    });
+  }
+
+  const recoverBtn = $("#admin-recover-chain");
+  if (recoverBtn && !recoverBtn.dataset.bound) {
+    recoverBtn.dataset.bound = "1";
+    recoverBtn.addEventListener("click", async () => {
+      try {
+        const res = await api("/api/admin/batches/recover", { method: "POST" });
+        toast("Recovery run complete: " + res.recovered + " recovered, " + res.errors + " errors.");
+        await loadAdmin();
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+  }
 }
 
+// ── Batch preview/submit ─────────────────────────────────────
 async function previewBatch() {
   const assessmentId = $("#lecturer-assessment").value;
   const csvText = $("#marks-csv").value.trim();
@@ -635,7 +758,7 @@ async function previewBatch() {
     $("#batch-preview").innerHTML =
       "<strong>" +
       esc(result.course + " · " + result.assessment) +
-      "</strong><p class=\"muted\">" +
+      '</strong><p class="muted">' +
       esc(result.submitted_count) +
       " submitted · " +
       esc(result.missing_count) +
@@ -681,6 +804,7 @@ async function submitBatch() {
   }
 }
 
+// ── Audit ────────────────────────────────────────────────────
 function openAuditForBatch(batchId) {
   $("#audit-batch").innerHTML = '<option value="' + esc(batchId) + '">Selected batch</option>';
   showView("audit");
@@ -759,7 +883,7 @@ async function loadAudit(batchId) {
     $("#audit-result").innerHTML =
       '<div class="card"><p class="eyebrow">BATCH</p><h3>' +
       esc(data.batch.course + " · " + data.batch.assessment) +
-      "</h3><p class=\"muted\">Status " +
+      '</h3><p class="muted">Status ' +
       badge(data.batch.status) +
       " · revision " +
       esc(data.batch.revision) +
@@ -777,7 +901,7 @@ async function loadAudit(batchId) {
           (data.pipeline.waiting_since ? " since " + esc(data.pipeline.waiting_since) : "")) +
       '</p></div><div class="card"><p class="eyebrow">HANDOFF TIMING</p><div class="timeline">' +
       (pipeline || '<p class="muted">No handoff events recorded yet.</p>') +
-      "</div></div>" +
+      '</div></div>' +
       '<div class="card"><p class="eyebrow">REVISIONS</p><div class="timeline">' +
       revisions +
       '</div></div><div class="card"><p class="eyebrow">MARK HISTORY</p><div class="timeline">' +
@@ -840,6 +964,7 @@ async function loadAuditSelector() {
     : '<option value="">No batches available</option>';
 }
 
+// ── View loader ──────────────────────────────────────────────
 async function loadCurrentView() {
   try {
     if (state.user.role === "student") await loadStudent();
@@ -858,10 +983,11 @@ async function loadCurrentView() {
   }
 }
 
+// ── Login ────────────────────────────────────────────────────
 $("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
-    await api("/api/login", {
+    const result = await api("/api/login", {
       method: "POST",
       body: JSON.stringify({
         username: $("#login-username").value.trim(),
@@ -869,6 +995,17 @@ $("#login-form").addEventListener("submit", async (event) => {
       })
     });
     $("#login-password").value = "";
+
+    if (result.must_change_password) {
+      // Show password change screen
+      $("#login-screen").classList.add("hidden");
+      $("#password-change-screen").classList.remove("hidden");
+      $("#pw-current").value = "";
+      $("#pw-new").value = "";
+      $("#pw-confirm").value = "";
+      return;
+    }
+
     $("#login-screen").classList.add("hidden");
     $("#app-shell").classList.remove("hidden");
     await loadDashboard();
@@ -878,11 +1015,47 @@ $("#login-form").addEventListener("submit", async (event) => {
   }
 });
 
+// ── Password change ──────────────────────────────────────────
+$("#password-change-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const current = $("#pw-current").value;
+  const newPw = $("#pw-new").value;
+  const confirm = $("#pw-confirm").value;
+
+  if (newPw !== confirm) {
+    toast("New passwords do not match.", "error");
+    return;
+  }
+  if (newPw.length < 8) {
+    toast("New password must be at least 8 characters.", "error");
+    return;
+  }
+
+  try {
+    await api("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({
+        current_password: current,
+        new_password: newPw
+      })
+    });
+    toast("Password updated. You are now signed in.");
+    $("#password-change-screen").classList.add("hidden");
+    $("#app-shell").classList.remove("hidden");
+    await loadDashboard();
+    await loadCurrentView();
+  } catch (error) {
+    toast(error.message, "error");
+  }
+});
+
+// ── Logout ───────────────────────────────────────────────────
 $("#logout-button").addEventListener("click", async () => {
   await api("/api/logout", { method: "POST" }).catch(() => {});
   location.reload();
 });
 
+// ── File input ───────────────────────────────────────────────
 $("#marks-file").addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
   if (file) $("#marks-csv").value = await file.text();
@@ -891,6 +1064,7 @@ $("#marks-file").addEventListener("change", async (event) => {
 $("#preview-batch").addEventListener("click", previewBatch);
 $("#submit-batch").addEventListener("click", submitBatch);
 
+// ── Audit controls ───────────────────────────────────────────
 $("#load-audit").addEventListener("click", () => {
   const batchId = $("#audit-batch").value;
   if (batchId) loadAudit(batchId);
@@ -925,6 +1099,7 @@ $("#reconcile-audit").addEventListener("click", async () => {
   }
 });
 
+// ── Admin: create user ───────────────────────────────────────
 $("#create-user-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(event.target);
@@ -942,6 +1117,7 @@ $("#create-user-form").addEventListener("submit", async (event) => {
   }
 });
 
+// ── Admin: create course ─────────────────────────────────────
 $("#create-course-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(event.target);
@@ -961,6 +1137,7 @@ $("#create-course-form").addEventListener("submit", async (event) => {
   }
 });
 
+// ── Admin: enroll ────────────────────────────────────────────
 $("#enroll-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(event.target);
@@ -980,15 +1157,38 @@ $("#enroll-form").addEventListener("submit", async (event) => {
   }
 });
 
+// ── Admin: bulk enroll CSV ───────────────────────────────────
+$("#bulk-enroll-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  try {
+    const result = await api("/api/admin/courses/" + encodeURIComponent(form.get("course_id")) + "/bulk-enroll", {
+      method: "POST",
+      body: JSON.stringify({ csv: form.get("csv") })
+    });
+    toast("Enrolled " + result.enrolled + " students, created " + result.created + " accounts, skipped " + result.skipped + ".");
+    event.target.reset();
+    await loadAdmin();
+    await loadDashboard();
+  } catch (error) {
+    toast(error.message, "error");
+  }
+});
+
+// ── Admin: create assessment ─────────────────────────────────
 $("#create-assessment-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(event.target);
   const data = Object.fromEntries(form.entries());
   data.max_mark = Number(data.max_mark);
+  // Convert datetime-local to ISO
+  if (data.submission_deadline) {
+    data.submission_deadline = new Date(data.submission_deadline).toISOString();
+  }
   try {
     await api("/api/admin/courses/" + encodeURIComponent(form.get("course_id")) + "/assessments", {
       method: "POST",
-      body: JSON.stringify({ name: data.name, max_mark: data.max_mark })
+      body: JSON.stringify({ name: data.name, max_mark: data.max_mark, submission_deadline: data.submission_deadline || null })
     });
     event.target.reset();
     toast("Assessment created.");
@@ -998,6 +1198,7 @@ $("#create-assessment-form").addEventListener("submit", async (event) => {
   }
 });
 
+// ── Refresh ──────────────────────────────────────────────────
 document.querySelectorAll("[data-refresh]").forEach((button) => {
   button.addEventListener("click", async () => {
     await loadDashboard();
@@ -1006,10 +1207,18 @@ document.querySelectorAll("[data-refresh]").forEach((button) => {
   });
 });
 
+// ── Boot ─────────────────────────────────────────────────────
 async function boot() {
   try {
     const me = await api("/api/me");
     state.user = me.user;
+
+    if (me.must_change_password) {
+      $("#login-screen").classList.add("hidden");
+      $("#password-change-screen").classList.remove("hidden");
+      return;
+    }
+
     $("#login-screen").classList.add("hidden");
     $("#app-shell").classList.remove("hidden");
     await loadDashboard();

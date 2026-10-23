@@ -52,10 +52,10 @@ class Database:
         return conn
 
     @contextmanager
-    def transaction(self, immediate: bool = False) -> Iterator[sqlite3.Connection]:
+    def transaction(self) -> Iterator[sqlite3.Connection]:
         conn = self.connect()
         try:
-            conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+            conn.execute("BEGIN")
             yield conn
             conn.commit()
         except Exception:
@@ -89,6 +89,8 @@ class Database:
                         password_salt TEXT NOT NULL,
                         password_hash TEXT NOT NULL,
                         active INTEGER NOT NULL DEFAULT 1,
+                        must_change_password INTEGER NOT NULL DEFAULT 0,
+                        reg_number TEXT,
                         created_at TEXT NOT NULL
                     )
                     """
@@ -103,6 +105,21 @@ class Database:
                 )
                 conn.execute("DROP TABLE users")
                 conn.execute("ALTER TABLE users_new RENAME TO users")
+
+            # Add must_change_password column to existing portal_operator-aware users tables
+            users_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(users)").fetchall()
+            }
+            if users_cols:  # table exists
+                if "must_change_password" not in users_cols:
+                    conn.execute(
+                        "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"
+                    )
+                if "reg_number" not in users_cols:
+                    conn.execute(
+                        "ALTER TABLE users ADD COLUMN reg_number TEXT"
+                    )
 
             reports_sql = conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'missing_reports'"
@@ -161,39 +178,14 @@ class Database:
                     """
                 )
 
-            reports_table = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'missing_reports'"
-            ).fetchone()
-            if reports_table:
+            # Add submission_deadline to assessments if missing
+            assess_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(assessments)").fetchall()
+            }
+            if assess_cols and "submission_deadline" not in assess_cols:
                 conn.execute(
-                    """
-                    UPDATE missing_reports
-                    SET status = 'REJECTED',
-                        lecturer_note = CASE
-                            WHEN lecturer_note IS NULL OR lecturer_note = ''
-                            THEN 'Automatically closed during migration because another active report exists.'
-                            ELSE lecturer_note || ' | Automatically closed during migration because another active report exists.'
-                        END
-                    WHERE id IN (
-                        SELECT id FROM (
-                            SELECT id,
-                                   ROW_NUMBER() OVER (
-                                       PARTITION BY assessment_id, student_id
-                                       ORDER BY opened_at, id
-                                   ) AS active_position
-                            FROM missing_reports
-                            WHERE status IN ('OPEN','PENDING_REVIEW')
-                        )
-                        WHERE active_position > 1
-                    )
-                    """
-                )
-                conn.execute(
-                    """
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_missing_reports_one_active
-                    ON missing_reports(assessment_id, student_id)
-                    WHERE status IN ('OPEN','PENDING_REVIEW')
-                    """
+                    "ALTER TABLE assessments ADD COLUMN submission_deadline TEXT"
                 )
 
             conn.commit()
@@ -222,6 +214,8 @@ class Database:
                     password_salt TEXT NOT NULL,
                     password_hash TEXT NOT NULL,
                     active INTEGER NOT NULL DEFAULT 1,
+                    must_change_password INTEGER NOT NULL DEFAULT 0,
+                    reg_number TEXT,
                     created_at TEXT NOT NULL
                 );
 
@@ -251,6 +245,7 @@ class Database:
                     course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
                     name TEXT NOT NULL,
                     max_mark REAL NOT NULL CHECK (max_mark > 0),
+                    submission_deadline TEXT,
                     created_at TEXT NOT NULL
                 );
 
@@ -363,10 +358,6 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_reports_assessment_status
                     ON missing_reports(assessment_id, status);
 
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_missing_reports_one_active
-                    ON missing_reports(assessment_id, student_id)
-                    WHERE status IN ('OPEN','PENDING_REVIEW');
-
                 CREATE INDEX IF NOT EXISTS idx_audit_entity
                     ON audit_events(entity_type, entity_id, created_at);
 
@@ -384,23 +375,30 @@ class Database:
             if existing:
                 return
 
-            def add_user(username: str, full_name: str, role: str, password: str) -> int:
+            def add_user(
+                username: str,
+                full_name: str,
+                role: str,
+                password: str,
+                reg_number: str | None = None,
+            ) -> int:
                 salt, digest = hash_password(password)
                 cur = conn.execute(
                     """
                     INSERT INTO users
-                    (username, full_name, role, password_salt, password_hash, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (username, full_name, role, password_salt, password_hash,
+                     must_change_password, reg_number, created_at)
+                    VALUES (?, ?, ?, ?, ?, 0, ?, ?)
                     """,
-                    (username, full_name, role, salt, digest, utc_now()),
+                    (username, full_name, role, salt, digest, reg_number, utc_now()),
                 )
                 return int(cur.lastrowid)
 
             admin_id = add_user("admin", "MarkTrail Admin", "admin", "admin123")
             lecturer_id = add_user("lecturer", "Dr. Alex Njoroge", "lecturer", "lecturer123")
             reviewer_id = add_user("reviewer", "Prof. Grace Wambui", "reviewer", "reviewer123")
-            student_id = add_user("student", "Jane Doe", "student", "student123")
-            add_user("student2", "Brian Otieno", "student", "student123")
+            student_id = add_user("student", "Jane Doe", "student", "student123", "SCT/001/2025")
+            add_user("student2", "Brian Otieno", "student", "student123", "SCT/002/2025")
             add_user("exam_office", "Academic Office", "exam_office", "office123")
             add_user("portal_operator", "Portal Operator", "portal_operator", "portal123")
 

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import subprocess
+import time
 from dataclasses import dataclass
+
+log = logging.getLogger("marktrail.chain")
 
 
 BYTES32_RE = re.compile(r"0x[a-fA-F0-9]{64}")
@@ -62,11 +66,12 @@ class ChainClient:
             return {
                 "mode": "cast",
                 "enabled": True,
-                "label": "Connected to EVM chain",
+                "label": f"Connected to EVM chain (block {block})",
                 "contract": self.config.contract,
                 "block": block,
             }
         except Exception as exc:
+            log.warning("Chain status check failed: %s", exc)
             return {
                 "mode": "cast",
                 "enabled": True,
@@ -75,24 +80,38 @@ class ChainClient:
                 "error": str(exc),
             }
 
-    def _run(self, args: list[str]) -> str:
+    def _run(self, args: list[str], retries: int = 3) -> str:
+        """Execute a cast command with exponential backoff retry."""
         if not self.enabled:
             raise ChainError("Chain integration is disabled.")
 
-        try:
-            proc = subprocess.run(
-                ["cast", *args],
-                check=True,
-                text=True,
-                capture_output=True,
-                timeout=90,
-            )
-        except FileNotFoundError as exc:
-            raise ChainError("Foundry 'cast' was not found on PATH.") from exc
-        except subprocess.CalledProcessError as exc:
-            detail = (exc.stderr or exc.stdout).strip()
-            raise ChainError(detail or "cast command failed") from exc
-        return (proc.stdout or "").strip()
+        last_error: ChainError | None = None
+        for attempt in range(1, retries + 1):
+            try:
+                proc = subprocess.run(
+                    ["cast", *args],
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                    timeout=90,
+                )
+                return (proc.stdout or "").strip()
+            except FileNotFoundError as exc:
+                raise ChainError("Foundry 'cast' was not found on PATH.") from exc
+            except subprocess.TimeoutExpired as exc:
+                last_error = ChainError(f"cast timed out after 90s (attempt {attempt}/{retries})")
+                log.warning("Chain timeout attempt %d/%d: %s", attempt, retries, last_error)
+            except subprocess.CalledProcessError as exc:
+                detail = (exc.stderr or exc.stdout or "").strip()
+                last_error = ChainError(detail or f"cast command failed (attempt {attempt}/{retries})")
+                log.warning("Chain error attempt %d/%d: %s", attempt, retries, detail)
+
+            if attempt < retries:
+                delay = 2 ** (attempt - 1)  # 1s, 2s, 4s
+                log.info("Retrying chain operation in %ds...", delay)
+                time.sleep(delay)
+
+        raise last_error or ChainError("Chain operation failed after all retries.")
 
     def block_number(self) -> int:
         output = self._run(
@@ -179,11 +198,16 @@ class ChainClient:
         )
 
     def get_revision_count(self, batch_id: str) -> int:
-        output = self.call("getRevisionCount(bytes32)", batch_id)
-        numbers = re.findall(r"\b\d+\b", output)
-        if not numbers:
+        output = self.call("getRevisionCount(bytes32)", batch_id).strip()
+        if output.startswith("0x"):
+            try:
+                return int(output, 16)
+            except ValueError:
+                pass
+        match = re.search(r"\d+", output)
+        if not match:
             raise ChainError(f"Could not parse revision count: {output}")
-        return int(numbers[0])
+        return int(match.group(0))
 
     def get_revision_hash(self, batch_id: str, revision_index: int) -> str:
         output = self.call(
@@ -204,8 +228,53 @@ class ChainClient:
                 "reason": "Blockchain integration is disabled.",
             }
 
-        chain_count = self.get_revision_count(batch_id)
-        chain_hash = self.get_revision_hash(batch_id, chain_count - 1)
+        try:
+            chain_count = self.get_revision_count(batch_id)
+        except ChainError as exc:
+            msg = str(exc)
+            if "BatchNotFound" in msg or "revert" in msg.lower():
+                return {
+                    "status": "NOT_ON_CHAIN",
+                    "match": False,
+                    "reason": "Batch not found on-chain.",
+                    "local_revision": local_revision,
+                    "chain_revision": 0,
+                    "local_hash": local_hash,
+                    "chain_hash": None,
+                }
+            return {
+                "status": "CHAIN_ERROR",
+                "match": False,
+                "reason": f"Chain query failed: {exc}",
+                "local_revision": local_revision,
+                "chain_revision": 0,
+                "local_hash": local_hash,
+                "chain_hash": None,
+            }
+
+        if chain_count == 0:
+            return {
+                "status": "NOT_ON_CHAIN",
+                "match": False,
+                "reason": "No revisions recorded on-chain.",
+                "local_revision": local_revision,
+                "chain_revision": 0,
+                "local_hash": local_hash,
+                "chain_hash": None,
+            }
+
+        try:
+            chain_hash = self.get_revision_hash(batch_id, chain_count - 1)
+        except ChainError as exc:
+            return {
+                "status": "CHAIN_ERROR",
+                "match": False,
+                "reason": f"Failed to retrieve revision hash: {exc}",
+                "local_revision": local_revision,
+                "chain_revision": chain_count,
+                "local_hash": local_hash,
+                "chain_hash": None,
+            }
 
         matched = (
             chain_count == local_revision

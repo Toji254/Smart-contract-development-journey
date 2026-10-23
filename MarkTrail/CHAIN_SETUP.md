@@ -24,7 +24,10 @@ forge build
 Use one Anvil account as the owner and chain relayer.
 
 ~~~bash
-forge create src/MarkTrailAudit.sol:MarkTrailAudit   --rpc-url http://127.0.0.1:8545   --private-key YOUR_ANVIL_PRIVATE_KEY
+forge create src/MarkTrailAudit.sol:MarkTrailAudit \
+  --rpc-url http://127.0.0.1:8545 \
+  --private-key YOUR_ANVIL_PRIVATE_KEY \
+  --broadcast
 ~~~
 
 Copy the deployed contract address.

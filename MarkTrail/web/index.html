@@ -5,11 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MarkTrail — Academic marks, without the mystery</title>
   <meta name="description" content="MarkTrail makes academic marks traceable from submission to resolution.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
 
+  <!-- ───────────── LOGIN ───────────── -->
   <section id="login-screen" class="login-screen">
     <div class="login-card">
       <div class="brand-mark">MT</div>
@@ -43,6 +47,33 @@
     </div>
   </section>
 
+  <!-- ───────────── PASSWORD CHANGE (first login) ───────────── -->
+  <section id="password-change-screen" class="login-screen hidden">
+    <div class="login-card">
+      <div class="brand-mark">MT</div>
+      <p class="eyebrow">SECURITY</p>
+      <h1>Change your password</h1>
+      <p class="lead">You must set a new password before you can continue.</p>
+
+      <form id="password-change-form">
+        <label>
+          Current password
+          <input id="pw-current" type="password" autocomplete="current-password" required>
+        </label>
+        <label>
+          New password
+          <input id="pw-new" type="password" autocomplete="new-password" required minlength="8">
+        </label>
+        <label>
+          Confirm new password
+          <input id="pw-confirm" type="password" autocomplete="new-password" required minlength="8">
+        </label>
+        <button class="button primary full" type="submit">Update password</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ───────────── APP SHELL ───────────── -->
   <div id="app-shell" class="app-shell hidden">
     <header class="topbar">
       <div>
@@ -52,6 +83,10 @@
       <div class="topbar-actions">
         <span id="chain-indicator" class="pill neutral">checking chain…</span>
         <span id="user-chip" class="pill"></span>
+        <button id="theme-toggle" class="button ghost" title="Toggle theme" aria-label="Toggle dark mode">
+          <svg id="theme-icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+          <svg id="theme-icon-moon" class="hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
         <button id="logout-button" class="button ghost">Log out</button>
       </div>
     </header>
@@ -68,6 +103,7 @@
 
       <nav id="nav" class="nav"></nav>
 
+      <!-- ───── STUDENT ───── -->
       <section id="student-panel" class="panel hidden">
         <div class="section-head">
           <div>
@@ -99,6 +135,7 @@
         </div>
       </section>
 
+      <!-- ───── LECTURER ───── -->
       <section id="lecturer-panel" class="panel hidden">
         <div class="section-head">
           <div>
@@ -112,7 +149,7 @@
           <div class="card-head">
             <div>
               <h3>Submit an assessment batch</h3>
-              <p class="muted">CSV headers: <code>student_id,mark</code></p>
+              <p class="muted">CSV headers: <code>registration_number,mark</code></p>
             </div>
           </div>
           <div class="form-grid">
@@ -125,7 +162,7 @@
               <input id="marks-file" type="file" accept=".csv,text/csv">
             </label>
           </div>
-          <textarea id="marks-csv" class="code-input" rows="7" placeholder="student_id,mark&#10;4,18&#10;5,15"></textarea>
+          <textarea id="marks-csv" class="code-input" rows="7" placeholder="registration_number,mark&#10;SCT/001/2025,18&#10;SCT/002/2025,15"></textarea>
           <div class="actions">
             <button id="preview-batch" class="button secondary">Validate batch</button>
             <button id="submit-batch" class="button primary">Submit batch</button>
@@ -150,6 +187,7 @@
         <div id="lecturer-batches" class="table-wrap"></div>
       </section>
 
+      <!-- ───── REVIEWER ───── -->
       <section id="reviewer-panel" class="panel hidden">
         <div class="section-head">
           <div>
@@ -161,6 +199,7 @@
         <div id="reviewer-batches"></div>
       </section>
 
+      <!-- ───── EXAM OFFICE ───── -->
       <section id="exam-office-panel" class="panel hidden">
         <div class="section-head">
           <div>
@@ -172,6 +211,7 @@
         <div id="exam-office-batches"></div>
       </section>
 
+      <!-- ───── PORTAL OPERATOR ───── -->
       <section id="portal-operator-panel" class="panel hidden">
         <div class="section-head">
           <div>
@@ -183,6 +223,7 @@
         <div id="portal-batches"></div>
       </section>
 
+      <!-- ───── ADMIN ───── -->
       <section id="admin-panel" class="panel hidden">
         <div class="section-head">
           <div>
@@ -200,6 +241,7 @@
             <form id="create-user-form" class="stack">
               <input name="username" placeholder="username" required>
               <input name="full_name" placeholder="Full name" required>
+              <input name="reg_number" placeholder="Reg number (students only, e.g. SCT/001/2025)">
               <select name="role" required>
                 <option value="student">Student</option>
                 <option value="lecturer">Lecturer</option>
@@ -239,12 +281,25 @@
 
           <div class="card">
             <div class="card-head">
+              <h3>Bulk enroll from CSV</h3>
+              <p class="muted">CSV: <code>reg_number,full_name</code></p>
+            </div>
+            <form id="bulk-enroll-form" class="stack">
+              <select name="course_id" id="bulk-enroll-course" required></select>
+              <textarea name="csv" class="code-input" rows="5" placeholder="reg_number,full_name&#10;SCT/003/2025,Alice Wanjiku&#10;SCT/004/2025,David Kamau"></textarea>
+              <button class="button primary">Bulk enroll</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
               <h3>Create assessment</h3>
             </div>
             <form id="create-assessment-form" class="stack">
               <select name="course_id" id="assessment-course" required></select>
               <input name="name" placeholder="CAT 1" required>
               <input name="max_mark" type="number" step="0.01" min="0.01" placeholder="20" required>
+              <input name="submission_deadline" type="datetime-local" placeholder="Submission deadline (optional)">
               <button class="button primary">Create assessment</button>
             </form>
           </div>
@@ -270,8 +325,20 @@
             <div id="admin-courses" class="table-wrap"></div>
           </div>
         </div>
+
+        <div style="margin-top: 2rem;">
+          <div class="section-head compact">
+            <div>
+              <p class="eyebrow">AUDIT & BLOCKCHAIN</p>
+              <h2>Mark Batches & Chain Status</h2>
+            </div>
+            <button id="admin-recover-chain" class="button secondary">Recover Pending / Error Batches</button>
+          </div>
+          <div id="admin-batches" class="table-wrap"></div>
+        </div>
       </section>
 
+      <!-- ───── AUDIT ───── -->
       <section id="audit-panel" class="panel hidden">
         <div class="section-head">
           <div>
@@ -297,7 +364,7 @@
     </main>
 
     <footer>
-      MarkTrail is a runnable development MVP. Demo data only. Do not use this deployment for real student records.
+      MarkTrail — blockchain-backed academic mark audit trail. Pilot deployment.
     </footer>
   </div>
 

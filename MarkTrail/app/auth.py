@@ -41,12 +41,12 @@ def clear_session_cookie() -> str:
     return morsel.OutputString()
 
 
-def login(db: Database, username: str, password: str) -> str | None:
+def login(db: Database, username: str, password: str) -> tuple[str, bool] | None:
     conn = db.connect()
     try:
         user = conn.execute(
             """
-            SELECT id, password_salt, password_hash
+            SELECT id, password_salt, password_hash, must_change_password
             FROM users
             WHERE username = ? AND active = 1
             """,
@@ -62,7 +62,8 @@ def login(db: Database, username: str, password: str) -> str | None:
     ):
         return None
 
-    return db.create_session(int(user["id"]), hours=SESSION_MAX_AGE // 3600)
+    session_id = db.create_session(int(user["id"]), hours=SESSION_MAX_AGE // 3600)
+    return session_id, bool(user["must_change_password"])
 
 
 def current_user(db: Database, cookie_header: str | None):

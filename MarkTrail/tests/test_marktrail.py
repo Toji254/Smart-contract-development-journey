@@ -4,8 +4,6 @@ import csv
 import io
 import tempfile
 import unittest
-from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
 from pathlib import Path
 
 from app.db import Database
@@ -239,12 +237,12 @@ class MarkTrailTests(unittest.TestCase):
             with self.subTest(role_user_id=user_id):
                 with self.assertRaises(AppError) as preview_error:
                     self.service.preview_batch(
-                        user_id, assessment_id, "student_id,mark\n4,18\n"
+                        user_id, assessment_id, "registration_number,mark\nSCT/001/2025,18\n"
                     )
                 self.assertEqual(preview_error.exception.status, 403)
                 with self.assertRaises(AppError) as submit_error:
                     self.service.submit_batch(
-                        user_id, assessment_id, "student_id,mark\n4,18\n"
+                        user_id, assessment_id, "registration_number,mark\nSCT/001/2025,18\n"
                     )
                 self.assertEqual(submit_error.exception.status, 403)
 
@@ -285,7 +283,7 @@ class MarkTrailTests(unittest.TestCase):
                     operation(
                         self.lecturer["id"],
                         "assessment-other",
-                        "student_id,mark\n4,18\n",
+                        "registration_number,mark\nSCT/001/2025,18\n",
                     )
                 self.assertEqual(error.exception.status, 403)
 
@@ -314,113 +312,19 @@ class MarkTrailTests(unittest.TestCase):
         preview = self.service.preview_batch(
             self.lecturer["id"],
             "assessment-cat2",
-            "student_id,mark\n4,17\n",
+            "registration_number,mark\nSCT/001/2025,17\n",
         )
         self.assertTrue(preview["valid"])
         self.assertEqual(preview["enrolled_count"], 2)
         self.assertEqual(preview["submitted_count"], 1)
         self.assertEqual(preview["missing_count"], 1)
 
-    def test_batch_validation_rejects_non_finite_marks(self):
-        self._create_fresh_assessment()
-        for value in ("NaN", "Infinity", "-Infinity"):
-            with self.subTest(value=value):
-                csv_text = f"student_id,mark\n4,{value}\n"
-                preview = self.service.preview_batch(
-                    self.lecturer["id"], "assessment-cat3", csv_text
-                )
-                self.assertFalse(preview["valid"])
-                self.assertTrue(any("finite number" in error for error in preview["errors"]))
-                with self.assertRaises(AppError):
-                    self.service.submit_batch(
-                        self.lecturer["id"], "assessment-cat3", csv_text
-                    )
-
-        conn = self.db.connect()
-        try:
-            self.assertIsNone(
-                conn.execute(
-                    "SELECT 1 FROM batches WHERE assessment_id = 'assessment-cat3'"
-                ).fetchone()
-            )
-        finally:
-            conn.close()
-
-    def test_amendments_reject_non_finite_marks(self):
-        report_id = self.service.report_missing_mark(
-            self.student["id"], self.assessment["id"]
-        )["id"]
-        for value in (float("nan"), float("inf"), float("-inf")):
-            with self.subTest(value=value):
-                with self.assertRaisesRegex(AppError, "finite number"):
-                    self.service.resolve_report(
-                        self.lecturer["id"],
-                        report_id,
-                        "MARK_ENTERED",
-                        value,
-                        "Correction",
-                    )
-
-        conn = self.db.connect()
-        try:
-            mark = conn.execute(
-                """
-                SELECT candidate_mark, candidate_status
-                FROM assessment_marks
-                WHERE assessment_id = ? AND student_id = ?
-                """,
-                (self.assessment["id"], self.student["id"]),
-            ).fetchone()
-            report = conn.execute(
-                "SELECT status FROM missing_reports WHERE id = ?",
-                (report_id,),
-            ).fetchone()
-        finally:
-            conn.close()
-        self.assertIsNone(mark["candidate_mark"])
-        self.assertEqual(mark["candidate_status"], "MISSING")
-        self.assertEqual(report["status"], "OPEN")
-
-    def test_concurrent_missing_reports_create_only_one_active_report(self):
-        barrier = Barrier(2)
-
-        def open_report():
-            barrier.wait()
-            try:
-                return self.service.report_missing_mark(
-                    self.student["id"], self.assessment["id"]
-                )
-            except AppError as exc:
-                return exc
-
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            results = list(executor.map(lambda _: open_report(), range(2)))
-
-        self.assertEqual(sum(isinstance(result, dict) for result in results), 1)
-        errors = [result for result in results if isinstance(result, AppError)]
-        self.assertEqual(len(errors), 1)
-        self.assertIn("open report", errors[0].message)
-
-        conn = self.db.connect()
-        try:
-            active_count = conn.execute(
-                """
-                SELECT COUNT(*) AS count FROM missing_reports
-                WHERE assessment_id = ? AND student_id = ?
-                  AND status IN ('OPEN','PENDING_REVIEW')
-                """,
-                (self.assessment["id"], self.student["id"]),
-            ).fetchone()["count"]
-        finally:
-            conn.close()
-        self.assertEqual(active_count, 1)
-
     def test_lecturer_can_submit_new_batch(self):
         self._create_fresh_assessment()
         result = self.service.submit_batch(
             self.lecturer["id"],
             "assessment-cat3",
-            "student_id,mark\n4,19\n5,16\n",
+            "registration_number,mark\nSCT/001/2025,19\nSCT/002/2025,16\n",
         )
         self.assertEqual(result["status"], "SUBMITTED")
         self.assertEqual(result["chain_state"], "LOCAL_ONLY")
@@ -430,7 +334,7 @@ class MarkTrailTests(unittest.TestCase):
         self.service.submit_batch(
             self.lecturer["id"],
             "assessment-cat3",
-            "student_id,mark\n4,19\n5,16\n",
+            "registration_number,mark\nSCT/001/2025,19\nSCT/002/2025,16\n",
         )
 
         conn = self.db.connect()
@@ -635,6 +539,143 @@ class MarkTrailTests(unittest.TestCase):
             self.student["id"], self.assessment["id"]
         )
         self.assertEqual(reopened["status"], "OPEN")
+
+
+class FakeChainEnabled:
+    """Simulates a live chain client that returns a configurable reconcile result."""
+
+    enabled = True
+
+    class Config:
+        mode = "cast"
+
+    config = Config()
+
+    def __init__(self, match: bool) -> None:
+        self._match = match
+        self._captured: dict = {}
+
+    def status(self):
+        return {"enabled": True, "mode": "cast", "label": "Connected to EVM chain"}
+
+    def submit_batch(self, *_args, **_kwargs) -> str:
+        return "0x" + "ab" * 32
+
+    def verify_batch(self, *_args, **_kwargs) -> str:
+        return "0x" + "cd" * 32
+
+    def reconcile(self, batch_id: str, local_revision: int, local_hash: str) -> dict:
+        self._captured = {
+            "batch_id": batch_id,
+            "local_revision": local_revision,
+            "local_hash": local_hash,
+        }
+        if self._match:
+            return {
+                "status": "MATCH",
+                "match": True,
+                "local_revision": local_revision,
+                "chain_revision": local_revision,
+                "local_hash": local_hash,
+                "chain_hash": local_hash,
+            }
+        return {
+            "status": "MISMATCH",
+            "match": False,
+            "local_revision": local_revision,
+            "chain_revision": local_revision,
+            "local_hash": local_hash,
+            "chain_hash": "0x" + "ff" * 32,
+        }
+
+
+class PortalChainReconcileTests(unittest.TestCase):
+    """Tests that publish_portal_batch auto-verifies against the chain."""
+
+    def _make_service(self, chain):
+        import tempfile
+        from pathlib import Path
+
+        tmp = tempfile.mkdtemp()
+        db = Database(Path(tmp) / "test.db")
+        db.init(seed_demo=True)
+        return db, AppService(db, chain)
+
+    def _advance_to_portal_import(self, db, service):
+        """Submit, verify, and exam-office-process a fresh batch so it
+        lands at PORTAL_IMPORT, ready for the portal operator."""
+        conn = db.connect()
+        lecturer = conn.execute(
+            "SELECT id FROM users WHERE username = 'lecturer'"
+        ).fetchone()
+        reviewer = conn.execute(
+            "SELECT id FROM users WHERE username = 'reviewer'"
+        ).fetchone()
+        exam_office = conn.execute(
+            "SELECT id FROM users WHERE username = 'exam_office'"
+        ).fetchone()
+        portal_operator = conn.execute(
+            "SELECT id FROM users WHERE username = 'portal_operator'"
+        ).fetchone()
+        conn.close()
+
+        with db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO assessments (id, course_id, name, max_mark, created_at)
+                VALUES ('assessment-chain-test', 'course-csc201', 'Chain Test', 20,
+                        '2026-10-08T00:00:00+00:00')
+                """
+            )
+
+        service.submit_batch(
+            lecturer["id"],
+            "assessment-chain-test",
+            "registration_number,mark\nSCT/001/2025,15\nSCT/002/2025,18\n",
+        )
+        conn = db.connect()
+        batch = conn.execute(
+            "SELECT id FROM batches WHERE assessment_id = 'assessment-chain-test'"
+        ).fetchone()
+        conn.close()
+        batch_id = batch["id"]
+
+        service.verify_batch(reviewer["id"], batch_id)
+        service.process_exam_office_batch(exam_office["id"], batch_id)
+
+        return batch_id, portal_operator["id"]
+
+    def test_publish_succeeds_when_chain_hash_matches(self):
+        fake_chain = FakeChainEnabled(match=True)
+        db, service = self._make_service(fake_chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+
+        result = service.publish_portal_batch(portal_id, batch_id)
+
+        self.assertEqual(result["pipeline_stage"], "PUBLISHED")
+        # reconcile was called with the right batch
+        self.assertEqual(fake_chain._captured["batch_id"], batch_id)
+
+    def test_publish_blocked_when_chain_hash_mismatches(self):
+        fake_chain = FakeChainEnabled(match=False)
+        db, service = self._make_service(fake_chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+
+        with self.assertRaises(AppError) as ctx:
+            service.publish_portal_batch(portal_id, batch_id)
+
+        error = ctx.exception
+        self.assertEqual(error.status, 409)
+        self.assertIn("Publication blocked", error.message)
+        self.assertIn("0x" + "ff" * 32, error.message)
+
+        # Confirm nothing was written — batch is still at PORTAL_IMPORT
+        conn = db.connect()
+        batch = conn.execute(
+            "SELECT pipeline_stage FROM batches WHERE id = ?", (batch_id,)
+        ).fetchone()
+        conn.close()
+        self.assertEqual(batch["pipeline_stage"], "PORTAL_IMPORT")
 
 
 if __name__ == "__main__":

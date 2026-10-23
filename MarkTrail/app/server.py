@@ -4,6 +4,8 @@ import json
 import mimetypes
 import os
 import re
+import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http import cookies
@@ -18,6 +20,38 @@ from .service import AppError, AppService
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB_DIR = ROOT / "web"
+
+# ---------------------------------------------------------------------------
+# Login rate limiter: 10 failures per IP per 15-minute window → HTTP 429
+# ---------------------------------------------------------------------------
+_rate_lock = threading.Lock()
+_failed_attempts: dict[str, list[float]] = {}
+_RATE_WINDOW = 900   # seconds (15 min)
+_MAX_FAILURES = 10
+
+
+def _client_ip(handler: BaseHTTPRequestHandler) -> str:
+    forwarded = handler.headers.get("X-Forwarded-For", "")
+    return forwarded.split(",")[0].strip() or handler.client_address[0]
+
+
+def _is_rate_limited(ip: str) -> bool:
+    now = time.monotonic()
+    with _rate_lock:
+        window = [t for t in _failed_attempts.get(ip, []) if now - t < _RATE_WINDOW]
+        _failed_attempts[ip] = window
+        return len(window) >= _MAX_FAILURES
+
+
+def _record_failure(ip: str) -> None:
+    now = time.monotonic()
+    with _rate_lock:
+        _failed_attempts.setdefault(ip, []).append(now)
+
+
+def _clear_failures(ip: str) -> None:
+    with _rate_lock:
+        _failed_attempts.pop(ip, None)
 
 
 class MarkTrailHandler(BaseHTTPRequestHandler):
@@ -84,16 +118,24 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True, "service": "MarkTrail"})
 
         if method == "POST" and path == "/api/login":
+            ip = _client_ip(self)
+            if _is_rate_limited(ip):
+                raise AppError(
+                    "Too many failed login attempts. Please wait 15 minutes.", 429
+                )
             body = self._body()
-            session_id = login(
+            result = login(
                 self.db,
                 str(body.get("username", "")),
                 str(body.get("password", "")),
             )
-            if not session_id:
+            if not result:
+                _record_failure(ip)
                 raise AppError("Invalid username or password.", 401)
+            session_id, must_change = result
+            _clear_failures(ip)
             return self._send_json(
-                {"ok": True},
+                {"ok": True, "must_change_password": must_change},
                 200,
                 {"Set-Cookie": session_cookie(session_id)},
             )
@@ -119,8 +161,25 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     "user": {
                         k: user[k]
                         for k in ("id", "username", "full_name", "role")
-                    }
+                    },
+                    "must_change_password": bool(user["must_change_password"]),
                 }
+            )
+
+        # Force password change before any other action
+        if user["must_change_password"] and path != "/api/auth/change-password":
+            raise AppError(
+                "You must change your password before continuing.", 403
+            )
+
+        if method == "POST" and path == "/api/auth/change-password":
+            body = self._body()
+            return self._send_json(
+                self.service.change_password(
+                    user_id,
+                    str(body.get("current_password", "")),
+                    str(body.get("new_password", "")),
+                )
             )
 
         if method == "GET" and path == "/api/dashboard":
@@ -131,6 +190,12 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
 
         if method == "GET" and path == "/api/student/marks":
             return self._send_json({"marks": self.service.student_marks(user_id)})
+
+        match = re.fullmatch(r"/api/student/marks/([^/]+)", path)
+        if method == "GET" and match:
+            return self._send_json(
+                self.service.student_mark_detail(user_id, match.group(1))
+            )
 
         if method == "GET" and path == "/api/student/reports":
             return self._send_json({"reports": self.service.student_reports(user_id)})
@@ -258,6 +323,14 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         if method == "POST" and match:
             return self._send_json(self.service.retry_chain(user_id, match.group(1)))
 
+        match = re.fullmatch(r"/api/admin/batches/(0x[a-fA-F0-9]{64})/retry-chain", path)
+        if method == "POST" and match:
+            return self._send_json(self.service.retry_chain(user_id, match.group(1)))
+
+        if method == "POST" and path == "/api/admin/batches/recover":
+            self.service.require_role(user_id, {"admin"})
+            return self._send_json(self.service.recover_pending_batches())
+
         if method == "GET" and path == "/api/admin/batches":
             return self._send_json({"batches": self.service.admin_batches(user_id)})
 
@@ -276,8 +349,21 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     str(body.get("full_name", "")),
                     str(body.get("role", "")),
                     str(body.get("password", "")),
+                    str(body.get("reg_number", "")) or None,
                 ),
                 201,
+            )
+
+        match = re.fullmatch(r"/api/admin/courses/([^/]+)/bulk-enroll", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.service.admin_bulk_enroll_csv(
+                    user_id,
+                    match.group(1),
+                    str(body.get("csv", "")),
+                    str(body.get("default_password", "ChangeMe123")),
+                )
             )
 
         if method == "POST" and path == "/api/admin/courses":
@@ -321,6 +407,7 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     match.group(1),
                     str(body.get("name", "")),
                     max_mark,
+                    str(body.get("submission_deadline", "")) or None,
                 ),
                 201,
             )
@@ -426,6 +513,12 @@ def run(host: str | None = None, port: int | None = None):
             "portal_operator/portal123 · student/student123"
         )
     print("Blockchain mode:", service.chain.config.mode)
+    if service.chain.enabled:
+        threading.Thread(
+            target=service.recover_pending_batches,
+            name="chain-startup-recovery",
+            daemon=True,
+        ).start()
 
     try:
         server.serve_forever()

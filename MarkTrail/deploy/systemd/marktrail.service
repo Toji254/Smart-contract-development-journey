@@ -1,0 +1,52 @@
+[Unit]
+Description=MarkTrail Academic Marks Integrity Service
+Documentation=https://github.com/university/marktrail
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=marktrail
+Group=marktrail
+WorkingDirectory=/opt/marktrail
+
+# Environment variables from protected file (chmod 600)
+EnvironmentFile=/etc/marktrail/marktrail.env
+
+# Application execution
+ExecStart=/usr/bin/python3 run.py
+
+# Restart policy on failure or abnormal exit
+Restart=always
+RestartSec=5s
+
+# ── Filesystem Hardening & Sandboxing ─────────────────────────────────────────
+# Make the entire OS filesystem read-only to the process
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Explicitly permit read-write access only to data and log directories
+ReadWritePaths=/opt/marktrail/data
+
+# Prevent privilege escalation
+NoNewPrivileges=true
+
+# Lock down memory execution flags where supported
+MemoryDenyWriteExecute=true
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# ── Centralized Logging ───────────────────────────────────────────────────────
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=marktrail
+
+[Install]
+WantedBy=multi-user.target

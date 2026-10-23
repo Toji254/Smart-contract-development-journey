@@ -4,9 +4,7 @@ import csv
 import hashlib
 import io
 import json
-import math
 import secrets
-import sqlite3
 import uuid
 import unicodedata
 from datetime import datetime, timezone
@@ -398,12 +396,14 @@ class AppService:
         self.require_role(user_id, {"student"})
         conn = self.db.connect()
         try:
+            now = utc_now()
             rows = conn.execute(
                 """
                 SELECT
                     a.id AS assessment_id,
                     a.name AS assessment,
                     a.max_mark,
+                    a.submission_deadline,
                     c.code,
                     c.title,
                     COALESCE(b.status, 'NOT_SUBMITTED') AS batch_status,
@@ -422,8 +422,31 @@ class AppService:
                 """,
                 (user_id,),
             ).fetchall()
-            return [
-                {
+            result = []
+            for row in rows:
+                pipeline_stage = row["pipeline_stage"]
+                deadline = row["submission_deadline"]
+                overdue = bool(
+                    deadline
+                    and now > deadline
+                    and pipeline_stage == "NOT_SUBMITTED"
+                )
+                status = (
+                    row["published_status"]
+                    if (
+                        pipeline_stage == "PUBLISHED"
+                        or row["published_mark"] is not None
+                    )
+                    else (
+                        "OVERDUE" if overdue
+                        else (
+                            "NOT_SUBMITTED"
+                            if pipeline_stage == "NOT_SUBMITTED"
+                            else "AWAITING_PUBLICATION"
+                        )
+                    )
+                )
+                result.append({
                     "assessment_id": row["assessment_id"],
                     "assessment": row["assessment"],
                     "max_mark": row["max_mark"],
@@ -431,23 +454,98 @@ class AppService:
                     "course_title": row["title"],
                     "batch_status": row["batch_status"],
                     "mark": row["published_mark"],
-                    "status": (
-                        row["published_status"]
-                        if (
-                            row["pipeline_stage"] == "PUBLISHED"
-                            or row["published_mark"] is not None
-                        )
-                        else (
-                            "NOT_SUBMITTED"
-                            if row["pipeline_stage"] == "NOT_SUBMITTED"
-                            else "AWAITING_PUBLICATION"
-                        )
-                    ),
+                    "status": status,
                     "batch_id": row["batch_id"],
-                    "pipeline_stage": row["pipeline_stage"],
-                }
-                for row in rows
-            ]
+                    "pipeline_stage": pipeline_stage,
+                    "submission_deadline": deadline,
+                    "overdue": overdue,
+                })
+            return result
+        finally:
+            conn.close()
+
+    def student_mark_detail(self, user_id: int, assessment_id: str) -> dict:
+        """Per-assessment drill-down: pipeline status + student's own mark history."""
+        self.require_role(user_id, {"student"})
+        conn = self.db.connect()
+        try:
+            row = conn.execute(
+                """
+                SELECT
+                    a.id AS assessment_id,
+                    a.name AS assessment,
+                    a.max_mark,
+                    a.submission_deadline,
+                    c.code,
+                    c.title,
+                    COALESCE(b.status, 'NOT_SUBMITTED') AS batch_status,
+                    COALESCE(b.pipeline_stage, 'NOT_SUBMITTED') AS pipeline_stage,
+                    am.published_mark,
+                    COALESCE(am.published_status, 'MISSING') AS published_status,
+                    b.id AS batch_id
+                FROM enrollments e
+                JOIN courses c ON c.id = e.course_id
+                JOIN assessments a ON a.course_id = c.id AND a.id = ?
+                LEFT JOIN assessment_marks am
+                    ON am.assessment_id = a.id AND am.student_id = e.student_id
+                LEFT JOIN batches b ON b.id = am.batch_id
+                WHERE e.student_id = ?
+                """,
+                (assessment_id, user_id),
+            ).fetchone()
+            if not row:
+                raise AppError("Assessment not found or you are not enrolled.", 404)
+
+            pipeline = None
+            if row["batch_id"]:
+                batch = conn.execute(
+                    "SELECT id, status, pipeline_stage, submitted_at, verified_at FROM batches WHERE id = ?",
+                    (row["batch_id"],),
+                ).fetchone()
+                pipeline = self._pipeline_summary(conn, batch)
+
+            # Own mark history only — filtered to this student
+            mark_history = conn.execute(
+                """
+                SELECT mh.created_at, mh.old_mark, mh.new_mark,
+                       mh.old_status, mh.new_status, mh.action, mh.reason,
+                       u.full_name AS actor_name
+                FROM mark_history mh
+                JOIN users u ON u.id = mh.actor_id
+                WHERE mh.assessment_id = ? AND mh.student_id = ?
+                ORDER BY mh.created_at
+                """,
+                (assessment_id, user_id),
+            ).fetchall()
+
+            # Check for open report
+            open_report = conn.execute(
+                """
+                SELECT id, status, opened_at, resolution_type, lecturer_note
+                FROM missing_reports
+                WHERE assessment_id = ? AND student_id = ?
+                  AND status IN ('OPEN','PENDING_REVIEW')
+                LIMIT 1
+                """,
+                (assessment_id, user_id),
+            ).fetchone()
+
+            return {
+                "assessment_id": row["assessment_id"],
+                "assessment": row["assessment"],
+                "max_mark": row["max_mark"],
+                "submission_deadline": row["submission_deadline"],
+                "course": row["code"],
+                "course_title": row["title"],
+                "batch_status": row["batch_status"],
+                "mark": row["published_mark"],
+                "published_status": row["published_status"],
+                "batch_id": row["batch_id"],
+                "pipeline_stage": row["pipeline_stage"],
+                "pipeline": pipeline,
+                "mark_history": [dict(h) for h in mark_history],
+                "open_report": dict(open_report) if open_report else None,
+            }
         finally:
             conn.close()
 
@@ -525,30 +623,23 @@ class AppService:
             conn.close()
 
         report_id = "report-" + uuid.uuid4().hex[:16]
-        try:
-            with self.db.transaction(immediate=True) as tx:
-                tx.execute(
-                    """
-                    INSERT INTO missing_reports
-                    (id, assessment_id, student_id, status, opened_at)
-                    VALUES (?, ?, ?, 'OPEN', ?)
-                    """,
-                    (report_id, assessment_id, user_id, utc_now()),
-                )
-                self._audit(
-                    tx,
-                    "REPORT",
-                    report_id,
-                    user_id,
-                    "REPORT_OPENED",
-                    {"assessment_id": assessment_id},
-                )
-        except sqlite3.IntegrityError as exc:
-            if "missing_reports.assessment_id" not in str(exc):
-                raise
-            raise AppError(
-                "You already have an open report for this assessment."
-            ) from exc
+        with self.db.transaction() as tx:
+            tx.execute(
+                """
+                INSERT INTO missing_reports
+                (id, assessment_id, student_id, status, opened_at)
+                VALUES (?, ?, ?, 'OPEN', ?)
+                """,
+                (report_id, assessment_id, user_id, utc_now()),
+            )
+            self._audit(
+                tx,
+                "REPORT",
+                report_id,
+                user_id,
+                "REPORT_OPENED",
+                {"assessment_id": assessment_id},
+            )
         return {"id": report_id, "status": "OPEN"}
 
     def lecturer_assessments(self, user_id: int) -> list[dict]:
@@ -813,13 +904,35 @@ class AppService:
         now = utc_now()
         with self.db.transaction() as conn:
             batch = conn.execute(
-                "SELECT status, pipeline_stage, revision FROM batches WHERE id = ?",
+                "SELECT status, pipeline_stage, revision, marks_hash FROM batches WHERE id = ?",
                 (batch_id,),
             ).fetchone()
             if not batch:
                 raise AppError("Batch not found.", 404)
             if batch["status"] != "VERIFIED" or batch["pipeline_stage"] != "PORTAL_IMPORT":
                 raise AppError("This batch is not ready for portal publication.")
+
+            # Auto-verify against the blockchain before publishing.
+            # When the chain is enabled, the local marks_hash must match the
+            # committed hash on-chain.  A mismatch means the database record
+            # and the audit trail have diverged, which is exactly the kind of
+            # discrepancy MarkTrail is designed to surface rather than silently
+            # overwrite.
+            if self.chain.enabled:
+                reconcile = self.chain.reconcile(
+                    batch_id,
+                    int(batch["revision"]),
+                    batch["marks_hash"],
+                )
+                if not reconcile.get("match"):
+                    raise AppError(
+                        "Publication blocked: the local marks record does not "
+                        "match the on-chain commitment. "
+                        f"Local hash: {reconcile.get('local_hash', 'unknown')}. "
+                        f"Chain hash: {reconcile.get('chain_hash', 'unknown')}. "
+                        "Resolve the discrepancy before publishing.",
+                        409,
+                    )
             conn.execute(
                 """
                 UPDATE assessment_marks
@@ -938,20 +1051,26 @@ class AppService:
     def _parse_csv(csv_text: str) -> list[dict[str, str]]:
         reader = csv.DictReader(io.StringIO(csv_text.strip()))
         if not reader.fieldnames:
-            raise AppError("CSV must include headers: student_id,mark.")
+            raise AppError("CSV must include headers: registration_number,mark.")
         normalized = {h.strip().lower(): h for h in reader.fieldnames if h}
-        student_header = normalized.get("student_id") or normalized.get("student")
+        # Accept registration_number, reg_number, or student_id for backwards compat
+        reg_header = (
+            normalized.get("registration_number")
+            or normalized.get("reg_number")
+            or normalized.get("student_id")
+            or normalized.get("student")
+        )
         mark_header = normalized.get("mark")
-        if not student_header or not mark_header:
-            raise AppError("CSV headers must include student_id and mark.")
+        if not reg_header or not mark_header:
+            raise AppError("CSV headers must include registration_number and mark.")
 
         rows: list[dict[str, str]] = []
         for row in reader:
-            sid = (row.get(student_header) or "").strip()
+            reg = (row.get(reg_header) or "").strip().upper()
             mark = (row.get(mark_header) or "").strip()
-            if not sid and not mark:
+            if not reg and not mark:
                 continue
-            rows.append({"student_id": sid, "mark": mark})
+            rows.append({"registration_number": reg, "mark": mark})
         return rows
 
     def _batch_context(self, user_id: int, assessment_id: str):
@@ -977,7 +1096,7 @@ class AppService:
 
             students = conn.execute(
                 """
-                SELECT u.id, u.username, u.full_name
+                SELECT u.id, u.username, u.full_name, u.reg_number
                 FROM enrollments e
                 JOIN users u ON u.id = e.student_id
                 WHERE e.course_id = ?
@@ -993,44 +1112,51 @@ class AppService:
         assessment, students = self._batch_context(user_id, assessment_id)
         rows = self._parse_csv(csv_text)
 
-        roster = {str(row["id"]): row for row in students}
+        # Build roster keyed by uppercase reg_number -> student dict
+        roster: dict[str, dict] = {}
+        for s in students:
+            reg = (s["reg_number"] or "").strip().upper()
+            if reg:
+                roster[reg] = dict(s)
         seen: set[str] = set()
         errors: list[str] = []
         normalized_rows: list[dict] = []
 
         for index, row in enumerate(rows, start=2):
-            sid = row["student_id"]
+            reg = row["registration_number"]
             mark_text = row["mark"]
-            if sid in seen:
-                errors.append(f"Row {index}: duplicate student_id {sid}.")
-                continue
-            seen.add(sid)
 
-            if sid not in roster:
+            if not reg:
+                errors.append(f"Row {index}: registration_number is empty.")
+                continue
+
+            if reg in seen:
+                errors.append(f"Row {index}: duplicate registration_number {reg}.")
+                continue
+            seen.add(reg)
+
+            if reg not in roster:
                 errors.append(
-                    f"Row {index}: student_id {sid} is not enrolled in {assessment['course_code']}."
+                    f"Row {index}: registration_number {reg} is not enrolled in {assessment['course_code']}."
                 )
                 continue
 
             try:
                 mark = float(mark_text)
             except ValueError:
-                errors.append(f"Row {index}: mark for {sid} is not numeric.")
-                continue
-
-            if not math.isfinite(mark):
-                errors.append(f"Row {index}: mark for {sid} must be a finite number.")
+                errors.append(f"Row {index}: mark for {reg} is not numeric.")
                 continue
 
             if mark < 0 or mark > float(assessment["max_mark"]):
                 errors.append(
-                    f"Row {index}: mark for {sid} must be between 0 and {assessment['max_mark']}."
+                    f"Row {index}: mark for {reg} must be between 0 and {assessment['max_mark']}."
                 )
                 continue
 
             normalized_rows.append(
                 {
-                    "student_id": int(sid),
+                    "student_id": int(roster[reg]["id"]),
+                    "registration_number": reg,
                     "mark": mark,
                     "status": "RECORDED",
                 }
@@ -1041,9 +1167,10 @@ class AppService:
                 "student_id": int(s["id"]),
                 "username": s["username"],
                 "full_name": s["full_name"],
+                "registration_number": (s["reg_number"] or "").strip().upper(),
             }
             for s in students
-            if str(s["id"]) not in seen
+            if (s["reg_number"] or "").strip().upper() not in seen
         ]
 
         return {
@@ -1176,9 +1303,17 @@ class AppService:
         chain_tx = None
         if self.chain.enabled:
             try:
+                _conn = self.db.connect()
+                try:
+                    _arow = _conn.execute(
+                        "SELECT course_id FROM assessments WHERE id = ?",
+                        (assessment_id,),
+                    ).fetchone()
+                finally:
+                    _conn.close()
                 chain_tx = self.chain.submit_batch(
                     batch_id,
-                    assessment["course_id"],
+                    _arow["course_id"],
                     assessment_id,
                     preview["enrolled_count"],
                     marks_hash,
@@ -1288,12 +1423,6 @@ class AppService:
             if resolution_type == "MARK_ENTERED":
                 if mark is None:
                     raise AppError("A mark is required.")
-                if (
-                    isinstance(mark, bool)
-                    or not isinstance(mark, (int, float))
-                    or not math.isfinite(mark)
-                ):
-                    raise AppError("Mark must be a finite number.")
                 if mark < 0 or mark > float(report["max_mark"]):
                     raise AppError(f"Mark must be between 0 and {report['max_mark']}.")
                 new_mark = float(mark)
@@ -1868,7 +1997,39 @@ class AppService:
             raise AppError("Batch not found.", 404)
 
         try:
-            if int(batch["revision"]) == 1:
+            # Check if the on-chain revision already matches local state
+            reconcile = self.chain.reconcile(
+                batch_id,
+                int(batch["revision"]),
+                batch["marks_hash"],
+            )
+            if reconcile.get("match"):
+                tx_hash = batch["chain_tx_hash"]
+                if batch["status"] == "VERIFIED":
+                    try:
+                        v_tx = self.chain.verify_batch(batch_id)
+                        tx_hash = v_tx or tx_hash
+                    except ChainError:
+                        pass
+                self._set_chain_state(
+                    batch_id,
+                    int(batch["revision"]),
+                    "CONFIRMED",
+                    tx_hash,
+                    "CHAIN_RECONCILED_CONFIRMED",
+                    {"reconcile": reconcile},
+                )
+                return {
+                    "batch_id": batch_id,
+                    "chain_state": "CONFIRMED",
+                    "chain_tx_hash": tx_hash,
+                    "reconciled": True,
+                }
+
+            chain_rev = reconcile.get("chain_revision", 0)
+            local_rev = int(batch["revision"])
+
+            if local_rev == 1 and chain_rev == 0:
                 tx_hash = self.chain.submit_batch(
                     batch_id,
                     batch["course_id"],
@@ -1877,7 +2038,7 @@ class AppService:
                     batch["marks_hash"],
                 )
                 action = "CHAIN_SUBMISSION_RETRIED"
-            else:
+            elif local_rev > 1 and chain_rev == local_rev - 1:
                 revision_conn = self.db.connect()
                 try:
                     revision = revision_conn.execute(
@@ -1896,6 +2057,44 @@ class AppService:
                     revision["reason_hash"],
                 )
                 action = "CHAIN_AMENDMENT_RETRIED"
+            elif chain_rev == local_rev and batch["status"] == "VERIFIED":
+                tx_hash = self.chain.verify_batch(batch_id)
+                action = "CHAIN_VERIFICATION_RETRIED"
+            else:
+                if local_rev == 1:
+                    tx_hash = self.chain.submit_batch(
+                        batch_id,
+                        batch["course_id"],
+                        batch["assessment_id"],
+                        int(batch["student_count"]),
+                        batch["marks_hash"],
+                    )
+                    action = "CHAIN_SUBMISSION_RETRIED"
+                else:
+                    revision_conn = self.db.connect()
+                    try:
+                        revision = revision_conn.execute(
+                            """
+                            SELECT reason_hash FROM batch_revisions
+                            WHERE batch_id = ? AND revision = ?
+                            """,
+                            (batch_id, batch["revision"]),
+                        ).fetchone()
+                    finally:
+                        revision_conn.close()
+                    tx_hash = self.chain.amend_batch(
+                        batch_id,
+                        batch["marks_hash"],
+                        revision["reason_hash"],
+                    )
+                    action = "CHAIN_AMENDMENT_RETRIED"
+
+            if batch["status"] == "VERIFIED":
+                try:
+                    v_tx = self.chain.verify_batch(batch_id)
+                    tx_hash = v_tx or tx_hash
+                except ChainError as v_exc:
+                    log.warning("Follow-up verifyBatch failed: %s", v_exc)
 
             self._set_chain_state(
                 batch_id,
@@ -1919,6 +2118,37 @@ class AppService:
                 {"error": str(exc)},
             )
             raise AppError("Chain retry failed: " + str(exc), 502)
+
+    def recover_pending_batches(self) -> dict:
+        """Scan for batches stuck in PENDING or ERROR state and attempt safe recovery."""
+        if not self.chain.enabled:
+            return {"recovered": 0, "errors": 0, "skipped": "chain_disabled"}
+
+        conn = self.db.connect()
+        try:
+            pending = conn.execute(
+                """
+                SELECT b.id, b.revision, b.chain_state, b.submitted_by
+                FROM batches b
+                WHERE b.chain_state IN ('PENDING', 'ERROR')
+                ORDER BY b.submitted_at ASC
+                """
+            ).fetchall()
+        finally:
+            conn.close()
+
+        recovered = 0
+        errors = 0
+        for row in pending:
+            try:
+                self.retry_chain(user_id=row["submitted_by"], batch_id=row["id"])
+                recovered += 1
+                log.info("Successfully recovered batch %s on-chain.", row["id"])
+            except Exception as exc:
+                errors += 1
+                log.warning("Could not recover batch %s: %s", row["id"], exc)
+
+        return {"recovered": recovered, "errors": errors, "total": len(pending)}
 
     def admin_batches(self, user_id: int) -> list[dict]:
         self.require_role(user_id, {"admin"})
@@ -1957,7 +2187,7 @@ class AppService:
         try:
             rows = conn.execute(
                 """
-                SELECT id, username, full_name, role, active, created_at
+                SELECT id, username, full_name, role, active, reg_number, created_at
                 FROM users
                 ORDER BY role, username
                 """
@@ -1992,6 +2222,7 @@ class AppService:
         full_name: str,
         role: str,
         password: str,
+        reg_number: str | None = None,
     ) -> dict:
         self.require_role(user_id, {"admin"})
         if not username.strip() or not full_name.strip():
@@ -2004,6 +2235,9 @@ class AppService:
         if len(password) < 8:
             raise AppError("Password must be at least 8 characters.")
 
+        # Non-admin users must change their temporary password on first login
+        must_change = 1 if role != "admin" else 0
+
         from .db import hash_password
 
         salt, digest = hash_password(password)
@@ -2012,10 +2246,16 @@ class AppService:
                 cur = conn.execute(
                     """
                     INSERT INTO users
-                    (username, full_name, role, password_salt, password_hash, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (username, full_name, role, password_salt, password_hash,
+                     must_change_password, reg_number, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (username.strip(), full_name.strip(), role, salt, digest, utc_now()),
+                    (
+                        username.strip(), full_name.strip(), role,
+                        salt, digest, must_change,
+                        reg_number.strip() if reg_number else None,
+                        utc_now(),
+                    ),
                 )
                 new_id = int(cur.lastrowid)
                 self._audit(
@@ -2128,6 +2368,7 @@ class AppService:
         course_id: str,
         name: str,
         max_mark: float,
+        submission_deadline: str | None = None,
     ) -> dict:
         self.require_role(user_id, {"admin"})
         if not name.strip():
@@ -2146,10 +2387,10 @@ class AppService:
 
             conn.execute(
                 """
-                INSERT INTO assessments (id, course_id, name, max_mark, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO assessments (id, course_id, name, max_mark, submission_deadline, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (assessment_id, course_id, name.strip(), max_mark, utc_now()),
+                (assessment_id, course_id, name.strip(), max_mark, submission_deadline or None, utc_now()),
             )
             self._audit(
                 conn,
@@ -2157,6 +2398,159 @@ class AppService:
                 assessment_id,
                 user_id,
                 "ASSESSMENT_CREATED",
-                {"course_id": course_id, "max_mark": max_mark},
+                {"course_id": course_id, "max_mark": max_mark, "submission_deadline": submission_deadline},
             )
         return {"id": assessment_id}
+
+    def admin_bulk_enroll_csv(
+        self,
+        user_id: int,
+        course_id: str,
+        csv_text: str,
+        default_password: str = "ChangeMe123",
+    ) -> dict:
+        """Bulk create + enroll students from a CSV.
+
+        Expected CSV columns (any order, case-insensitive):
+            reg_number – registration number (e.g. SCT/221/2023)
+            full_name  – student's full name
+            username   – login username (optional; defaults to reg_number with / replaced by -)
+
+        Returns counts: enrolled, created, skipped (already enrolled).
+        """
+        self.require_role(user_id, {"admin"})
+        rows = self._parse_csv(csv_text)
+        if not rows:
+            raise AppError("CSV is empty or has no data rows.")
+
+        # Normalise header names
+        first = rows[0]
+        headers_lower = {k.lower().strip(): k for k in first}
+
+        reg_col = headers_lower.get("reg_number") or headers_lower.get("reg")
+        name_col = headers_lower.get("full_name") or headers_lower.get("name")
+        username_col = headers_lower.get("username")
+
+        if not reg_col or not name_col:
+            raise AppError("CSV must have reg_number and full_name columns.")
+
+        conn = self.db.connect()
+        try:
+            course = conn.execute(
+                "SELECT id FROM courses WHERE id = ?", (course_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if not course:
+            raise AppError("Course not found.", 404)
+
+        from .db import hash_password
+
+        enrolled = 0
+        created = 0
+        skipped = 0
+        errors: list[str] = []
+        now = utc_now()
+
+        for index, row in enumerate(rows, start=2):
+            reg = (row.get(reg_col) or "").strip()
+            full = (row.get(name_col) or "").strip()
+            if not reg or not full:
+                errors.append(f"Row {index}: reg_number and full_name are required.")
+                continue
+            uname = (
+                (row.get(username_col) or "").strip()
+                if username_col
+                else reg.replace("/", "-").lower()
+            )
+
+            try:
+                with self.db.transaction() as tx:
+                    existing = tx.execute(
+                        "SELECT id FROM users WHERE reg_number = ? OR username = ?",
+                        (reg, uname),
+                    ).fetchone()
+
+                    if existing:
+                        student_id = int(existing["id"])
+                    else:
+                        salt, digest = hash_password(default_password)
+                        cur = tx.execute(
+                            """
+                            INSERT INTO users
+                            (username, full_name, role, password_salt, password_hash,
+                             must_change_password, reg_number, created_at)
+                            VALUES (?, ?, 'student', ?, ?, 1, ?, ?)
+                            """,
+                            (uname, full, salt, digest, reg, now),
+                        )
+                        student_id = int(cur.lastrowid)
+                        created += 1
+
+                    already = tx.execute(
+                        "SELECT 1 FROM enrollments WHERE course_id = ? AND student_id = ?",
+                        (course_id, student_id),
+                    ).fetchone()
+
+                    if already:
+                        skipped += 1
+                    else:
+                        tx.execute(
+                            "INSERT INTO enrollments (course_id, student_id, created_at) VALUES (?, ?, ?)",
+                            (course_id, student_id, now),
+                        )
+                        enrolled += 1
+            except Exception as exc:
+                if "UNIQUE" in str(exc).upper():
+                    errors.append(f"Row {index}: username conflict for {uname!r}.")
+                else:
+                    errors.append(f"Row {index}: {exc}")
+
+        if errors and enrolled == 0 and created == 0:
+            raise AppError("Bulk enroll failed: " + "; ".join(errors[:5]))
+
+        return {
+            "enrolled": enrolled,
+            "created": created,
+            "skipped": skipped,
+            "errors": errors,
+        }
+
+    def change_password(
+        self,
+        user_id: int,
+        current_password: str,
+        new_password: str,
+    ) -> dict:
+        """Allow any logged-in user to change their own password."""
+        from .db import hash_password, verify_password
+
+        if len(new_password) < 8:
+            raise AppError("New password must be at least 8 characters.")
+
+        conn = self.db.connect()
+        try:
+            user = conn.execute(
+                "SELECT id, password_salt, password_hash FROM users WHERE id = ? AND active = 1",
+                (user_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if not user:
+            raise AppError("User not found.", 404)
+        if not verify_password(current_password, user["password_salt"], user["password_hash"]):
+            raise AppError("Current password is incorrect.", 403)
+
+        salt, digest = hash_password(new_password)
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE users
+                SET password_salt = ?, password_hash = ?, must_change_password = 0
+                WHERE id = ?
+                """,
+                (salt, digest, user_id),
+            )
+            self._audit(conn, "USER", str(user_id), user_id, "PASSWORD_CHANGED", {})
+        return {"ok": True}
