@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -20,6 +21,18 @@ def bytes32_hash(value: str) -> str:
 
 class ChainError(RuntimeError):
     pass
+
+
+class ChainPendingError(ChainError):
+    def __init__(self, message: str, tx_hash: str) -> None:
+        super().__init__(message)
+        self.tx_hash = tx_hash
+
+
+class ChainTransactionReverted(ChainError):
+    def __init__(self, tx_hash: str) -> None:
+        super().__init__(f"Transaction {tx_hash} was mined but reverted.")
+        self.tx_hash = tx_hash
 
 
 @dataclass
@@ -145,9 +158,37 @@ class ChainClient:
                 self.config.rpc_url or "",
                 "--private-key",
                 self.config.private_key or "",
-            ]
+                "--async",
+            ],
+            retries=1,
         )
 
+        tx_hash = self._extract_transaction_hash(output)
+        if not tx_hash:
+            raise ChainError(
+                "cast send returned without a transaction hash; check the chain before retrying."
+            )
+
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            try:
+                status = self.get_transaction_status(tx_hash)
+            except ChainPendingError:
+                status = "PENDING"
+            if status == "CONFIRMED":
+                return tx_hash
+            if status == "FAILED":
+                raise ChainTransactionReverted(tx_hash)
+            time.sleep(2)
+
+        raise ChainPendingError(
+            f"Transaction {tx_hash} was submitted but is not yet confirmed. "
+            "Check its status before retrying.",
+            tx_hash,
+        )
+
+    @staticmethod
+    def _extract_transaction_hash(output: str) -> str | None:
         match = re.search(r'"transactionHash"\s*:\s*"(0x[a-fA-F0-9]{64})"', output)
         if match:
             return match.group(1)
@@ -161,8 +202,36 @@ class ChainClient:
         match = BYTES32_RE.search(output)
         if match:
             return match.group(0)
+        return None
 
-        raise ChainError("cast send succeeded but no transaction hash was found.")
+    def get_transaction_status(self, tx_hash: str) -> str:
+        try:
+            output = self._run(
+                [
+                    "receipt",
+                    tx_hash,
+                    "--json",
+                    "--async",
+                    "--rpc-url",
+                    self.config.rpc_url or "",
+                ],
+                retries=1,
+            )
+            receipt = json.loads(output)
+            if receipt is None:
+                return "PENDING"
+            if not isinstance(receipt, dict) or "status" not in receipt:
+                raise ValueError("receipt has no status field")
+            raw_status = receipt["status"]
+            status = int(raw_status, 0) if isinstance(raw_status, str) else int(raw_status)
+        except (ChainError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise ChainPendingError(
+                f"Could not determine whether transaction {tx_hash} is confirmed; "
+                "it will not be resubmitted automatically.",
+                tx_hash,
+            ) from exc
+
+        return "CONFIRMED" if status == 1 else "FAILED"
 
     def submit_batch(
         self,

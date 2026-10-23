@@ -511,7 +511,10 @@ that the local workflow status agrees with the contract status. The initial
 submission intentionally uses a zero on-chain reason hash. Missing revisions
 can be replayed in order; inconsistent history or status is flagged for
 administrator reconciliation rather than reported as recovered. Each replayed
-revision retains its own transaction reference.
+revision retains its own transaction reference. State-changing transactions are
+broadcast once and checked by transaction hash; if confirmation is uncertain,
+the batch remains pending and recovery checks that transaction's receipt before
+submitting another one.
 
 The contract uses two-step ownership transfer and does not permit ownership
 renunciation, so the contract cannot be left without an administrator.

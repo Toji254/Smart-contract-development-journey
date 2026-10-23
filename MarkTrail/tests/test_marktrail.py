@@ -36,6 +36,10 @@ class RecoverableChain(FakeChain):
         self.operations = []
         self.statuses = {}
         self.verify_calls = 0
+        self.transaction_status = "CONFIRMED"
+
+    def get_transaction_status(self, _tx_hash):
+        return self.transaction_status
 
     def reconcile(self, batch_id, local_revision, local_hash):
         revisions = self.revisions.get(batch_id, [])
@@ -159,6 +163,26 @@ class MarkTrailTests(unittest.TestCase):
         with self.assertRaisesRegex(AppError, "cannot disable or expire your own"):
             self.service.admin_update_user_access(admin_id, admin_id, True, "2000-01-01")
 
+    def test_last_usable_admin_cannot_schedule_a_future_lockout(self):
+        admin_id = int(self.admin["id"])
+        tomorrow = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+        backup = self.service.admin_create_user(
+            admin_id,
+            "backup-admin",
+            "Backup Admin",
+            "admin",
+            "temporary-admin-pass",
+        )
+        six_months = (datetime.now(timezone.utc).date() + timedelta(days=180)).isoformat()
+        self.service.admin_update_user_access(
+            admin_id, backup["id"], True, six_months
+        )
+
+        with self.assertRaisesRegex(AppError, "without an active, unexpired administrator"):
+            self.service.admin_update_user_access(
+                admin_id, admin_id, True, tomorrow
+            )
+
     def test_admin_create_user_accepts_access_end_date(self):
         access_until = (datetime.now(timezone.utc).date() + timedelta(days=365)).isoformat()
         created = self.service.admin_create_user(
@@ -184,6 +208,75 @@ class MarkTrailTests(unittest.TestCase):
                 "Student Without End Date",
                 "student",
                 "temporary-pass",
+            )
+
+    def test_bulk_enroll_parses_its_own_csv_and_allows_partial_success(self):
+        access_until = (datetime.now(timezone.utc).date() + timedelta(days=365)).isoformat()
+        result = self.service.admin_bulk_enroll_csv(
+            self.admin["id"],
+            "course-csc201",
+            "reg_number,full_name,username\n"
+            "SCT/010/2026,New Student,new-student\n"
+            ",Missing Registration,missing-reg\n",
+            access_until=access_until,
+        )
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(result["enrolled"], 1)
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("reg_number and full_name are required", result["errors"][0])
+
+        conn = self.db.connect()
+        try:
+            student = conn.execute(
+                "SELECT access_until FROM users WHERE username = 'new-student'"
+            ).fetchone()
+            enrollment = conn.execute(
+                """
+                SELECT 1 FROM enrollments e JOIN users u ON u.id = e.student_id
+                WHERE e.course_id = 'course-csc201' AND u.username = 'new-student'
+                """
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(student["access_until"], access_until)
+        self.assertIsNotNone(enrollment)
+
+    def test_bulk_enroll_rejects_missing_headers(self):
+        with self.assertRaisesRegex(AppError, "reg_number.*full_name"):
+            self.service.admin_bulk_enroll_csv(
+                self.admin["id"],
+                "course-csc201",
+                "registration_number,mark\nSCT/011/2026,20\n",
+                access_until="2027-10-23",
+            )
+
+    def test_bulk_enroll_rejects_duplicate_registrations_in_csv(self):
+        access_until = (datetime.now(timezone.utc).date() + timedelta(days=365)).isoformat()
+        result = self.service.admin_bulk_enroll_csv(
+            self.admin["id"],
+            "course-csc201",
+            "reg_number,full_name\n"
+            "SCT/012/2026,First Student\n"
+            "SCT/012/2026,Duplicate Student\n",
+            access_until=access_until,
+        )
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(result["enrolled"], 1)
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("duplicate registration number", result["errors"][0])
+
+    def test_bulk_enroll_does_not_enroll_expired_existing_account(self):
+        yesterday = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE users SET access_until = ? WHERE id = ?",
+                (yesterday, self.student["id"]),
+            )
+        with self.assertRaisesRegex(AppError, "not an active student"):
+            self.service.admin_bulk_enroll_csv(
+                self.admin["id"],
+                "course-csc201",
+                "reg_number,full_name\nSCT/001/2025,Existing Student\n",
             )
 
     def test_pipeline_audit_shows_owner_and_each_handoff_duration(self):
@@ -486,6 +579,51 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(batch["revision"], 2)
         self.assertEqual(batch["chain_state"], "CONFIRMED")
         self.assertEqual(result["chain_state"], "CONFIRMED")
+
+    def test_chain_retry_does_not_resubmit_a_pending_transaction(self):
+        self._create_fresh_assessment()
+        submitted = self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-cat3",
+            "registration_number,mark\nSCT/001/2025,19\n",
+        )
+        batch_id = submitted["batch_id"]
+        tx_hash = "0x" + "cc" * 32
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE batches SET chain_state = 'PENDING', chain_tx_hash = ?
+                WHERE id = ?
+                """,
+                (tx_hash, batch_id),
+            )
+            conn.execute(
+                """
+                UPDATE batch_revisions
+                SET chain_state = 'PENDING', chain_tx_hash = ?
+                WHERE batch_id = ? AND revision = 1
+                """,
+                (tx_hash, batch_id),
+            )
+
+        chain = RecoverableChain()
+        chain.transaction_status = "PENDING"
+        self.service.chain = chain
+
+        with self.assertRaisesRegex(AppError, "still awaiting confirmation"):
+            self.service.retry_chain(self.reviewer["id"], batch_id)
+
+        conn = self.db.connect()
+        try:
+            batch = conn.execute(
+                "SELECT chain_state, chain_tx_hash FROM batches WHERE id = ?",
+                (batch_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(chain.operations, [])
+        self.assertEqual(batch["chain_state"], "PENDING")
+        self.assertEqual(batch["chain_tx_hash"], tx_hash)
 
     def test_chain_retry_replays_multiple_missing_revisions_and_updates_each_record(self):
         self._create_fresh_assessment()
@@ -949,15 +1087,28 @@ class FakeChainEnabled:
     def __init__(self, match: bool) -> None:
         self._match = match
         self._captured: dict = {}
+        self.revisions: dict[str, list[dict[str, str]]] = {}
+        self.statuses: dict[str, int] = {}
 
     def status(self):
         return {"enabled": True, "mode": "cast", "label": "Connected to EVM chain"}
 
-    def submit_batch(self, *_args, **_kwargs) -> str:
+    def submit_batch(self, batch_id, _course_id, _assessment_id, _student_count, marks_hash) -> str:
+        self.revisions[batch_id] = [
+            {"marks_hash": marks_hash, "reason_hash": "0x" + "00" * 32}
+        ]
+        self.statuses[batch_id] = 1
         return "0x" + "ab" * 32
 
-    def verify_batch(self, *_args, **_kwargs) -> str:
+    def verify_batch(self, batch_id) -> str:
+        self.statuses[batch_id] = 2
         return "0x" + "cd" * 32
+
+    def get_revision_details(self, batch_id, index):
+        return self.revisions[batch_id][index]
+
+    def get_batch_status(self, batch_id):
+        return self.statuses[batch_id]
 
     def reconcile(self, batch_id: str, local_revision: int, local_hash: str) -> dict:
         self._captured = {
@@ -1062,7 +1213,6 @@ class PortalChainReconcileTests(unittest.TestCase):
         error = ctx.exception
         self.assertEqual(error.status, 409)
         self.assertIn("Publication blocked", error.message)
-        self.assertIn("0x" + "ff" * 32, error.message)
 
         # Confirm nothing was written — batch is still at PORTAL_IMPORT
         conn = db.connect()
@@ -1071,6 +1221,42 @@ class PortalChainReconcileTests(unittest.TestCase):
         ).fetchone()
         conn.close()
         self.assertEqual(batch["pipeline_stage"], "PORTAL_IMPORT")
+
+    def test_publish_blocked_when_chain_workflow_status_differs(self):
+        fake_chain = FakeChainEnabled(match=True)
+        db, service = self._make_service(fake_chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        fake_chain.statuses[batch_id] = 3
+
+        with self.assertRaisesRegex(AppError, "complete local and on-chain batch history"):
+            service.publish_portal_batch(portal_id, batch_id)
+
+        conn = db.connect()
+        try:
+            stage = conn.execute(
+                "SELECT pipeline_stage FROM batches WHERE id = ?", (batch_id,)
+            ).fetchone()["pipeline_stage"]
+        finally:
+            conn.close()
+        self.assertEqual(stage, "PORTAL_IMPORT")
+
+    def test_publish_blocked_when_chain_revision_reason_differs(self):
+        fake_chain = FakeChainEnabled(match=True)
+        db, service = self._make_service(fake_chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        fake_chain.revisions[batch_id][0]["reason_hash"] = "0x" + "ee" * 32
+
+        with self.assertRaisesRegex(AppError, "complete local and on-chain batch history"):
+            service.publish_portal_batch(portal_id, batch_id)
+
+        conn = db.connect()
+        try:
+            stage = conn.execute(
+                "SELECT pipeline_stage FROM batches WHERE id = ?", (batch_id,)
+            ).fetchone()["pipeline_stage"]
+        finally:
+            conn.close()
+        self.assertEqual(stage, "PORTAL_IMPORT")
 
 
 if __name__ == "__main__":
