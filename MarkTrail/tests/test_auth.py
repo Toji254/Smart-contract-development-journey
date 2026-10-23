@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from pathlib import Path
 from unittest.mock import patch
@@ -46,6 +47,30 @@ class AuthTests(unittest.TestCase):
             conn.execute("UPDATE users SET active = 0 WHERE username = 'student'")
 
         self.assertIsNone(login(self.db, "student", "student123"))
+
+    def test_expired_user_cannot_login_or_keep_using_an_existing_session(self):
+        session_id, _ = login(self.db, "student", "student123")
+        yesterday = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE users SET access_until = ? WHERE username = 'student'",
+                (yesterday,),
+            )
+
+        self.assertIsNone(login(self.db, "student", "student123"))
+        self.assertIsNone(
+            current_user(self.db, f"{SESSION_COOKIE}={session_id}")
+        )
+
+    def test_access_through_date_includes_that_day(self):
+        today = datetime.now(timezone.utc).date().isoformat()
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE users SET access_until = ? WHERE username = 'student'",
+                (today,),
+            )
+
+        self.assertIsNotNone(login(self.db, "student", "student123"))
 
     def test_session_cookies_have_matching_security_attributes(self):
         with patch.dict("os.environ", {}, clear=True):

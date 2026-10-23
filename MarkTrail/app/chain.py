@@ -210,15 +210,23 @@ class ChainClient:
         return int(match.group(0))
 
     def get_revision_hash(self, batch_id: str, revision_index: int) -> str:
+        return self.get_revision_details(batch_id, revision_index)["marks_hash"]
+
+    def get_revision_details(self, batch_id: str, revision_index: int) -> dict:
         output = self.call(
             "getRevision(bytes32,uint256)",
             batch_id,
             str(revision_index),
-        )
-        match = BYTES32_RE.search(output)
-        if not match:
-            raise ChainError(f"Could not parse revision hash: {output}")
-        return match.group(0)
+        ).strip()
+        if not re.fullmatch(r"0x[a-fA-F0-9]{256}", output):
+            raise ChainError(f"Could not decode on-chain revision: {output}")
+        encoded = output[2:]
+        return {
+            "marks_hash": "0x" + encoded[0:64],
+            "reason_hash": "0x" + encoded[64:128],
+            "actor": "0x" + encoded[152:192],
+            "timestamp": int(encoded[192:256], 16),
+        }
 
     def get_batch_status(self, batch_id: str) -> int:
         output = self.call("getBatch(bytes32)", batch_id).strip()

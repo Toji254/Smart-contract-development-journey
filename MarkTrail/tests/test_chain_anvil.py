@@ -358,6 +358,13 @@ class AnvilIntegrationTests(unittest.TestCase):
             self.chain.get_revision_hash(submitted["batch_id"], 1),
             self._revision_hash(submitted["batch_id"], 2),
         )
+        revision_one = self.chain.get_revision_details(submitted["batch_id"], 0)
+        revision_two = self.chain.get_revision_details(submitted["batch_id"], 1)
+        self.assertEqual(revision_one["reason_hash"], "0x" + "00" * 32)
+        self.assertEqual(
+            revision_two["reason_hash"],
+            self._revision_reason_hash(submitted["batch_id"], 2),
+        )
 
         verified = self.service.verify_batch(2, amended["batch_id"])
         self.assertEqual(verified["status"], "VERIFIED")
@@ -373,5 +380,18 @@ class AnvilIntegrationTests(unittest.TestCase):
                 """,
                 (batch_id, revision),
             ).fetchone()["marks_hash"]
+        finally:
+            conn.close()
+
+    def _revision_reason_hash(self, batch_id: str, revision: int) -> str:
+        conn = self.db.connect()
+        try:
+            return conn.execute(
+                """
+                SELECT reason_hash FROM batch_revisions
+                WHERE batch_id = ? AND revision = ?
+                """,
+                (batch_id, revision),
+            ).fetchone()["reason_hash"]
         finally:
             conn.close()

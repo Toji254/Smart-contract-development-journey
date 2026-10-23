@@ -91,6 +91,7 @@ class Database:
                         active INTEGER NOT NULL DEFAULT 1,
                         must_change_password INTEGER NOT NULL DEFAULT 0,
                         reg_number TEXT,
+                        access_until TEXT,
                         created_at TEXT NOT NULL
                     )
                     """
@@ -119,6 +120,10 @@ class Database:
                 if "reg_number" not in users_cols:
                     conn.execute(
                         "ALTER TABLE users ADD COLUMN reg_number TEXT"
+                    )
+                if "access_until" not in users_cols:
+                    conn.execute(
+                        "ALTER TABLE users ADD COLUMN access_until TEXT"
                     )
 
             reports_sql = conn.execute(
@@ -216,6 +221,7 @@ class Database:
                     active INTEGER NOT NULL DEFAULT 1,
                     must_change_password INTEGER NOT NULL DEFAULT 0,
                     reg_number TEXT,
+                    access_until TEXT,
                     created_at TEXT NOT NULL
                 );
 
@@ -614,6 +620,7 @@ class Database:
                 FROM sessions s
                 JOIN users u ON u.id = s.user_id
                 WHERE s.id = ? AND s.expires_at >= ? AND u.active = 1
+                  AND (u.access_until IS NULL OR date(u.access_until) >= date('now'))
                 """,
                 (session_id, utc_now()),
             ).fetchone()

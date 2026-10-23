@@ -345,6 +345,9 @@ tr:hover td { background: var(--bg-soft); }
 .issue-title { font-weight: 800; }
 .stack { display: grid; gap: 10px; }
 .stack label + label { margin-top: 0; }
+.user-access-form { display: grid; gap: 8px; min-width: 190px; }
+.user-access-form .user-access-enabled { display: flex; align-items: center; gap: 8px; }
+.user-access-form input[type="checkbox"] { width: auto; }
 
 /* ── Inline resolution form ─────────────────────────────────── */
 .resolve-form {

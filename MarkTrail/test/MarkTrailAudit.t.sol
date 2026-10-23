@@ -54,6 +54,14 @@ contract RoleActor {
         }
     }
 
+    function renounce(MarkTrailAudit target) external view returns (bool) {
+        try target.renounceOwnership() {
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     function setLecturer(MarkTrailAudit target, address account, bool enabled) external returns (bool) {
         try target.setLecturer(account, enabled) {
             return true;
@@ -202,6 +210,18 @@ contract MarkTrailAuditTest {
         } catch {}
 
         assert(!originalOwnerRoleUpdate);
+    }
+
+    function testOwnerCannotRenounceOwnership() public {
+        (bool succeeded, bytes memory result) = address(audit).call(abi.encodeWithSignature("renounceOwnership()"));
+        assert(!succeeded);
+        assert(audit.owner() == address(this));
+        assert(result.length >= 4);
+        bytes4 errorSelector;
+        assembly {
+            errorSelector := mload(add(result, 32))
+        }
+        assert(errorSelector == MarkTrailAudit.OwnershipRenunciationDisabled.selector);
     }
 
     function testOwnerCanCancelPendingOwnershipTransfer() public {

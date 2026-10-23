@@ -34,6 +34,7 @@
         </label>
         <button class="button primary full" type="submit">Sign in</button>
       </form>
+      <p class="muted">Sign-in is limited to accounts approved by your MarkTrail administrator. Contact them if you need access.</p>
 
       <div class="demo-accounts">
         <div class="mini-label">DEMO ACCOUNTS</div>
@@ -81,7 +82,7 @@
         <div class="tagline">Know where your mark went.</div>
       </div>
       <div class="topbar-actions">
-        <span id="chain-indicator" class="pill neutral">checking chain…</span>
+        <span id="chain-indicator" class="pill neutral">Checking record service…</span>
         <span id="user-chip" class="pill"></span>
         <button id="theme-toggle" class="button ghost" title="Toggle theme" aria-label="Toggle dark mode">
           <svg id="theme-icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
@@ -105,6 +106,11 @@
 
       <!-- ───── STUDENT ───── -->
       <section id="student-panel" class="panel hidden">
+        <div class="callout" data-role-view="home">
+          <strong>Your academic record</strong>
+          <p>See published marks, follow any missing-mark reports, and contact your department if an assessment is not listed.</p>
+        </div>
+        <div data-role-view="marks">
         <div class="section-head">
           <div>
             <p class="eyebrow">STUDENT</p>
@@ -114,7 +120,8 @@
         </div>
         <div id="student-notifications" class="notification-list"></div>
         <div id="student-marks" class="table-wrap"></div>
-
+        </div>
+        <div data-role-view="reports">
         <div class="split">
           <div>
             <div class="section-head compact">
@@ -133,14 +140,20 @@
             </p>
           </div>
         </div>
+        </div>
       </section>
 
       <!-- ───── LECTURER ───── -->
       <section id="lecturer-panel" class="panel hidden">
+        <div class="callout" data-role-view="home">
+          <strong>Lecturer workspace</strong>
+          <p>Upload marks for your assessments, then follow each batch through review and publication. Resolve student missing-mark reports from Issues.</p>
+        </div>
+        <div data-role-view="batches">
         <div class="section-head">
           <div>
             <p class="eyebrow">LECTURER</p>
-            <h2>Marks operations</h2>
+            <h2>Upload and track marks</h2>
           </div>
           <button class="button secondary" data-refresh>Refresh</button>
         </div>
@@ -173,35 +186,46 @@
 
         <div class="section-head compact">
           <div>
-            <p class="eyebrow">INCOMING</p>
-            <h2>Missing-mark queue</h2>
-          </div>
-        </div>
-        <div id="lecturer-reports"></div>
-
-        <div class="section-head compact">
-          <div>
             <p class="eyebrow">SUBMISSIONS</p>
             <h2>Assessment batches</h2>
           </div>
         </div>
         <div id="lecturer-batches" class="table-wrap"></div>
+        </div>
+        <div data-role-view="reports">
+          <div class="section-head">
+            <div><p class="eyebrow">STUDENT REQUESTS</p><h2>Missing-mark issues</h2></div>
+            <button class="button secondary" data-refresh>Refresh</button>
+          </div>
+          <div id="lecturer-reports"></div>
+        </div>
       </section>
 
       <!-- ───── REVIEWER ───── -->
       <section id="reviewer-panel" class="panel hidden">
+        <div class="callout" data-role-view="home">
+          <strong>Department review</strong>
+          <p>Check submitted marks for completeness, then approve each batch to send it to the exam office. Only batches waiting for your review need action.</p>
+        </div>
+        <div data-role-view="verify">
         <div class="section-head">
           <div>
             <p class="eyebrow">REVIEWER</p>
-            <h2>Verification queue</h2>
+            <h2>Batches waiting for your review</h2>
           </div>
           <button class="button secondary" data-refresh>Refresh</button>
         </div>
         <div id="reviewer-batches"></div>
+        </div>
       </section>
 
       <!-- ───── EXAM OFFICE ───── -->
       <section id="exam-office-panel" class="panel hidden">
+        <div class="callout" data-role-view="home">
+          <strong>Exam-office workspace</strong>
+          <p>Review batches sent by the department and record processing when the marks are ready for portal import.</p>
+        </div>
+        <div data-role-view="process">
         <div class="section-head">
           <div>
             <p class="eyebrow">EXAM OFFICE</p>
@@ -210,10 +234,16 @@
           <button class="button secondary" data-refresh>Refresh</button>
         </div>
         <div id="exam-office-batches"></div>
+        </div>
       </section>
 
       <!-- ───── PORTAL OPERATOR ───── -->
       <section id="portal-operator-panel" class="panel hidden">
+        <div class="callout" data-role-view="home">
+          <strong>Portal publishing</strong>
+          <p>Import marks after exam-office processing is complete. Publishing makes the marks visible to enrolled students.</p>
+        </div>
+        <div data-role-view="import">
         <div class="section-head">
           <div>
             <p class="eyebrow">PORTAL OPERATIONS</p>
@@ -222,10 +252,16 @@
           <button class="button secondary" data-refresh>Refresh</button>
         </div>
         <div id="portal-batches"></div>
+        </div>
       </section>
 
       <!-- ───── ADMIN ───── -->
       <section id="admin-panel" class="panel hidden">
+        <div class="callout" data-role-view="home">
+          <strong>Institution administration</strong>
+          <p>Create and manage approved accounts, courses, enrolments, and assessments. Set account end dates and disable accounts when access should stop.</p>
+        </div>
+        <div data-role-view="setup">
         <div class="section-head">
           <div>
             <p class="eyebrow">ADMIN</p>
@@ -243,7 +279,7 @@
               <input name="username" placeholder="username" required>
               <input name="full_name" placeholder="Full name" required>
               <input name="reg_number" placeholder="Reg number (students only, e.g. SCT/001/2025)">
-              <select name="role" required>
+              <select name="role" id="create-user-role" required>
                 <option value="student">Student</option>
                 <option value="lecturer">Lecturer</option>
                 <option value="reviewer">Reviewer</option>
@@ -251,6 +287,10 @@
                 <option value="portal_operator">Portal operator</option>
                 <option value="admin">Admin</option>
               </select>
+              <label>
+                Graduation / access end date
+                <input name="access_until" id="create-user-access-until" type="date" required>
+              </label>
               <input name="password" type="password" placeholder="temporary password" required minlength="8">
               <button class="button primary">Create user</button>
             </form>
@@ -287,6 +327,7 @@
             </div>
             <form id="bulk-enroll-form" class="stack">
               <select name="course_id" id="bulk-enroll-course" required></select>
+              <label>Graduation / access end date for new students<input name="access_until" type="date" required></label>
               <textarea name="csv" class="code-input" rows="5" placeholder="reg_number,full_name&#10;SCT/003/2025,Alice Wanjiku&#10;SCT/004/2025,David Kamau"></textarea>
               <button class="button primary">Bulk enroll</button>
             </form>
@@ -330,12 +371,13 @@
         <div style="margin-top: 2rem;">
           <div class="section-head compact">
             <div>
-              <p class="eyebrow">AUDIT & BLOCKCHAIN</p>
-              <h2>Mark Batches & Chain Status</h2>
+              <p class="eyebrow">WORKFLOW SUPPORT</p>
+              <h2>Batch processing issues</h2>
             </div>
-            <button id="admin-recover-chain" class="button secondary">Recover Pending / Error Batches</button>
+            <button id="admin-recover-chain" class="button secondary">Retry failed record updates</button>
           </div>
           <div id="admin-batches" class="table-wrap"></div>
+        </div>
         </div>
       </section>
 
@@ -344,7 +386,8 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">AUDIT TRAIL</p>
-            <h2>Trace a batch</h2>
+            <h2>Batch history</h2>
+            <p class="muted">See who handled the marks, what changed, and where the batch is now.</p>
           </div>
         </div>
 
@@ -354,9 +397,9 @@
             <select id="audit-batch"></select>
           </label>
           <div class="actions">
-            <button id="load-audit" class="button primary">Load audit</button>
-            <button id="reconcile-audit" class="button secondary">Reconcile with chain</button>
-            <button id="download-audit" class="button secondary">Download audit CSV</button>
+            <button id="load-audit" class="button primary">Show history</button>
+            <button id="reconcile-audit" class="button secondary hidden">Check record integrity</button>
+            <button id="download-audit" class="button secondary">Download history</button>
           </div>
         </div>
 
@@ -365,7 +408,7 @@
     </main>
 
     <footer>
-      MarkTrail — blockchain-backed academic mark audit trail. Pilot deployment.
+      MarkTrail — academic marks tracked from submission to publication. Pilot deployment.
     </footer>
   </div>
 

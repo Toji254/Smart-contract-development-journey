@@ -49,6 +49,7 @@ def login(db: Database, username: str, password: str) -> tuple[str, bool] | None
             SELECT id, password_salt, password_hash, must_change_password
             FROM users
             WHERE username = ? AND active = 1
+              AND (access_until IS NULL OR date(access_until) >= date('now'))
             """,
             (username,),
         ).fetchone()

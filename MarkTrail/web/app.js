@@ -89,10 +89,10 @@ function badge(value) {
     AWAITING_PUBLICATION: ["info", "Awaiting publication"],
     RECORDED: ["success", "Recorded"],
     NO_MARK: ["info", "No mark awarded"],
-    CONFIRMED: ["success", "Chain confirmed"],
-    LOCAL_ONLY: ["muted", "Local-only"],
-    ERROR: ["error", "Chain error"],
-    PENDING: ["warning", "Chain pending"]
+    CONFIRMED: ["success", "Record checked"],
+    LOCAL_ONLY: ["muted", "History saved"],
+    ERROR: ["error", "Needs attention"],
+    PENDING: ["warning", "Check pending"]
   };
   const stages = {
     DEPARTMENT_REVIEW: ["warning", "Awaiting department review"],
@@ -119,7 +119,22 @@ function showView(view) {
     admin: { home: "admin-panel", setup: "admin-panel", audit: "audit-panel" }
   };
   const id = panelMap[role]?.[view] || panelMap[role]?.home;
-  if (id) $("#" + id).classList.remove("hidden");
+  if (id) {
+    const panel = $("#" + id);
+    panel.classList.remove("hidden");
+    panel.querySelectorAll("[data-role-view]").forEach((section) => {
+      section.classList.toggle("hidden", section.dataset.roleView !== view);
+    });
+  }
+  $("#reconcile-audit").classList.toggle(
+    "hidden",
+    role !== "admin" || view !== "audit"
+  );
+  $("#dashboard-stats").classList.toggle("hidden", view !== "home");
+  $("#chain-indicator").classList.toggle(
+    "hidden",
+    role !== "admin" || view !== "home"
+  );
   document.querySelectorAll("#nav button").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
   });
@@ -130,13 +145,13 @@ function updatePageHeading(view) {
   const titles = {
     home: ["Dashboard", "The current state of your marks workflow."],
     marks: ["My marks", "See what's published and what still needs attention."],
-    reports: ["Mark issues", "Track reported missing marks to resolution."],
-    batches: ["Assessment batches", "Submit and inspect lecturer batches."],
-    verify: ["Verification queue", "Review batches before they become published."],
-    process: ["Exam office", "Record processing before the portal import."],
-    import: ["Portal import", "Publish approved marks after the import is confirmed."],
+    reports: ["My reports", "See updates on the missing marks you reported."],
+    batches: ["Upload and batches", "Upload marks and follow their progress."],
+    verify: ["Review batches", "Check submitted marks and approve them for processing."],
+    process: ["Process batches", "Record exam-office processing."],
+    import: ["Publish marks", "Make processed marks available to students."],
     setup: ["Institution setup", "Users, courses, rosters, and assessments."],
-    audit: ["Audit trail", "Trace a batch revision by revision."]
+    audit: ["Batch history", "Follow the handoffs and see what changed."]
   };
   const item = titles[view] || titles.home;
   $("#page-title").textContent = item[0];
@@ -146,12 +161,12 @@ function updatePageHeading(view) {
 function buildNav() {
   const role = state.user.role;
   const views = {
-    student: [["home", "Dashboard"], ["marks", "My marks"], ["audit", "Audit"]],
-    lecturer: [["home", "Dashboard"], ["batches", "Batches"], ["reports", "Issues"], ["audit", "Audit"]],
-    reviewer: [["home", "Dashboard"], ["verify", "Verify"], ["audit", "Audit"]],
-    exam_office: [["home", "Dashboard"], ["process", "Process"], ["audit", "Audit"]],
-    portal_operator: [["home", "Dashboard"], ["import", "Portal import"], ["audit", "Audit"]],
-    admin: [["home", "Dashboard"], ["setup", "Setup"], ["audit", "Audit"]]
+    student: [["home", "Dashboard"], ["marks", "My marks"], ["reports", "My reports"], ["audit", "History"]],
+    lecturer: [["home", "Dashboard"], ["batches", "Upload & batches"], ["reports", "Issues"], ["audit", "History"]],
+    reviewer: [["home", "Dashboard"], ["verify", "Review batches"], ["audit", "History"]],
+    exam_office: [["home", "Dashboard"], ["process", "Process batches"], ["audit", "History"]],
+    portal_operator: [["home", "Dashboard"], ["import", "Publish marks"], ["audit", "History"]],
+    admin: [["home", "Dashboard"], ["setup", "Setup"], ["audit", "History"]]
   };
   $("#nav").innerHTML = (views[role] || [])
     .map(([value, label]) => '<button data-view="' + value + '">' + label + "</button>")
@@ -188,10 +203,10 @@ function renderStats(dashboard) {
 
   const chain = dashboard.chain || {};
   const indicator = $("#chain-indicator");
-  indicator.textContent = chain.enabled ? chain.label : "Local-only audit mode";
+  indicator.textContent = chain.enabled ? "Record checks active" : "Records saved locally";
   indicator.className = "pill " + (chain.enabled ? "success" : "neutral");
   if (chain.error) {
-    indicator.textContent = "Chain unavailable";
+    indicator.textContent = "Record checks need attention";
     indicator.className = "pill warning";
   }
 }
@@ -421,7 +436,7 @@ async function loadLecturer() {
   $("#lecturer-batches").innerHTML =
     state.batches.length === 0
       ? '<div class="card"><p class="muted">No submitted batches.</p></div>'
-      : "<table><thead><tr><th>Course</th><th>Assessment</th><th>Status</th><th>Revision</th><th>Chain</th><th>Actions</th></tr></thead><tbody>" +
+      : "<table><thead><tr><th>Course</th><th>Assessment</th><th>Status</th><th>Record check</th><th>Actions</th></tr></thead><tbody>" +
         state.batches
           .map(
             (batch) =>
@@ -432,15 +447,10 @@ async function loadLecturer() {
               "</td><td>" +
               badge(batch.pipeline_stage) +
               "</td><td>" +
-              esc(batch.revision) +
-              "</td><td>" +
               badge(batch.chain_state) +
               '</td><td><div class="actions" style="margin-top:0"><button class="button secondary" data-audit-batch="' +
               esc(batch.id) +
-              '">Audit</button>' +
-              (batch.chain_state === "ERROR"
-                ? ' <button class="button secondary" data-retry-batch="' + esc(batch.id) + '">Retry chain</button>'
-                : "") +
+              '">View history</button>' +
               "</div></td></tr>"
           )
           .join("") +
@@ -448,19 +458,6 @@ async function loadLecturer() {
 
   $("#lecturer-batches").querySelectorAll("[data-audit-batch]").forEach((button) => {
     button.addEventListener("click", () => openAuditForBatch(button.dataset.auditBatch));
-  });
-  $("#lecturer-batches").querySelectorAll("[data-retry-batch]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      try {
-        await api("/api/lecturer/batches/" + encodeURIComponent(button.dataset.retryBatch) + "/retry-chain", {
-          method: "POST"
-        });
-        toast("Blockchain submission retried successfully.");
-        await loadLecturer();
-      } catch (error) {
-        toast(error.message, "error");
-      }
-    });
   });
 }
 
@@ -507,11 +504,14 @@ async function rejectReport(reportId, reason) {
 async function loadReviewer() {
   const data = await api("/api/reviewer/batches");
   state.batches = data.batches;
+  const waiting = state.batches.filter(
+    (batch) => batch.pipeline_stage === "DEPARTMENT_REVIEW"
+  );
 
   $("#reviewer-batches").innerHTML =
-    state.batches.length === 0
-      ? '<div class="card"><p class="muted">No batches found.</p></div>'
-      : state.batches
+    waiting.length === 0
+      ? '<div class="card"><p class="muted">You are all caught up. No batches are waiting for your review.</p></div>'
+      : waiting
           .map((batch) => {
             const canVerify = ["SUBMITTED", "AMENDED"].includes(batch.status) &&
               batch.pipeline_stage === "DEPARTMENT_REVIEW" &&
@@ -519,31 +519,28 @@ async function loadReviewer() {
             const action = canVerify
               ? '<button class="button primary" data-verify="' + esc(batch.id) + '">Approve for exam office</button>'
               : "";
-            const retry =
-              batch.chain_state === "ERROR"
-                ? '<button class="button secondary" data-retry="' + esc(batch.id) + '">Retry chain</button>'
-                : "";
+            const needsAdmin = ["ERROR", "PENDING"].includes(batch.chain_state);
             return (
               '<div class="issue"><div class="issue-top"><div><div class="issue-title">' +
               esc(batch.course + " · " + batch.assessment) +
               '</div><div class="muted">' +
               esc(batch.lecturer_name) +
-              " · revision " +
-              esc(batch.revision) +
               " · " +
               esc(batch.student_count) +
               ' students</div></div>' +
               badge(batch.status) +
               '</div><p class="muted">Handoff: ' +
               badge(batch.pipeline_stage) +
-              " · Chain: " +
+              " · Record check: " +
               badge(batch.chain_state) +
               '</p><div class="actions">' +
               action +
-              retry +
+              (needsAdmin
+                ? '<span class="muted">This batch needs administrator attention before it can be approved.</span>'
+                : "") +
               '<button class="button secondary" data-audit-batch="' +
               esc(batch.id) +
-              '">Audit</button></div></div>'
+              '">View history</button></div></div>'
             );
           })
           .join("");
@@ -555,18 +552,6 @@ async function loadReviewer() {
         toast("Department review complete. Batch sent to the exam office.");
         await loadReviewer();
         await loadDashboard();
-      } catch (error) {
-        toast(error.message, "error");
-      }
-    });
-  });
-
-  $("#reviewer-batches").querySelectorAll("[data-retry]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      try {
-        await api("/api/reviewer/batches/" + encodeURIComponent(button.dataset.retry) + "/retry-chain", { method: "POST" });
-        toast("Blockchain operation retried.");
-        await loadReviewer();
       } catch (error) {
         toast(error.message, "error");
       }
@@ -586,14 +571,14 @@ async function loadExamOffice() {
         '<div class="issue"><div class="issue-top"><div><div class="issue-title">' +
         esc(batch.course + " · " + batch.assessment) +
         '</div><div class="muted">' +
-        esc(batch.lecturer_name + " · " + batch.student_count + " students · revision " + batch.revision) +
+        esc(batch.lecturer_name + " · " + batch.student_count + " students") +
         "</div></div>" +
         badge(batch.pipeline_stage) +
         '</div><div class="actions"><button class="button primary" data-process-batch="' +
         esc(batch.id) +
         '">Mark processed</button><button class="button secondary" data-audit-batch="' +
         esc(batch.id) +
-        '">Audit</button></div></div>'
+        '">View history</button></div></div>'
       ).join("")
     : '<div class="card"><p class="muted">No batches waiting for exam-office processing.</p></div>';
 
@@ -622,14 +607,14 @@ async function loadPortalOperator() {
         '<div class="issue"><div class="issue-top"><div><div class="issue-title">' +
         esc(batch.course + " · " + batch.assessment) +
         '</div><div class="muted">' +
-        esc(batch.lecturer_name + " · " + batch.student_count + " students · revision " + batch.revision) +
+        esc(batch.lecturer_name + " · " + batch.student_count + " students") +
         "</div></div>" +
         badge(batch.pipeline_stage) +
         '</div><div class="actions"><button class="button primary" data-publish-batch="' +
         esc(batch.id) +
         '">Import and publish</button><button class="button secondary" data-audit-batch="' +
         esc(batch.id) +
-        '">Audit</button></div></div>'
+        '">View history</button></div></div>'
       ).join("")
     : '<div class="card"><p class="muted">No batches waiting for portal import.</p></div>';
 
@@ -662,7 +647,13 @@ async function loadAdmin() {
   state.adminCourses = coursesData.courses;
   state.adminBatches = batches.batches;
 
-  const lecturers = state.adminUsers.filter((user) => user.role === "lecturer");
+  const today = new Date().toISOString().slice(0, 10);
+  const lecturers = state.adminUsers.filter(
+    (user) =>
+      user.role === "lecturer" &&
+      user.active &&
+      (!user.access_until || user.access_until >= today)
+  );
   $("#course-lecturer").innerHTML = lecturers.map(
     (user) => '<option value="' + esc(user.id) + '">' + esc(user.full_name + " · " + user.username) + "</option>"
   ).join("");
@@ -675,18 +666,52 @@ async function loadAdmin() {
   $("#bulk-enroll-course").innerHTML = $("#enroll-course").innerHTML;
 
   $("#admin-users").innerHTML =
-    "<table><thead><tr><th>ID</th><th>User</th><th>Reg #</th><th>Role</th><th>Status</th></tr></thead><tbody>" +
+    "<table><thead><tr><th>User</th><th>Reg #</th><th>Role</th><th>Account access</th><th>Manage</th></tr></thead><tbody>" +
     state.adminUsers.map(
-      (user) =>
-        "<tr><td>" + esc(user.id) + "</td><td><strong>" +
+      (user) => {
+        const expired = user.access_until && user.access_until < today;
+        const status = !user.active
+          ? '<span class="badge muted">Disabled</span>'
+          : expired
+            ? '<span class="badge warning">Expired</span>'
+            : '<span class="badge success">Enabled</span>';
+        return (
+        "<tr><td><strong>" +
         esc(user.full_name) + '</strong><div class="muted">' +
         esc(user.username) + "</div></td><td>" +
         esc(user.reg_number || "—") + "</td><td>" +
         badge(user.role) + "</td><td>" +
-        (user.active ? badge("RECORDED") : badge("MISSING")) +
-        "</td></tr>"
+        status + '<div class="muted">' +
+        (user.access_until ? "Through " + esc(user.access_until) : "No scheduled end date") +
+        '</div></td><td><form class="user-access-form" data-user-id="' + esc(user.id) + '">' +
+        '<label class="user-access-enabled"><input type="checkbox" name="active"' + (user.active ? " checked" : "") +
+        '> Account enabled</label>' +
+        '<label>Access through<input name="access_until" type="date" value="' +
+        esc(user.access_until || "") + '"></label>' +
+        '<button class="button secondary">Save access</button></form></td></tr>'
+        );
+      }
     ).join("") +
     "</tbody></table>";
+  $("#admin-users").querySelectorAll(".user-access-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const values = new FormData(form);
+      try {
+        await api("/api/admin/users/" + encodeURIComponent(form.dataset.userId) + "/access", {
+          method: "POST",
+          body: JSON.stringify({
+            active: values.has("active"),
+            access_until: values.get("access_until")
+          })
+        });
+        toast("Account access updated.");
+        await loadAdmin();
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+  });
 
   $("#admin-courses").innerHTML =
     "<table><thead><tr><th>Course</th><th>Lecturer</th><th>Students</th><th>Assessments</th></tr></thead><tbody>" +
@@ -705,18 +730,17 @@ async function loadAdmin() {
     batchesContainer.innerHTML =
       state.adminBatches.length === 0
         ? '<div class="card"><p class="muted">No mark batches created yet.</p></div>'
-        : "<table><thead><tr><th>Course · Assessment</th><th>Lecturer</th><th>Students</th><th>Pipeline Stage</th><th>Rev</th><th>Chain Status</th><th>Actions</th></tr></thead><tbody>" +
+        : "<table><thead><tr><th>Course · Assessment</th><th>Lecturer</th><th>Students</th><th>Current step</th><th>Update check</th><th>Actions</th></tr></thead><tbody>" +
           state.adminBatches.map(
             (b) =>
               "<tr><td><strong>" + esc(b.course + " · " + b.assessment) + '</strong><div class="muted"><code>' + esc(b.id.slice(0, 10)) + '…</code></div></td>' +
               "<td>" + esc(b.lecturer_name) + "</td>" +
               "<td>" + esc(b.student_count) + "</td>" +
               "<td>" + badge(b.pipeline_stage) + "</td>" +
-              "<td>" + esc(b.revision) + "</td>" +
               "<td>" + badge(b.chain_state) + "</td>" +
-              '<td><div class="actions" style="margin-top:0"><button class="button secondary" data-audit-batch="' + esc(b.id) + '">Audit</button>' +
+              '<td><div class="actions" style="margin-top:0"><button class="button secondary" data-audit-batch="' + esc(b.id) + '">View history</button>' +
               (b.chain_state === "ERROR"
-                ? ' <button class="button secondary" data-admin-retry="' + esc(b.id) + '">Retry chain</button>'
+                ? ' <button class="button secondary" data-admin-retry="' + esc(b.id) + '">Retry update</button>'
                 : "") +
               "</div></td></tr>"
           ).join("") +
@@ -731,7 +755,7 @@ async function loadAdmin() {
           await api("/api/admin/batches/" + encodeURIComponent(btn.dataset.adminRetry) + "/retry-chain", {
             method: "POST"
           });
-          toast("Chain retry succeeded.");
+          toast("Record update retried successfully.");
           await loadAdmin();
         } catch (err) {
           toast(err.message, "error");
@@ -799,18 +823,14 @@ async function submitBatch() {
   if (!window.confirm("Submit this batch? Missing students will be recorded as missing marks.")) return;
 
   try {
-    const result = await api("/api/lecturer/batches/submit", {
+    await api("/api/lecturer/batches/submit", {
       method: "POST",
       body: JSON.stringify({
         assessment_id: $("#lecturer-assessment").value,
         csv: $("#marks-csv").value.trim()
       })
     });
-    toast(
-      result.chain_state === "LOCAL_ONLY"
-        ? "Batch submitted locally. Chain is disabled."
-        : "Batch submitted and committed on-chain."
-    );
+    toast("Batch submitted. It is now waiting for department review.");
     $("#marks-csv").value = "";
     $("#batch-preview").classList.add("hidden");
     await loadLecturer();
@@ -836,27 +856,34 @@ async function loadAudit(batchId) {
       .map(
         (event) =>
           '<div class="timeline-item"><strong>' +
-          esc(event.action) +
+          esc({
+            BATCH_SUBMITTED: "Marks submitted",
+            BATCH_AMENDED: "Marks updated",
+            BATCH_VERIFIED: "Department approved",
+            EXAM_OFFICE_PROCESSED: "Exam office processed",
+            PORTAL_IMPORTED: "Marks published",
+            MARKS_PUBLISHED: "Marks made available",
+            REPORT_RESOLVED: "Missing-mark report resolved",
+            REPORT_OPENED: "Missing-mark report opened"
+          }[event.action] || "Record updated") +
           "</strong><span>" +
           esc(event.actor_name || "system") +
           "</span><small>" +
-          esc(event.created_at) +
+          esc(formatDateTime(event.created_at)) +
           "</small></div>"
       )
       .join("");
     const revisions = data.revisions
       .map(
         (revision) =>
-          '<div class="timeline-item"><strong>Revision ' +
+          '<div class="timeline-item"><strong>' +
+          (revision.kind === "AMENDMENT" ? "Marks corrected" : "Marks submitted") +
+          " · Change " +
           esc(revision.revision) +
-          " · " +
-          esc(revision.kind) +
-          '</strong><span>Actor: ' +
+          '</strong><span>Handled by ' +
           esc(revision.actor_name) +
-          " · " +
-          badge(revision.chain_state) +
           '</span><small>' +
-          esc(revision.created_at) +
+          esc(formatDateTime(revision.created_at)) +
           "</small></div>"
       )
       .join("");
@@ -867,9 +894,12 @@ async function loadAudit(batchId) {
             .map(
               (entry) =>
                 '<div class="timeline-item"><strong>' +
-                esc(entry.action) +
-                '</strong><span>Student ID ' +
-                esc(entry.student_id) +
+                esc({
+                  MARK_AMENDED: "Mark corrected",
+                  REPORT_RESOLVED: "Missing-mark report resolved"
+                }[entry.action] || "Mark updated") +
+                '</strong><span>' +
+                esc(entry.student_reg_number || entry.student_name || ("Student " + entry.student_id)) +
                 ": " +
                 esc(entry.old_mark ?? "—") +
                 " → " +
@@ -886,29 +916,30 @@ async function loadAudit(batchId) {
         '<div class="timeline-item"><strong>' +
         esc(stage.owner) +
         " · " +
-        (stage.completed_at ? "completed" : "waiting") +
-        '</strong><span>Started ' +
-        esc(stage.started_at) +
-        (stage.completed_at ? " · completed " + esc(stage.completed_at) : "") +
-        " · waited " +
-        esc(formatDuration(stage.duration_seconds)) +
+        (stage.completed_at ? "Done" : "In progress") +
+        '</strong><span>' +
+        (stage.completed_at
+          ? "Completed " + esc(formatDateTime(stage.completed_at))
+          : "Started " + esc(formatDateTime(stage.started_at))) +
         (stage.completed_by ? " · handled by " + esc(stage.completed_by) : "") +
         "</span></div>"
       )
       .join("");
 
+    const integrityLabels = {
+      CONFIRMED: "Record check complete",
+      LOCAL_ONLY: "History saved",
+      PENDING: "Record check pending",
+      ERROR: "Record check needs administrator attention"
+    };
     $("#audit-result").innerHTML =
       '<div class="card"><p class="eyebrow">BATCH</p><h3>' +
       esc(data.batch.course + " · " + data.batch.assessment) +
-      '</h3><p class="muted">Status ' +
+      '</h3><p class="muted">Current status ' +
       badge(data.batch.status) +
-      " · revision " +
-      esc(data.batch.revision) +
-      " · chain " +
-      badge(data.batch.chain_state) +
-      '</p><div class="hash-box"><div class="mini-label">CURRENT COMMITMENT</div><code>' +
-      esc(data.batch.marks_hash) +
-      '</code></div><p class="muted">' +
+      " · " +
+      esc(integrityLabels[data.batch.chain_state] || "Record status unavailable") +
+      '</p><p class="muted">' +
       (data.pipeline.current_stage === "PUBLISHED"
         ? "<strong>Published to students</strong>"
         : "Currently with <strong>" +
@@ -916,14 +947,14 @@ async function loadAudit(batchId) {
           "</strong> · waiting " +
           esc(formatDuration(data.pipeline.waiting_seconds)) +
           (data.pipeline.waiting_since ? " since " + esc(data.pipeline.waiting_since) : "")) +
-      '</p></div><div class="card"><p class="eyebrow">HANDOFF TIMING</p><div class="timeline">' +
+      '</p></div><div class="card"><p class="eyebrow">HANDOFFS</p><div class="timeline">' +
       (pipeline || '<p class="muted">No handoff events recorded yet.</p>') +
       '</div></div>' +
-      '<div class="card"><p class="eyebrow">REVISIONS</p><div class="timeline">' +
+      '<div class="card"><p class="eyebrow">MARKS CHANGES</p><div class="timeline">' +
       revisions +
       '</div></div><div class="card"><p class="eyebrow">MARK HISTORY</p><div class="timeline">' +
       history +
-      '</div></div><div class="card"><p class="eyebrow">APPLICATION EVENTS</p><div class="timeline">' +
+      '</div></div><div class="card"><p class="eyebrow">ACTIVITY</p><div class="timeline">' +
       events +
       "</div></div>";
   } catch (error) {
@@ -939,6 +970,13 @@ function formatDuration(seconds) {
   if (days) return days + "d " + hours + "h";
   if (hours) return hours + "h " + minutes + "m";
   return minutes + "m";
+}
+
+function formatDateTime(value) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 async function loadAuditSelector() {
@@ -1103,14 +1141,14 @@ $("#download-audit").addEventListener("click", () => {
 
 $("#reconcile-audit").addEventListener("click", async () => {
   const batchId = $("#audit-batch").value;
-  if (!batchId || !["reviewer", "admin"].includes(state.user.role)) {
-    toast("Only reviewers/admins can reconcile with the chain.", "error");
+  if (!batchId || state.user.role !== "admin") {
+    toast("Only administrators can check record integrity.", "error");
     return;
   }
   const endpoint = "/api/admin/reconcile/" + encodeURIComponent(batchId);
   try {
     const result = await api(endpoint);
-    toast(result.status === "MATCH" ? "Local batch matches the chain." : "Reconciliation found a mismatch or local-only mode.", result.status === "MATCH" ? "success" : "error");
+    toast(result.status === "MATCH" ? "The saved record matches the verified copy." : "The saved record could not be verified. Review the batch status.", result.status === "MATCH" ? "success" : "error");
   } catch (error) {
     toast(error.message, "error");
   }
@@ -1126,12 +1164,17 @@ $("#create-user-form").addEventListener("submit", async (event) => {
       body: JSON.stringify(Object.fromEntries(form.entries()))
     });
     event.target.reset();
+    $("#create-user-access-until").required = $("#create-user-role").value === "student";
     toast("User created.");
     await loadAdmin();
     await loadDashboard();
   } catch (error) {
     toast(error.message, "error");
   }
+});
+
+$("#create-user-role").addEventListener("change", () => {
+  $("#create-user-access-until").required = $("#create-user-role").value === "student";
 });
 
 // ── Admin: create course ─────────────────────────────────────
@@ -1181,7 +1224,10 @@ $("#bulk-enroll-form").addEventListener("submit", async (event) => {
   try {
     const result = await api("/api/admin/courses/" + encodeURIComponent(form.get("course_id")) + "/bulk-enroll", {
       method: "POST",
-      body: JSON.stringify({ csv: form.get("csv") })
+      body: JSON.stringify({
+        csv: form.get("csv"),
+        access_until: form.get("access_until")
+      })
     });
     toast("Enrolled " + result.enrolled + " students, created " + result.created + " accounts, skipped " + result.skipped + ".");
     event.target.reset();

@@ -7,7 +7,7 @@ import json
 import secrets
 import uuid
 import unicodedata
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from .chain import ChainClient, ChainError
@@ -1359,13 +1359,17 @@ class AppService:
     ) -> None:
         with self.db.transaction() as conn:
             conn.execute(
-                "UPDATE batches SET chain_state = ?, chain_tx_hash = ? WHERE id = ?",
+                """
+                UPDATE batches
+                SET chain_state = ?, chain_tx_hash = COALESCE(?, chain_tx_hash)
+                WHERE id = ?
+                """,
                 (state, tx_hash, batch_id),
             )
             conn.execute(
                 """
                 UPDATE batch_revisions
-                SET chain_state = ?, chain_tx_hash = ?
+                SET chain_state = ?, chain_tx_hash = COALESCE(?, chain_tx_hash)
                 WHERE batch_id = ? AND revision = ?
                 """,
                 (state, tx_hash, batch_id, revision),
@@ -1377,6 +1381,44 @@ class AppService:
                 None,
                 action,
                 extra or {},
+                chain_tx_hash=tx_hash,
+            )
+
+    def _set_recovered_chain_state(
+        self,
+        batch_id: str,
+        tx_hash: str | None,
+        revision_tx_hashes: list[str | None],
+        action: str,
+        metadata: dict,
+    ) -> None:
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE batches
+                SET chain_state = 'CONFIRMED',
+                    chain_tx_hash = COALESCE(?, chain_tx_hash)
+                WHERE id = ?
+                """,
+                (tx_hash, batch_id),
+            )
+            for revision, revision_tx_hash in enumerate(revision_tx_hashes, start=1):
+                conn.execute(
+                    """
+                    UPDATE batch_revisions
+                    SET chain_state = 'CONFIRMED',
+                        chain_tx_hash = COALESCE(?, chain_tx_hash)
+                    WHERE batch_id = ? AND revision = ?
+                    """,
+                    (revision_tx_hash, batch_id, revision),
+                )
+            self._audit(
+                conn,
+                "BATCH",
+                batch_id,
+                None,
+                action,
+                metadata,
                 chain_tx_hash=tx_hash,
             )
 
@@ -1804,9 +1846,12 @@ class AppService:
             if user["role"] != "student":
                 history_rows = conn.execute(
                     """
-                    SELECT mh.*, u.full_name AS actor_name
+                    SELECT mh.*, u.full_name AS actor_name,
+                           student.full_name AS student_name,
+                           student.reg_number AS student_reg_number
                     FROM mark_history mh
                     JOIN users u ON u.id = mh.actor_id
+                    JOIN users student ON student.id = mh.student_id
                     WHERE mh.batch_id = ?
                     ORDER BY mh.created_at
                     """,
@@ -1956,23 +2001,102 @@ class AppService:
         return value
 
     def reconcile_batch(self, user_id: int, batch_id: str) -> dict:
-        self.require_role(user_id, {"reviewer", "admin"})
+        self.require_role(user_id, {"admin"})
         conn = self.db.connect()
         try:
             batch = conn.execute(
-                "SELECT id, revision, marks_hash, chain_state FROM batches WHERE id = ?",
+                """
+                SELECT id, revision, marks_hash, status, chain_state
+                FROM batches WHERE id = ?
+                """,
                 (batch_id,),
             ).fetchone()
+            revisions = conn.execute(
+                """
+                SELECT revision, marks_hash, reason_hash
+                FROM batch_revisions WHERE batch_id = ?
+                ORDER BY revision
+                """,
+                (batch_id,),
+            ).fetchall()
         finally:
             conn.close()
 
         if not batch:
             raise AppError("Batch not found.", 404)
-        return self.chain.reconcile(
+        if (
+            not revisions
+            or len(revisions) != int(batch["revision"])
+            or any(
+                int(revision["revision"]) != index
+                for index, revision in enumerate(revisions, start=1)
+            )
+            or revisions[-1]["marks_hash"].lower() != batch["marks_hash"].lower()
+        ):
+            return {
+                "status": "LOCAL_HISTORY_MISMATCH",
+                "match": False,
+                "reason": "The batch does not match its complete local revision history.",
+            }
+
+        result = self.chain.reconcile(
             batch["id"],
             int(batch["revision"]),
-            batch["marks_hash"],
+            revisions[-1]["marks_hash"],
         )
+        if not result.get("match"):
+            return result
+
+        try:
+            for index, revision in enumerate(revisions):
+                on_chain = self.chain.get_revision_details(batch_id, index)
+                expected_reason = (
+                    "0x" + "00" * 32
+                    if index == 0
+                    else revision["reason_hash"]
+                )
+                if (
+                    on_chain["marks_hash"].lower() != revision["marks_hash"].lower()
+                    or on_chain["reason_hash"].lower() != expected_reason.lower()
+                ):
+                    return {
+                        **result,
+                        "status": "REVISION_MISMATCH",
+                        "match": False,
+                        "reason": f"On-chain revision {index + 1} differs from local history.",
+                    }
+
+            chain_status = self.chain.get_batch_status(batch_id)
+        except ChainError as exc:
+            return {
+                **result,
+                "status": "CHAIN_ERROR",
+                "match": False,
+                "reason": str(exc),
+            }
+
+        expected_status = {
+            "SUBMITTED": 1,
+            "VERIFIED": 2,
+            "AMENDED": 3,
+        }.get(batch["status"])
+        if chain_status != expected_status:
+            return {
+                **result,
+                "status": "STATUS_MISMATCH",
+                "match": False,
+                "local_status": batch["status"],
+                "chain_status": chain_status,
+                "reason": "The application and contract workflow statuses differ.",
+            }
+
+        return {
+            **result,
+            "status": "MATCH",
+            "match": True,
+            "local_status": batch["status"],
+            "chain_status": chain_status,
+        }
 
     def retry_chain(self, user_id: int, batch_id: str) -> dict:
         self.require_role(user_id, {"lecturer", "reviewer", "admin"})
@@ -2002,7 +2126,7 @@ class AppService:
             try:
                 revisions = revision_conn.execute(
                     """
-                    SELECT revision, marks_hash, reason_hash
+                    SELECT revision, marks_hash, reason_hash, chain_tx_hash
                     FROM batch_revisions
                     WHERE batch_id = ?
                     ORDER BY revision
@@ -2017,11 +2141,24 @@ class AppService:
                 for index, revision in enumerate(revisions, start=1)
             ):
                 raise ChainError("Local batch revision history is incomplete.")
+            if batch["status"] == "SUBMITTED" and local_rev != 1:
+                raise ChainError(
+                    "Local batch is marked SUBMITTED despite having amendment revisions."
+                )
+            if batch["status"] == "AMENDED" and local_rev < 2:
+                raise ChainError(
+                    "Local batch is marked AMENDED without an amendment revision."
+                )
+
+            if revisions[-1]["marks_hash"].lower() != batch["marks_hash"].lower():
+                raise ChainError(
+                    "The current batch hash does not match its latest local revision."
+                )
 
             reconcile = self.chain.reconcile(
                 batch_id,
                 local_rev,
-                batch["marks_hash"],
+                revisions[-1]["marks_hash"],
             )
             if reconcile.get("status") == "CHAIN_ERROR":
                 raise ChainError(reconcile.get("reason", "Unable to inspect on-chain history."))
@@ -2033,19 +2170,32 @@ class AppService:
                 )
 
             chain_status = None
+            revision_tx_hashes = [revision["chain_tx_hash"] for revision in revisions]
             if chain_rev:
                 for index in range(chain_rev):
-                    chain_hash = self.chain.get_revision_hash(batch_id, index)
-                    if chain_hash.lower() != revisions[index]["marks_hash"].lower():
+                    chain_revision = self.chain.get_revision_details(batch_id, index)
+                    if chain_revision["marks_hash"].lower() != revisions[index]["marks_hash"].lower():
                         raise ChainError(
                             f"On-chain revision {index + 1} does not match local history."
+                        )
+                    expected_reason = (
+                        "0x" + "00" * 32
+                        if index == 0
+                        else revisions[index]["reason_hash"]
+                    )
+                    if chain_revision["reason_hash"].lower() != expected_reason.lower():
+                        raise ChainError(
+                            f"On-chain reason for revision {index + 1} does not match local history."
                         )
                 chain_status = self.chain.get_batch_status(batch_id)
                 if chain_status == 0:
                     raise ChainError("On-chain batch status is missing despite its revision history.")
+                if chain_rev > 1 and chain_status == 1:
+                    raise ChainError(
+                        "On-chain status is SUBMITTED despite having amendment revisions."
+                    )
 
             tx_hash = batch["chain_tx_hash"]
-            needs_chain_recovery = chain_rev < local_rev
             if chain_rev == 0:
                 tx_hash = self.chain.submit_batch(
                     batch_id,
@@ -2056,6 +2206,7 @@ class AppService:
                 )
                 chain_rev = 1
                 chain_status = 1
+                revision_tx_hashes[0] = tx_hash
 
             while chain_rev < local_rev:
                 if chain_status != 2:
@@ -2067,35 +2218,56 @@ class AppService:
                     revision["marks_hash"],
                     revision["reason_hash"],
                 )
+                revision_tx_hashes[chain_rev] = tx_hash
                 chain_rev += 1
                 chain_status = 3
 
-            if batch["status"] == "VERIFIED" and chain_status != 2:
-                tx_hash = self.chain.verify_batch(batch_id) or tx_hash
+            expected_status = {
+                "SUBMITTED": 1,
+                "VERIFIED": 2,
+                "AMENDED": 3,
+            }.get(batch["status"])
+            if expected_status is None:
+                raise ChainError(f"Unsupported local batch status: {batch['status']}.")
+            if (
+                batch["status"] == "VERIFIED"
+                and chain_status in {1, 3}
+            ):
+                tx_hash = self.chain.verify_batch(batch_id)
                 chain_status = 2
+            elif chain_status != expected_status:
+                raise ChainError(
+                    "Local workflow status "
+                    f"{batch['status']} does not match on-chain status {chain_status}; "
+                    "manual reconciliation is required."
+                )
 
+            previous_chain_revision = int(reconcile.get("chain_revision", 0))
             action = (
                 "CHAIN_HISTORY_RECOVERED"
-                if chain_rev > 1 and reconcile.get("chain_revision", 0) == 0
+                if chain_rev > previous_chain_revision
                 else "CHAIN_RECONCILED_CONFIRMED"
                 if reconcile.get("match")
                 else "CHAIN_SUBMISSION_RETRIED"
                 if local_rev == 1
                 else "CHAIN_AMENDMENT_RETRIED"
             )
-            self._set_chain_state(
+            self._set_recovered_chain_state(
                 batch_id,
-                local_rev,
-                "CONFIRMED",
                 tx_hash,
+                revision_tx_hashes,
                 action,
-                {"local_revision": local_rev, "previous_chain_revision": reconcile.get("chain_revision", 0)},
+                {
+                    "local_revision": local_rev,
+                    "previous_chain_revision": previous_chain_revision,
+                },
             )
             return {
                 "batch_id": batch_id,
                 "chain_state": "CONFIRMED",
                 "chain_tx_hash": tx_hash,
-                "reconciled": bool(reconcile.get("match")),
+                "reconciled": True,
+                "replayed_revisions": local_rev - previous_chain_revision,
             }
         except ChainError as exc:
             self._set_chain_state(
@@ -2176,7 +2348,8 @@ class AppService:
         try:
             rows = conn.execute(
                 """
-                SELECT id, username, full_name, role, active, reg_number, created_at
+                SELECT id, username, full_name, role, active, reg_number,
+                       access_until, created_at
                 FROM users
                 ORDER BY role, username
                 """
@@ -2212,6 +2385,7 @@ class AppService:
         role: str,
         password: str,
         reg_number: str | None = None,
+        access_until: str | None = None,
     ) -> dict:
         self.require_role(user_id, {"admin"})
         if not username.strip() or not full_name.strip():
@@ -2223,6 +2397,9 @@ class AppService:
             raise AppError("Invalid role.")
         if len(password) < 8:
             raise AppError("Password must be at least 8 characters.")
+        access_until = self._validate_access_until(access_until)
+        if role == "student" and access_until is None:
+            raise AppError("Student accounts require a graduation or access end date.")
 
         # Non-admin users must change their temporary password on first login
         must_change = 1 if role != "admin" else 0
@@ -2236,13 +2413,14 @@ class AppService:
                     """
                     INSERT INTO users
                     (username, full_name, role, password_salt, password_hash,
-                     must_change_password, reg_number, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     must_change_password, reg_number, access_until, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         username.strip(), full_name.strip(), role,
                         salt, digest, must_change,
                         reg_number.strip() if reg_number else None,
+                        access_until,
                         utc_now(),
                     ),
                 )
@@ -2260,6 +2438,70 @@ class AppService:
                 raise AppError("Username already exists.")
             raise
         return {"id": new_id}
+
+    @staticmethod
+    def _validate_access_until(value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        try:
+            return date.fromisoformat(value.strip()).isoformat()
+        except ValueError as exc:
+            raise AppError("Access end date must be a valid calendar date.") from exc
+
+    def admin_update_user_access(
+        self,
+        actor_id: int,
+        target_id: int,
+        active: bool,
+        access_until: str | None,
+    ) -> dict:
+        self.require_role(actor_id, {"admin"})
+        if not isinstance(active, bool):
+            raise AppError("Account status must be enabled or disabled.")
+        end_date = self._validate_access_until(access_until)
+        today = datetime.now(timezone.utc).date().isoformat()
+        conn = self.db.connect()
+        try:
+            target = conn.execute(
+                "SELECT id, role FROM users WHERE id = ?", (target_id,)
+            ).fetchone()
+            if not target:
+                raise AppError("User not found.", 404)
+            if target_id == actor_id and (
+                not active or (end_date is not None and end_date <= today)
+            ):
+                raise AppError("You cannot disable or expire your own account.")
+            if target["role"] == "admin" and (
+                not active or (end_date is not None and end_date <= today)
+            ):
+                other_admin = conn.execute(
+                    """
+                    SELECT 1 FROM users
+                    WHERE role = 'admin' AND active = 1 AND id != ?
+                      AND (access_until IS NULL OR date(access_until) >= date('now'))
+                    LIMIT 1
+                    """,
+                    (target_id,),
+                ).fetchone()
+                if not other_admin:
+                    raise AppError("At least one other active administrator must remain.")
+        finally:
+            conn.close()
+
+        with self.db.transaction() as tx:
+            tx.execute(
+                "UPDATE users SET active = ?, access_until = ? WHERE id = ?",
+                (int(active), end_date, target_id),
+            )
+            self._audit(
+                tx,
+                "USER",
+                str(target_id),
+                actor_id,
+                "USER_ACCESS_UPDATED",
+                {"active": active, "access_until": end_date},
+            )
+        return {"ok": True}
 
     def admin_create_course(
         self,
@@ -2328,7 +2570,11 @@ class AppService:
 
             for student_id in student_ids:
                 student = conn.execute(
-                    "SELECT id FROM users WHERE id = ? AND role = 'student' AND active = 1",
+                    """
+                    SELECT id FROM users
+                    WHERE id = ? AND role = 'student' AND active = 1
+                      AND (access_until IS NULL OR date(access_until) >= date('now'))
+                    """,
                     (student_id,),
                 ).fetchone()
                 if not student:
@@ -2397,6 +2643,7 @@ class AppService:
         course_id: str,
         csv_text: str,
         default_password: str = "ChangeMe123",
+        access_until: str | None = None,
     ) -> dict:
         """Bulk create + enroll students from a CSV.
 
@@ -2408,6 +2655,7 @@ class AppService:
         Returns counts: enrolled, created, skipped (already enrolled).
         """
         self.require_role(user_id, {"admin"})
+        access_until = self._validate_access_until(access_until)
         rows = self._parse_csv(csv_text)
         if not rows:
             raise AppError("CSV is empty or has no data rows.")
@@ -2456,22 +2704,42 @@ class AppService:
             try:
                 with self.db.transaction() as tx:
                     existing = tx.execute(
-                        "SELECT id FROM users WHERE reg_number = ? OR username = ?",
+                        """
+                        SELECT id, role, active, access_until
+                        FROM users WHERE reg_number = ? OR username = ?
+                        """,
                         (reg, uname),
                     ).fetchone()
 
                     if existing:
+                        if (
+                            existing["role"] != "student"
+                            or not existing["active"]
+                            or (
+                               existing["access_until"]
+                               and existing["access_until"] < datetime.now(timezone.utc).date().isoformat()
+                            )
+                        ):
+                            errors.append(
+                               f"Row {index}: the matched account is not an active student."
+                            )
+                            continue
                         student_id = int(existing["id"])
                     else:
+                        if access_until is None:
+                            errors.append(
+                               f"Row {index}: provide a graduation or access end date for new students."
+                            )
+                            continue
                         salt, digest = hash_password(default_password)
                         cur = tx.execute(
                             """
                             INSERT INTO users
                             (username, full_name, role, password_salt, password_hash,
-                             must_change_password, reg_number, created_at)
-                            VALUES (?, ?, 'student', ?, ?, 1, ?, ?)
+                             must_change_password, reg_number, access_until, created_at)
+                            VALUES (?, ?, 'student', ?, ?, 1, ?, ?, ?)
                             """,
-                            (uname, full, salt, digest, reg, now),
+                            (uname, full, salt, digest, reg, access_until, now),
                         )
                         student_id = int(cur.lastrowid)
                         created += 1

@@ -505,6 +505,17 @@ amended mark after the portal operator records the import. Each handoff is
 timestamped in the audit trail. A rejected report is closed with a reason; if
 the mark is still missing, the student can open a new report.
 
+When a chain update is retried, MarkTrail compares every saved revision's
+marks and amendment reason with the recorded contract history, then checks
+that the local workflow status agrees with the contract status. The initial
+submission intentionally uses a zero on-chain reason hash. Missing revisions
+can be replayed in order; inconsistent history or status is flagged for
+administrator reconciliation rather than reported as recovered. Each replayed
+revision retains its own transaction reference.
+
+The contract uses two-step ownership transfer and does not permit ownership
+renunciation, so the contract cannot be left without an administrator.
+
 ### Handoff tracking, notifications, and reports
 
 The audit view shows the current handoff owner, how long the batch has waited,
@@ -551,6 +562,12 @@ command above explicitly opts into synthetic demo accounts and an insecure
 cookie for local HTTP only. Never use demo accounts or disable secure cookies
 in an externally accessible deployment.
 
+Only administrator-created accounts can sign in; there is no public sign-up.
+New student accounts require a graduation/access end date, and the system
+blocks sign-in and existing sessions after that date. Administrators can also
+disable or re-enable any account from Setup. Existing accounts with no end date
+remain active until an administrator sets one or disables the account.
+
 For a new installation without demo users, create the first administrator
 interactively with `python3 run.py --create-admin`, then start the server with
 demo seeding disabled. The command prompts for the username, name, and
@@ -563,7 +580,8 @@ Python's built-in HTTP server and SQLite, and portal imports are still entered
 manually. Do not store real student records in this deployment. A production
 launch still needs an institution-approved hosting and database design,
 HTTPS termination, backups and recovery testing, operational monitoring,
-account lifecycle controls, and an independent security/privacy review.
+an independent security/privacy review, and operational processes for keeping
+graduation dates and account approvals accurate.
 Portal automation also requires an approved university API and test
 environment.
 

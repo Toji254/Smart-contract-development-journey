@@ -4,9 +4,10 @@ import csv
 import io
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from app.db import Database
+from app.db import Database, utc_now
 from app.service import AppError, AppService
 
 
@@ -31,8 +32,10 @@ class RecoverableChain(FakeChain):
 
     def __init__(self):
         self.revisions = {}
+        self.reasons = {}
         self.operations = []
         self.statuses = {}
+        self.verify_calls = 0
 
     def reconcile(self, batch_id, local_revision, local_hash):
         revisions = self.revisions.get(batch_id, [])
@@ -54,17 +57,25 @@ class RecoverableChain(FakeChain):
     def get_revision_hash(self, batch_id, revision_index):
         return self.revisions[batch_id][revision_index]
 
+    def get_revision_details(self, batch_id, revision_index):
+        return {
+            "marks_hash": self.revisions[batch_id][revision_index],
+            "reason_hash": self.reasons[batch_id][revision_index],
+        }
+
     def get_batch_status(self, batch_id):
         return self.statuses[batch_id]
 
     def submit_batch(self, batch_id, course_id, assessment_id, student_count, marks_hash):
         self.operations.append(("submit", batch_id, marks_hash))
         self.revisions[batch_id] = [marks_hash]
+        self.reasons[batch_id] = ["0x" + "00" * 32]
         self.statuses[batch_id] = 1
         return "0x" + "11" * 32
 
     def verify_batch(self, batch_id):
         self.operations.append(("verify", batch_id))
+        self.verify_calls += 1
         self.statuses[batch_id] = 2
         return "0x" + "33" * 32
 
@@ -73,8 +84,10 @@ class RecoverableChain(FakeChain):
             raise AssertionError("amendment requires the preceding revision to be verified")
         self.operations.append(("amend", batch_id, marks_hash, reason_hash))
         self.revisions[batch_id].append(marks_hash)
+        self.reasons[batch_id].append(reason_hash)
         self.statuses[batch_id] = 3
-        return "0x" + "22" * 32
+        tx_marker = f"{len(self.revisions[batch_id]):02x}"
+        return "0x" + tx_marker * 32
 
 
 class MarkTrailTests(unittest.TestCase):
@@ -103,6 +116,9 @@ class MarkTrailTests(unittest.TestCase):
         self.portal_operator = conn.execute(
             "SELECT id FROM users WHERE username = 'portal_operator'"
         ).fetchone()
+        self.admin = conn.execute(
+            "SELECT id FROM users WHERE username = 'admin'"
+        ).fetchone()
         self.assessment = conn.execute(
             "SELECT id FROM assessments WHERE id = 'assessment-cat2'"
         ).fetchone()
@@ -117,6 +133,58 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(cat2["status"], "MISSING")
         self.assertIsNone(cat2["mark"])
         self.assertEqual(cat2["batch_status"], "VERIFIED")
+
+    def test_admin_can_schedule_expiry_and_disable_user_access(self):
+        student_id = int(self.student["id"])
+        tomorrow = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+        self.service.admin_update_user_access(
+            int(self.admin["id"]), student_id, True, tomorrow
+        )
+        user = next(
+            row for row in self.service.admin_users(int(self.admin["id"]))
+            if row["id"] == student_id
+        )
+        self.assertEqual(user["access_until"], tomorrow)
+
+        session_id = self.db.create_session(student_id)
+        self.service.admin_update_user_access(
+            int(self.admin["id"]), student_id, False, tomorrow
+        )
+        self.assertIsNone(self.db.get_session_user(session_id))
+
+    def test_admin_cannot_disable_or_expire_own_access(self):
+        admin_id = int(self.admin["id"])
+        with self.assertRaisesRegex(AppError, "cannot disable or expire your own"):
+            self.service.admin_update_user_access(admin_id, admin_id, False, None)
+        with self.assertRaisesRegex(AppError, "cannot disable or expire your own"):
+            self.service.admin_update_user_access(admin_id, admin_id, True, "2000-01-01")
+
+    def test_admin_create_user_accepts_access_end_date(self):
+        access_until = (datetime.now(timezone.utc).date() + timedelta(days=365)).isoformat()
+        created = self.service.admin_create_user(
+            int(self.admin["id"]),
+            "new-student",
+            "New Student",
+            "student",
+            "temporary-pass",
+            "SCT/999/2026",
+            access_until,
+        )
+        user = next(
+            row for row in self.service.admin_users(int(self.admin["id"]))
+            if row["id"] == created["id"]
+        )
+        self.assertEqual(user["access_until"], access_until)
+
+    def test_admin_cannot_create_student_without_graduation_date(self):
+        with self.assertRaisesRegex(AppError, "require a graduation or access end date"):
+            self.service.admin_create_user(
+                int(self.admin["id"]),
+                "student-no-end-date",
+                "Student Without End Date",
+                "student",
+                "temporary-pass",
+            )
 
     def test_pipeline_audit_shows_owner_and_each_handoff_duration(self):
         conn = self.db.connect()
@@ -418,6 +486,233 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(batch["revision"], 2)
         self.assertEqual(batch["chain_state"], "CONFIRMED")
         self.assertEqual(result["chain_state"], "CONFIRMED")
+
+    def test_chain_retry_replays_multiple_missing_revisions_and_updates_each_record(self):
+        self._create_fresh_assessment()
+        submitted = self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-cat3",
+            "registration_number,mark\nSCT/001/2025,19\n",
+        )
+        batch_id = submitted["batch_id"]
+        reason_hashes = [
+            "0x" + "a1" * 32,
+            "0x" + "a2" * 32,
+        ]
+        marks_hashes = [
+            "0x" + "b1" * 32,
+            "0x" + "b2" * 32,
+        ]
+        with self.db.transaction() as conn:
+            for revision, (marks_hash, reason_hash) in enumerate(
+                zip(marks_hashes, reason_hashes), start=2
+            ):
+                conn.execute(
+                    """
+                    INSERT INTO batch_revisions
+                    (batch_id, revision, marks_hash, reason_hash, kind, actor_id,
+                     chain_state, created_at)
+                    VALUES (?, ?, ?, ?, 'AMENDMENT', ?, 'ERROR', ?)
+                    """,
+                    (
+                        batch_id,
+                        revision,
+                        marks_hash,
+                        reason_hash,
+                        self.lecturer["id"],
+                        utc_now(),
+                    ),
+                )
+            conn.execute(
+                """
+                UPDATE batches
+                SET status = 'AMENDED', revision = 3, marks_hash = ?,
+                    chain_state = 'ERROR'
+                WHERE id = ?
+                """,
+                (marks_hashes[-1], batch_id),
+            )
+            conn.execute(
+                """
+                UPDATE batch_revisions
+                SET chain_state = 'ERROR', chain_tx_hash = ?
+                WHERE batch_id = ? AND revision = 1
+                """,
+                ("0x" + "c1" * 32, batch_id),
+            )
+
+        chain = RecoverableChain()
+        conn = self.db.connect()
+        first_hash = conn.execute(
+            "SELECT marks_hash FROM batch_revisions WHERE batch_id = ? AND revision = 1",
+            (batch_id,),
+        ).fetchone()["marks_hash"]
+        conn.close()
+        chain.revisions[batch_id] = [first_hash]
+        chain.reasons[batch_id] = ["0x" + "00" * 32]
+        chain.statuses[batch_id] = 1
+        self.service.chain = chain
+
+        self.service.retry_chain(self.reviewer["id"], batch_id)
+
+        conn = self.db.connect()
+        try:
+            revisions = conn.execute(
+                """
+                SELECT revision, chain_state, chain_tx_hash
+                FROM batch_revisions
+                WHERE batch_id = ?
+                ORDER BY revision
+                """,
+                (batch_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        self.assertEqual([row["chain_state"] for row in revisions], ["CONFIRMED"] * 3)
+        self.assertEqual(revisions[0]["chain_tx_hash"], "0x" + "c1" * 32)
+        self.assertEqual(revisions[1]["chain_tx_hash"], "0x" + "02" * 32)
+        self.assertEqual(revisions[2]["chain_tx_hash"], "0x" + "03" * 32)
+        self.assertEqual(
+            [operation[0] for operation in chain.operations],
+            ["verify", "amend", "verify", "amend"],
+        )
+
+    def test_chain_retry_flags_status_mismatch_instead_of_confirming(self):
+        self._create_fresh_assessment()
+        submitted = self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-cat3",
+            "registration_number,mark\nSCT/001/2025,19\n",
+        )
+        batch_id = submitted["batch_id"]
+        conn = self.db.connect()
+        try:
+            marks_hash = conn.execute(
+                "SELECT marks_hash FROM batch_revisions WHERE batch_id = ? AND revision = 1",
+                (batch_id,),
+            ).fetchone()["marks_hash"]
+        finally:
+            conn.close()
+
+        chain = RecoverableChain()
+        chain.revisions[batch_id] = [marks_hash]
+        chain.reasons[batch_id] = ["0x" + "00" * 32]
+        chain.statuses[batch_id] = 2
+        self.service.chain = chain
+
+        with self.assertRaisesRegex(AppError, "manual reconciliation is required"):
+            self.service.retry_chain(self.reviewer["id"], batch_id)
+
+        conn = self.db.connect()
+        try:
+            state = conn.execute(
+                "SELECT chain_state FROM batches WHERE id = ?", (batch_id,)
+            ).fetchone()["chain_state"]
+        finally:
+            conn.close()
+        self.assertEqual(state, "ERROR")
+        self.assertEqual(chain.verify_calls, 0)
+
+    def test_chain_retry_rejects_batch_hash_not_matching_latest_local_revision(self):
+        self._create_fresh_assessment()
+        submitted = self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-cat3",
+            "registration_number,mark\nSCT/001/2025,19\n",
+        )
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE batches SET marks_hash = ? WHERE id = ?",
+                ("0x" + "dd" * 32, submitted["batch_id"]),
+            )
+        chain = RecoverableChain()
+        self.service.chain = chain
+
+        with self.assertRaisesRegex(AppError, "current batch hash"):
+            self.service.retry_chain(self.reviewer["id"], submitted["batch_id"])
+
+        self.assertEqual(chain.revisions, {})
+
+    def test_chain_retry_rejects_mismatched_amendment_reason_hash(self):
+        report = self.service.report_missing_mark(
+            self.student["id"], self.assessment["id"]
+        )
+        amendment = self.service.resolve_report(
+            self.lecturer["id"],
+            report["id"],
+            "MARK_ENTERED",
+            17,
+            "Recovered mark from the answer script.",
+        )
+        batch_id = amendment["batch_id"]
+        conn = self.db.connect()
+        try:
+            revisions = conn.execute(
+                """
+                SELECT marks_hash, reason_hash
+                FROM batch_revisions WHERE batch_id = ? ORDER BY revision
+                """,
+                (batch_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        chain = RecoverableChain()
+        chain.revisions[batch_id] = [row["marks_hash"] for row in revisions]
+        chain.reasons[batch_id] = [
+            "0x" + "00" * 32,
+            "0x" + "ee" * 32,
+        ]
+        chain.statuses[batch_id] = 3
+        self.service.chain = chain
+
+        with self.assertRaisesRegex(AppError, "reason for revision 2"):
+            self.service.retry_chain(self.reviewer["id"], batch_id)
+
+    def test_admin_reconciliation_checks_workflow_status_and_local_batch_hash(self):
+        self._create_fresh_assessment()
+        submitted = self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-cat3",
+            "registration_number,mark\nSCT/001/2025,19\n",
+        )
+        batch_id = submitted["batch_id"]
+        conn = self.db.connect()
+        try:
+            local_hash = conn.execute(
+                """
+                SELECT marks_hash FROM batch_revisions
+                WHERE batch_id = ? AND revision = 1
+                """,
+                (batch_id,),
+            ).fetchone()["marks_hash"]
+        finally:
+            conn.close()
+
+        chain = RecoverableChain()
+        chain.revisions[batch_id] = [local_hash]
+        chain.reasons[batch_id] = ["0x" + "00" * 32]
+        chain.statuses[batch_id] = 2
+        self.service.chain = chain
+
+        mismatch = self.service.reconcile_batch(self.admin["id"], batch_id)
+        self.assertEqual(mismatch["status"], "STATUS_MISMATCH")
+        self.assertFalse(mismatch["match"])
+
+        chain.statuses[batch_id] = 1
+        matched = self.service.reconcile_batch(self.admin["id"], batch_id)
+        self.assertEqual(matched["status"], "MATCH")
+        self.assertTrue(matched["match"])
+
+        with self.db.transaction() as tx:
+            tx.execute(
+                "UPDATE batches SET marks_hash = ? WHERE id = ?",
+                ("0x" + "ff" * 32, batch_id),
+            )
+        local_mismatch = self.service.reconcile_batch(self.admin["id"], batch_id)
+        self.assertEqual(local_mismatch["status"], "LOCAL_HISTORY_MISMATCH")
+        self.assertFalse(local_mismatch["match"])
 
     def test_lecturer_can_submit_new_batch(self):
         self._create_fresh_assessment()

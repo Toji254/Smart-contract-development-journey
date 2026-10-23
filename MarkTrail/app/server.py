@@ -350,8 +350,21 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     str(body.get("role", "")),
                     str(body.get("password", "")),
                     str(body.get("reg_number", "")) or None,
+                    str(body.get("access_until", "")) or None,
                 ),
                 201,
+            )
+
+        match = re.fullmatch(r"/api/admin/users/(\d+)/access", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.service.admin_update_user_access(
+                    user_id,
+                    int(match.group(1)),
+                    body.get("active"),
+                    str(body.get("access_until", "")) or None,
+                )
             )
 
         match = re.fullmatch(r"/api/admin/courses/([^/]+)/bulk-enroll", path)
@@ -363,6 +376,7 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     match.group(1),
                     str(body.get("csv", "")),
                     str(body.get("default_password", "ChangeMe123")),
+                    str(body.get("access_until", "")) or None,
                 )
             )
 

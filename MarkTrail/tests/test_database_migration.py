@@ -150,6 +150,9 @@ class DatabaseMigrationTests(unittest.TestCase):
             check = db.connect()
             try:
                 violations = check.execute("PRAGMA foreign_key_check").fetchall()
+                user_columns = {
+                    row["name"] for row in check.execute("PRAGMA table_info(users)")
+                }
             finally:
                 check.close()
 
@@ -160,6 +163,7 @@ class DatabaseMigrationTests(unittest.TestCase):
             )
             self.assertEqual(report["status"], "OPEN")
             self.assertEqual(violations, [])
+            self.assertIn("access_until", user_columns)
 
 
 if __name__ == "__main__":

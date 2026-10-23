@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity 0.8.24;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
@@ -45,6 +45,7 @@ contract MarkTrailAudit is Ownable2Step {
     error BatchAlreadyExists();
     error BatchNotFound();
     error InvalidStatus();
+    error OwnershipRenunciationDisabled();
 
     event LecturerUpdated(address indexed account, bool enabled);
     event ReviewerUpdated(address indexed account, bool enabled);
@@ -65,6 +66,10 @@ contract MarkTrailAudit is Ownable2Step {
     );
 
     constructor() Ownable(msg.sender) {}
+
+    function renounceOwnership() public view override onlyOwner {
+        revert OwnershipRenunciationDisabled();
+    }
 
     modifier onlyLecturer() {
         if (!lecturers[msg.sender]) revert NotLecturer();
