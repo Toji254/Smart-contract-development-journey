@@ -12,15 +12,7 @@ contract RoleActor {
         uint32 studentCount,
         bytes32 marksHash
     ) external returns (bool) {
-        try
-            target.submitBatch(
-                batchId,
-                courseId,
-                assessmentId,
-                studentCount,
-                marksHash
-            )
-        {
+        try target.submitBatch(batchId, courseId, assessmentId, studentCount, marksHash) {
             return true;
         } catch {
             return false;
@@ -35,12 +27,10 @@ contract RoleActor {
         }
     }
 
-    function amend(
-        MarkTrailAudit target,
-        bytes32 batchId,
-        bytes32 newMarksHash,
-        bytes32 reasonHash
-    ) external returns (bool) {
+    function amend(MarkTrailAudit target, bytes32 batchId, bytes32 newMarksHash, bytes32 reasonHash)
+        external
+        returns (bool)
+    {
         try target.amendBatch(batchId, newMarksHash, reasonHash) {
             return true;
         } catch {
@@ -48,11 +38,24 @@ contract RoleActor {
         }
     }
 
-    function transfer(
-        MarkTrailAudit target,
-        address newOwner
-    ) external returns (bool) {
+    function transfer(MarkTrailAudit target, address newOwner) external returns (bool) {
         try target.transferOwnership(newOwner) {
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    function acceptOwnership(MarkTrailAudit target) external returns (bool) {
+        try target.acceptOwnership() {
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    function setLecturer(MarkTrailAudit target, address account, bool enabled) external returns (bool) {
+        try target.setLecturer(account, enabled) {
             return true;
         } catch {
             return false;
@@ -84,14 +87,7 @@ contract MarkTrailAuditTest {
     }
 
     function _submit() internal {
-        bool succeeded = lecturer.submit(
-            audit,
-            BATCH_ID,
-            COURSE_ID,
-            ASSESSMENT_ID,
-            87,
-            HASH_V1
-        );
+        bool succeeded = lecturer.submit(audit, BATCH_ID, COURSE_ID, ASSESSMENT_ID, 87, HASH_V1);
         assert(succeeded);
     }
 
@@ -120,12 +116,7 @@ contract MarkTrailAuditTest {
         assert(revisionCount == 1);
         assert(audit.getRevisionCount(BATCH_ID) == 1);
 
-        (
-            bytes32 storedHash,
-            bytes32 reasonHash,
-            address actor,
-            uint64 timestamp
-        ) = audit.getCurrentRevision(BATCH_ID);
+        (bytes32 storedHash, bytes32 reasonHash, address actor, uint64 timestamp) = audit.getCurrentRevision(BATCH_ID);
 
         assert(storedHash == HASH_V1);
         assert(reasonHash == bytes32(0));
@@ -134,14 +125,7 @@ contract MarkTrailAuditTest {
     }
 
     function testUnauthorizedAccountsCannotSubmitOrVerify() public {
-        bool submitSucceeded = attacker.submit(
-            audit,
-            BATCH_ID,
-            COURSE_ID,
-            ASSESSMENT_ID,
-            87,
-            HASH_V1
-        );
+        bool submitSucceeded = attacker.submit(audit, BATCH_ID, COURSE_ID, ASSESSMENT_ID, 87, HASH_V1);
         assert(!submitSucceeded);
 
         bool verifySucceeded = attacker.verify(audit, BATCH_ID);
@@ -151,14 +135,7 @@ contract MarkTrailAuditTest {
     function testDuplicateBatchFails() public {
         _submit();
 
-        bool succeeded = lecturer.submit(
-            audit,
-            BATCH_ID,
-            COURSE_ID,
-            ASSESSMENT_ID,
-            87,
-            HASH_V2
-        );
+        bool succeeded = lecturer.submit(audit, BATCH_ID, COURSE_ID, ASSESSMENT_ID, 87, HASH_V2);
 
         assert(!succeeded);
     }
@@ -167,14 +144,7 @@ contract MarkTrailAuditTest {
         _submit();
         _verify();
 
-        (
-            ,
-            ,
-            ,
-            MarkTrailAudit.BatchStatus status,
-            ,
-            uint256 revisionCount
-        ) = audit.getBatch(BATCH_ID);
+        (,,, MarkTrailAudit.BatchStatus status,, uint256 revisionCount) = audit.getBatch(BATCH_ID);
 
         assert(status == MarkTrailAudit.BatchStatus.VERIFIED);
         assert(revisionCount == 1);
@@ -183,40 +153,22 @@ contract MarkTrailAuditTest {
     function testAmendmentRequiresVerificationAndPreservesHistory() public {
         _submit();
 
-        bool tooEarly = lecturer.amend(
-            audit,
-            BATCH_ID,
-            HASH_V2,
-            REASON
-        );
+        bool tooEarly = lecturer.amend(audit, BATCH_ID, HASH_V2, REASON);
         assert(!tooEarly);
 
         _verify();
 
-        bool amended = lecturer.amend(
-            audit,
-            BATCH_ID,
-            HASH_V2,
-            REASON
-        );
+        bool amended = lecturer.amend(audit, BATCH_ID, HASH_V2, REASON);
         assert(amended);
 
-        (
-            ,
-            ,
-            ,
-            MarkTrailAudit.BatchStatus status,
-            ,
-            uint256 revisionCount
-        ) = audit.getBatch(BATCH_ID);
+        (,,, MarkTrailAudit.BatchStatus status,, uint256 revisionCount) = audit.getBatch(BATCH_ID);
 
         assert(status == MarkTrailAudit.BatchStatus.AMENDED);
         assert(revisionCount == 2);
         assert(audit.getRevisionCount(BATCH_ID) == 2);
 
-        (bytes32 oldHash, , , ) = audit.getRevision(BATCH_ID, 0);
-        (bytes32 newHash, bytes32 reasonHash, address actor, ) =
-            audit.getRevision(BATCH_ID, 1);
+        (bytes32 oldHash,,,) = audit.getRevision(BATCH_ID, 0);
+        (bytes32 newHash, bytes32 reasonHash, address actor,) = audit.getRevision(BATCH_ID, 1);
 
         assert(oldHash == HASH_V1);
         assert(newHash == HASH_V2);
@@ -225,24 +177,10 @@ contract MarkTrailAuditTest {
     }
 
     function testInvalidInputFails() public {
-        bool zeroHash = lecturer.submit(
-            audit,
-            BATCH_ID,
-            COURSE_ID,
-            ASSESSMENT_ID,
-            87,
-            bytes32(0)
-        );
+        bool zeroHash = lecturer.submit(audit, BATCH_ID, COURSE_ID, ASSESSMENT_ID, 87, bytes32(0));
         assert(!zeroHash);
 
-        bool zeroCourse = lecturer.submit(
-            audit,
-            BATCH_ID,
-            bytes32(0),
-            ASSESSMENT_ID,
-            87,
-            HASH_V1
-        );
+        bool zeroCourse = lecturer.submit(audit, BATCH_ID, bytes32(0), ASSESSMENT_ID, 87, HASH_V1);
         assert(!zeroCourse);
     }
 
@@ -251,7 +189,12 @@ contract MarkTrailAuditTest {
         assert(!attackerTransfer);
 
         audit.transferOwnership(address(attacker));
+        assert(audit.owner() == address(this));
+        assert(audit.pendingOwner() == address(attacker));
+        assert(!attacker.setLecturer(audit, address(lecturer), false));
+        assert(attacker.acceptOwnership(audit));
         assert(audit.owner() == address(attacker));
+        assert(audit.pendingOwner() == address(0));
 
         bool originalOwnerRoleUpdate = false;
         try audit.setLecturer(address(lecturer), false) {
@@ -261,6 +204,15 @@ contract MarkTrailAuditTest {
         assert(!originalOwnerRoleUpdate);
     }
 
+    function testOwnerCanCancelPendingOwnershipTransfer() public {
+        audit.transferOwnership(address(attacker));
+        audit.transferOwnership(address(0));
+
+        assert(audit.owner() == address(this));
+        assert(audit.pendingOwner() == address(0));
+        assert(!attacker.acceptOwnership(audit));
+    }
+
     function testReviewerCanVerifyAfterAmendment() public {
         _submit();
         _verify();
@@ -268,14 +220,7 @@ contract MarkTrailAuditTest {
 
         assert(reviewer.verify(audit, BATCH_ID));
 
-        (
-            ,
-            ,
-            ,
-            MarkTrailAudit.BatchStatus status,
-            ,
-            uint256 revisionCount
-        ) = audit.getBatch(BATCH_ID);
+        (,,, MarkTrailAudit.BatchStatus status,, uint256 revisionCount) = audit.getBatch(BATCH_ID);
 
         assert(status == MarkTrailAudit.BatchStatus.VERIFIED);
         assert(revisionCount == 2);

@@ -80,6 +80,12 @@ It records:
 
 A real deployment would keep the actual marks in a protected application database and use the blockchain only as a tamper-evident audit layer.
 
+Contract administration uses OpenZeppelin's two-step ownership transfer: the proposed
+owner must call `acceptOwnership()` before control changes. Lecturer and reviewer
+permissions remain owner-managed allowlists through `setLecturer` and `setReviewer`.
+Existing deployed instances are not upgradeable; deploy the updated contract and
+configure the application to use its new address.
+
 ## Important security note
 
 A plain hash is not automatically private.

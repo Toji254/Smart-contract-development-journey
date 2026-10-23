@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+
 /// @title MarkTrailAudit
 /// @notice On-chain audit layer for academic mark batches.
 /// @dev Actual marks remain off-chain. The contract stores commitments and revision history.
-contract MarkTrailAudit {
+contract MarkTrailAudit is Ownable2Step {
     enum BatchStatus {
         NONE,
         SUBMITTED,
@@ -28,14 +31,11 @@ contract MarkTrailAudit {
         uint256 revisionCount;
     }
 
-    address public owner;
-
     mapping(address => bool) public lecturers;
     mapping(address => bool) public reviewers;
     mapping(bytes32 => Batch) private batches;
     mapping(bytes32 => Revision[]) private revisions;
 
-    error NotOwner();
     error NotLecturer();
     error NotReviewer();
     error ZeroAddress();
@@ -46,7 +46,6 @@ contract MarkTrailAudit {
     error BatchNotFound();
     error InvalidStatus();
 
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event LecturerUpdated(address indexed account, bool enabled);
     event ReviewerUpdated(address indexed account, bool enabled);
 
@@ -62,22 +61,10 @@ contract MarkTrailAudit {
     event BatchVerified(bytes32 indexed batchId, address indexed reviewer);
 
     event BatchAmended(
-        bytes32 indexed batchId,
-        bytes32 marksHash,
-        bytes32 reasonHash,
-        address amendedBy,
-        uint256 revision
+        bytes32 indexed batchId, bytes32 marksHash, bytes32 reasonHash, address amendedBy, uint256 revision
     );
 
-    constructor() {
-        owner = msg.sender;
-        emit OwnershipTransferred(address(0), msg.sender);
-    }
-
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
-        _;
-    }
+    constructor() Ownable(msg.sender) {}
 
     modifier onlyLecturer() {
         if (!lecturers[msg.sender]) revert NotLecturer();
@@ -87,13 +74,6 @@ contract MarkTrailAudit {
     modifier onlyReviewer() {
         if (!reviewers[msg.sender]) revert NotReviewer();
         _;
-    }
-
-    function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert ZeroAddress();
-        address previousOwner = owner;
-        owner = newOwner;
-        emit OwnershipTransferred(previousOwner, newOwner);
     }
 
     function setLecturer(address account, bool enabled) external onlyOwner {
@@ -119,11 +99,7 @@ contract MarkTrailAudit {
         uint32 studentCount,
         bytes32 marksHash
     ) external onlyLecturer {
-        if (
-            batchId == bytes32(0) ||
-            courseId == bytes32(0) ||
-            assessmentId == bytes32(0)
-        ) {
+        if (batchId == bytes32(0) || courseId == bytes32(0) || assessmentId == bytes32(0)) {
             revert EmptyIdentifier();
         }
 
@@ -143,21 +119,11 @@ contract MarkTrailAudit {
 
         revisions[batchId].push(
             Revision({
-                marksHash: marksHash,
-                reasonHash: bytes32(0),
-                actor: msg.sender,
-                timestamp: uint64(block.timestamp)
+                marksHash: marksHash, reasonHash: bytes32(0), actor: msg.sender, timestamp: uint64(block.timestamp)
             })
         );
 
-        emit BatchSubmitted(
-            batchId,
-            courseId,
-            assessmentId,
-            marksHash,
-            studentCount,
-            msg.sender
-        );
+        emit BatchSubmitted(batchId, courseId, assessmentId, marksHash, studentCount, msg.sender);
     }
 
     /// @notice Verify the current batch revision and make it eligible for publication.
@@ -166,10 +132,7 @@ contract MarkTrailAudit {
 
         if (batch.status == BatchStatus.NONE) revert BatchNotFound();
 
-        if (
-            batch.status != BatchStatus.SUBMITTED &&
-            batch.status != BatchStatus.AMENDED
-        ) {
+        if (batch.status != BatchStatus.SUBMITTED && batch.status != BatchStatus.AMENDED) {
             revert InvalidStatus();
         }
 
@@ -180,11 +143,7 @@ contract MarkTrailAudit {
 
     /// @notice Record a new commitment after a verified batch is changed.
     /// @dev The previous commitment remains queryable through getRevision.
-    function amendBatch(
-        bytes32 batchId,
-        bytes32 newMarksHash,
-        bytes32 reasonHash
-    ) external onlyLecturer {
+    function amendBatch(bytes32 batchId, bytes32 newMarksHash, bytes32 reasonHash) external onlyLecturer {
         Batch storage batch = batches[batchId];
 
         if (batch.status == BatchStatus.NONE) revert BatchNotFound();
@@ -197,25 +156,14 @@ contract MarkTrailAudit {
 
         revisions[batchId].push(
             Revision({
-                marksHash: newMarksHash,
-                reasonHash: reasonHash,
-                actor: msg.sender,
-                timestamp: uint64(block.timestamp)
+                marksHash: newMarksHash, reasonHash: reasonHash, actor: msg.sender, timestamp: uint64(block.timestamp)
             })
         );
 
-        emit BatchAmended(
-            batchId,
-            newMarksHash,
-            reasonHash,
-            msg.sender,
-            batch.revisionCount
-        );
+        emit BatchAmended(batchId, newMarksHash, reasonHash, msg.sender, batch.revisionCount);
     }
 
-    function getBatch(
-        bytes32 batchId
-    )
+    function getBatch(bytes32 batchId)
         external
         view
         returns (
@@ -231,14 +179,15 @@ contract MarkTrailAudit {
 
         if (batch.status == BatchStatus.NONE) revert BatchNotFound();
 
-        return (
-            batch.courseId,
-            batch.assessmentId,
-            batch.studentCount,
-            batch.status,
-            batch.submittedAt,
-            batch.revisionCount
-        );
+        return
+            (
+                batch.courseId,
+                batch.assessmentId,
+                batch.studentCount,
+                batch.status,
+                batch.submittedAt,
+                batch.revisionCount
+            );
     }
 
     function getRevisionCount(bytes32 batchId) external view returns (uint256) {
@@ -246,52 +195,27 @@ contract MarkTrailAudit {
         return revisions[batchId].length;
     }
 
-    function getRevision(
-        bytes32 batchId,
-        uint256 index
-    )
+    function getRevision(bytes32 batchId, uint256 index)
         external
         view
-        returns (
-            bytes32 marksHash,
-            bytes32 reasonHash,
-            address actor,
-            uint64 timestamp
-        )
+        returns (bytes32 marksHash, bytes32 reasonHash, address actor, uint64 timestamp)
     {
         if (batches[batchId].status == BatchStatus.NONE) revert BatchNotFound();
 
         Revision memory revision = revisions[batchId][index];
 
-        return (
-            revision.marksHash,
-            revision.reasonHash,
-            revision.actor,
-            revision.timestamp
-        );
+        return (revision.marksHash, revision.reasonHash, revision.actor, revision.timestamp);
     }
 
-    function getCurrentRevision(
-        bytes32 batchId
-    )
+    function getCurrentRevision(bytes32 batchId)
         external
         view
-        returns (
-            bytes32 marksHash,
-            bytes32 reasonHash,
-            address actor,
-            uint64 timestamp
-        )
+        returns (bytes32 marksHash, bytes32 reasonHash, address actor, uint64 timestamp)
     {
         if (batches[batchId].status == BatchStatus.NONE) revert BatchNotFound();
 
         Revision memory revision = revisions[batchId][revisions[batchId].length - 1];
 
-        return (
-            revision.marksHash,
-            revision.reasonHash,
-            revision.actor,
-            revision.timestamp
-        );
+        return (revision.marksHash, revision.reasonHash, revision.actor, revision.timestamp);
     }
 }
