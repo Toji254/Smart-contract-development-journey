@@ -1997,116 +1997,105 @@ class AppService:
             raise AppError("Batch not found.", 404)
 
         try:
-            # Check if the on-chain revision already matches local state
+            local_rev = int(batch["revision"])
+            revision_conn = self.db.connect()
+            try:
+                revisions = revision_conn.execute(
+                    """
+                    SELECT revision, marks_hash, reason_hash
+                    FROM batch_revisions
+                    WHERE batch_id = ?
+                    ORDER BY revision
+                    """,
+                    (batch_id,),
+                ).fetchall()
+            finally:
+                revision_conn.close()
+
+            if len(revisions) != local_rev or any(
+                int(revision["revision"]) != index
+                for index, revision in enumerate(revisions, start=1)
+            ):
+                raise ChainError("Local batch revision history is incomplete.")
+
             reconcile = self.chain.reconcile(
                 batch_id,
-                int(batch["revision"]),
+                local_rev,
                 batch["marks_hash"],
             )
-            if reconcile.get("match"):
-                tx_hash = batch["chain_tx_hash"]
-                if batch["status"] == "VERIFIED":
-                    try:
-                        v_tx = self.chain.verify_batch(batch_id)
-                        tx_hash = v_tx or tx_hash
-                    except ChainError:
-                        pass
-                self._set_chain_state(
-                    batch_id,
-                    int(batch["revision"]),
-                    "CONFIRMED",
-                    tx_hash,
-                    "CHAIN_RECONCILED_CONFIRMED",
-                    {"reconcile": reconcile},
+            if reconcile.get("status") == "CHAIN_ERROR":
+                raise ChainError(reconcile.get("reason", "Unable to inspect on-chain history."))
+
+            chain_rev = int(reconcile.get("chain_revision", 0))
+            if chain_rev > local_rev:
+                raise ChainError(
+                    f"On-chain history has {chain_rev} revisions but local history has {local_rev}."
                 )
-                return {
-                    "batch_id": batch_id,
-                    "chain_state": "CONFIRMED",
-                    "chain_tx_hash": tx_hash,
-                    "reconciled": True,
-                }
 
-            chain_rev = reconcile.get("chain_revision", 0)
-            local_rev = int(batch["revision"])
+            chain_status = None
+            if chain_rev:
+                for index in range(chain_rev):
+                    chain_hash = self.chain.get_revision_hash(batch_id, index)
+                    if chain_hash.lower() != revisions[index]["marks_hash"].lower():
+                        raise ChainError(
+                            f"On-chain revision {index + 1} does not match local history."
+                        )
+                chain_status = self.chain.get_batch_status(batch_id)
+                if chain_status == 0:
+                    raise ChainError("On-chain batch status is missing despite its revision history.")
 
-            if local_rev == 1 and chain_rev == 0:
+            tx_hash = batch["chain_tx_hash"]
+            needs_chain_recovery = chain_rev < local_rev
+            if chain_rev == 0:
                 tx_hash = self.chain.submit_batch(
                     batch_id,
                     batch["course_id"],
                     batch["assessment_id"],
                     int(batch["student_count"]),
-                    batch["marks_hash"],
+                    revisions[0]["marks_hash"],
                 )
-                action = "CHAIN_SUBMISSION_RETRIED"
-            elif local_rev > 1 and chain_rev == local_rev - 1:
-                revision_conn = self.db.connect()
-                try:
-                    revision = revision_conn.execute(
-                        """
-                        SELECT reason_hash FROM batch_revisions
-                        WHERE batch_id = ? AND revision = ?
-                        """,
-                        (batch_id, batch["revision"]),
-                    ).fetchone()
-                finally:
-                    revision_conn.close()
+                chain_rev = 1
+                chain_status = 1
 
+            while chain_rev < local_rev:
+                if chain_status != 2:
+                    tx_hash = self.chain.verify_batch(batch_id)
+                    chain_status = 2
+                revision = revisions[chain_rev]
                 tx_hash = self.chain.amend_batch(
                     batch_id,
-                    batch["marks_hash"],
+                    revision["marks_hash"],
                     revision["reason_hash"],
                 )
-                action = "CHAIN_AMENDMENT_RETRIED"
-            elif chain_rev == local_rev and batch["status"] == "VERIFIED":
-                tx_hash = self.chain.verify_batch(batch_id)
-                action = "CHAIN_VERIFICATION_RETRIED"
-            else:
-                if local_rev == 1:
-                    tx_hash = self.chain.submit_batch(
-                        batch_id,
-                        batch["course_id"],
-                        batch["assessment_id"],
-                        int(batch["student_count"]),
-                        batch["marks_hash"],
-                    )
-                    action = "CHAIN_SUBMISSION_RETRIED"
-                else:
-                    revision_conn = self.db.connect()
-                    try:
-                        revision = revision_conn.execute(
-                            """
-                            SELECT reason_hash FROM batch_revisions
-                            WHERE batch_id = ? AND revision = ?
-                            """,
-                            (batch_id, batch["revision"]),
-                        ).fetchone()
-                    finally:
-                        revision_conn.close()
-                    tx_hash = self.chain.amend_batch(
-                        batch_id,
-                        batch["marks_hash"],
-                        revision["reason_hash"],
-                    )
-                    action = "CHAIN_AMENDMENT_RETRIED"
+                chain_rev += 1
+                chain_status = 3
 
-            if batch["status"] == "VERIFIED":
-                try:
-                    v_tx = self.chain.verify_batch(batch_id)
-                    tx_hash = v_tx or tx_hash
-                except ChainError as v_exc:
-                    log.warning("Follow-up verifyBatch failed: %s", v_exc)
+            if batch["status"] == "VERIFIED" and chain_status != 2:
+                tx_hash = self.chain.verify_batch(batch_id) or tx_hash
+                chain_status = 2
 
+            action = (
+                "CHAIN_HISTORY_RECOVERED"
+                if chain_rev > 1 and reconcile.get("chain_revision", 0) == 0
+                else "CHAIN_RECONCILED_CONFIRMED"
+                if reconcile.get("match")
+                else "CHAIN_SUBMISSION_RETRIED"
+                if local_rev == 1
+                else "CHAIN_AMENDMENT_RETRIED"
+            )
             self._set_chain_state(
                 batch_id,
-                int(batch["revision"]),
+                local_rev,
                 "CONFIRMED",
                 tx_hash,
                 action,
+                {"local_revision": local_rev, "previous_chain_revision": reconcile.get("chain_revision", 0)},
             )
             return {
                 "batch_id": batch_id,
                 "chain_state": "CONFIRMED",
                 "chain_tx_hash": tx_hash,
+                "reconciled": bool(reconcile.get("match")),
             }
         except ChainError as exc:
             self._set_chain_state(

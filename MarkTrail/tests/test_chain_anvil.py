@@ -210,6 +210,7 @@ class AnvilIntegrationTests(unittest.TestCase):
         # 2. Check on-chain state
         rev_count = self.chain.get_revision_count(batch_id)
         self.assertEqual(rev_count, 1)
+        self.assertEqual(self.chain.get_batch_status(batch_id), 1)
 
         conn = self.db.connect()
         try:
@@ -228,6 +229,7 @@ class AnvilIntegrationTests(unittest.TestCase):
         self.assertEqual(v_res["status"], "VERIFIED")
         self.assertEqual(v_res["chain_state"], "CONFIRMED")
         self.assertTrue(v_res["chain_tx_hash"].startswith("0x"))
+        self.assertEqual(self.chain.get_batch_status(batch_id), 2)
 
         # 4. Exam office processes revision 1
         exo_res1 = self.service.process_exam_office_batch(user_id=3, batch_id=batch_id)
@@ -259,6 +261,7 @@ class AnvilIntegrationTests(unittest.TestCase):
         # 8. Verify on-chain has revision 2 and reconcile matches revision 2
         rev_count_2 = self.chain.get_revision_count(batch_id)
         self.assertEqual(rev_count_2, 2)
+        self.assertEqual(self.chain.get_batch_status(batch_id), 3)
 
         conn = self.db.connect()
         try:
@@ -304,3 +307,71 @@ class AnvilIntegrationTests(unittest.TestCase):
         self.assertEqual(marks_rows[1]["published_mark"], 28.0)
         self.assertEqual(marks_rows[2]["published_mark"], 22.0)
         self.assertEqual(marks_rows[2]["published_status"], "RECORDED")
+
+    def test_retry_rebuilds_missing_chain_history_before_amendment(self):
+        now = utc_now()
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO assessments (id, course_id, name, max_mark, created_at)
+                VALUES ('assess-recovery', 'course-cs101', 'Recovery CAT', 30, ?)
+                """,
+                (now,),
+            )
+
+        self.service.chain = ChainClient()
+        self.service.chain.config = ChainConfig(
+            mode="off",
+            rpc_url=None,
+            contract=None,
+            private_key=None,
+        )
+        submitted = self.service.submit_batch(
+            user_id=1,
+            assessment_id="assess-recovery",
+            csv_text="registration_number,mark\nSCT/001/2025,24\nSCT/002/2025,28\n",
+        )
+        self.service.verify_batch(2, submitted["batch_id"])
+        self.service.process_exam_office_batch(3, submitted["batch_id"])
+        self.service.publish_portal_batch(4, submitted["batch_id"])
+
+        report = self.service.report_missing_mark(8, "assess-recovery")
+        amended = self.service.resolve_report(
+            1,
+            report["id"],
+            "MARK_ENTERED",
+            22,
+            "Recovered from the answer script.",
+        )
+        self.service.chain = self.chain
+
+        recovered = self.service.retry_chain(2, submitted["batch_id"])
+
+        self.assertEqual(recovered["chain_state"], "CONFIRMED")
+        self.assertEqual(self.chain.get_revision_count(submitted["batch_id"]), 2)
+        self.assertEqual(self.chain.get_batch_status(submitted["batch_id"]), 3)
+        self.assertEqual(
+            self.chain.get_revision_hash(submitted["batch_id"], 0),
+            self._revision_hash(submitted["batch_id"], 1),
+        )
+        self.assertEqual(
+            self.chain.get_revision_hash(submitted["batch_id"], 1),
+            self._revision_hash(submitted["batch_id"], 2),
+        )
+
+        verified = self.service.verify_batch(2, amended["batch_id"])
+        self.assertEqual(verified["status"], "VERIFIED")
+        self.assertEqual(self.chain.get_batch_status(submitted["batch_id"]), 2)
+
+    def _revision_hash(self, batch_id: str, revision: int) -> str:
+        conn = self.db.connect()
+        try:
+            return conn.execute(
+                """
+                SELECT marks_hash FROM batch_revisions
+                WHERE batch_id = ? AND revision = ?
+                """,
+                (batch_id, revision),
+            ).fetchone()["marks_hash"]
+        finally:
+            conn.close()

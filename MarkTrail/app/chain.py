@@ -220,6 +220,12 @@ class ChainClient:
             raise ChainError(f"Could not parse revision hash: {output}")
         return match.group(0)
 
+    def get_batch_status(self, batch_id: str) -> int:
+        output = self.call("getBatch(bytes32)", batch_id).strip()
+        if not re.fullmatch(r"0x[a-fA-F0-9]{384}", output):
+            raise ChainError(f"Could not decode batch status from getBatch: {output}")
+        return int(output[2 + 64 * 3 : 2 + 64 * 4], 16)
+
     def reconcile(self, batch_id: str, local_revision: int, local_hash: str) -> dict:
         if not self.enabled:
             return {

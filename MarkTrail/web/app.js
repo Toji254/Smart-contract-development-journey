@@ -331,14 +331,23 @@ async function loadLecturer() {
   state.batches = batchesData.batches;
   state.reports = reportsData.reports;
 
-  $("#lecturer-assessment").innerHTML = state.assessments
-    .map((a) => {
-      const suffix = a.batch_id
-        ? " · " + a.batch_status + " · revision " + a.revision
-        : " · not submitted";
-      return '<option value="' + esc(a.id) + '"' + (a.batch_id ? " disabled" : "") + ">" + esc(a.course + " · " + a.name + suffix) + "</option>";
-    })
-    .join("");
+  const availableAssessments = state.assessments.filter((assessment) => !assessment.batch_id);
+  $("#lecturer-assessment").innerHTML = availableAssessments.length
+    ? '<option value="">Choose an unsubmitted assessment</option>' +
+      availableAssessments
+        .map((assessment) =>
+          '<option value="' + esc(assessment.id) + '">' +
+          esc(assessment.course + " · " + assessment.name) +
+          "</option>"
+        )
+        .join("")
+    : '<option value="">No unsubmitted assessments</option>';
+  $("#lecturer-assessment").disabled = availableAssessments.length === 0;
+  $("#assessment-help").textContent = availableAssessments.length
+    ? "Choose an assessment that has not been submitted yet. To correct a published batch, use the missing-mark issue workflow."
+    : "There are no unsubmitted assessments for your courses. Ask an administrator to create an assessment before uploading marks.";
+  $("#preview-batch").disabled = availableAssessments.length === 0;
+  $("#submit-batch").disabled = availableAssessments.length === 0;
 
   // Render reports with inline forms instead of window.prompt
   $("#lecturer-reports").innerHTML =
@@ -470,6 +479,14 @@ async function resolveReport(reportId, resolutionType, mark, note) {
     await loadDashboard();
   } catch (error) {
     toast(error.message, "error");
+    if (error.status === 502) {
+      try {
+        await loadLecturer();
+        await loadDashboard();
+      } catch (refreshError) {
+        toast("The saved resolution could not be refreshed: " + refreshError.message, "error");
+      }
+    }
   }
 }
 

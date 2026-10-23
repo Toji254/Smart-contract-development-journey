@@ -26,6 +26,57 @@ class FakeChain:
         }
 
 
+class RecoverableChain(FakeChain):
+    enabled = True
+
+    def __init__(self):
+        self.revisions = {}
+        self.operations = []
+        self.statuses = {}
+
+    def reconcile(self, batch_id, local_revision, local_hash):
+        revisions = self.revisions.get(batch_id, [])
+        chain_hash = revisions[-1] if revisions else None
+        match = (
+            len(revisions) == local_revision
+            and chain_hash is not None
+            and chain_hash.lower() == local_hash.lower()
+        )
+        return {
+            "status": "MATCH" if match else "NOT_ON_CHAIN" if not revisions else "MISMATCH",
+            "match": match,
+            "local_revision": local_revision,
+            "chain_revision": len(revisions),
+            "local_hash": local_hash,
+            "chain_hash": chain_hash,
+        }
+
+    def get_revision_hash(self, batch_id, revision_index):
+        return self.revisions[batch_id][revision_index]
+
+    def get_batch_status(self, batch_id):
+        return self.statuses[batch_id]
+
+    def submit_batch(self, batch_id, course_id, assessment_id, student_count, marks_hash):
+        self.operations.append(("submit", batch_id, marks_hash))
+        self.revisions[batch_id] = [marks_hash]
+        self.statuses[batch_id] = 1
+        return "0x" + "11" * 32
+
+    def verify_batch(self, batch_id):
+        self.operations.append(("verify", batch_id))
+        self.statuses[batch_id] = 2
+        return "0x" + "33" * 32
+
+    def amend_batch(self, batch_id, marks_hash, reason_hash):
+        if self.statuses[batch_id] != 2:
+            raise AssertionError("amendment requires the preceding revision to be verified")
+        self.operations.append(("amend", batch_id, marks_hash, reason_hash))
+        self.revisions[batch_id].append(marks_hash)
+        self.statuses[batch_id] = 3
+        return "0x" + "22" * 32
+
+
 class MarkTrailTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -318,6 +369,55 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(preview["enrolled_count"], 2)
         self.assertEqual(preview["submitted_count"], 1)
         self.assertEqual(preview["missing_count"], 1)
+
+    def test_demo_seed_has_an_unsubmitted_assessment_for_lecturer(self):
+        assessments = self.service.lecturer_assessments(self.lecturer["id"])
+        available = [assessment for assessment in assessments if not assessment["batch_id"]]
+
+        self.assertEqual(len(available), 1)
+        self.assertEqual(available[0]["id"], "assessment-demo-upload")
+
+    def test_chain_retry_replays_submission_before_amendment(self):
+        report = self.service.report_missing_mark(
+            self.student["id"], self.assessment["id"]
+        )
+        amendment = self.service.resolve_report(
+            self.lecturer["id"],
+            report["id"],
+            "MARK_ENTERED",
+            17,
+            "Recovered mark from the answer script.",
+        )
+        chain = RecoverableChain()
+        self.service.chain = chain
+
+        result = self.service.retry_chain(self.reviewer["id"], amendment["batch_id"])
+
+        conn = self.db.connect()
+        batch = conn.execute(
+            "SELECT revision, chain_state FROM batches WHERE id = ?",
+            (amendment["batch_id"],),
+        ).fetchone()
+        revisions = conn.execute(
+            """
+            SELECT revision, marks_hash
+            FROM batch_revisions
+            WHERE batch_id = ?
+            ORDER BY revision
+            """,
+            (amendment["batch_id"],),
+        ).fetchall()
+        conn.close()
+
+        self.assertEqual(
+            [operation[0] for operation in chain.operations],
+            ["submit", "verify", "amend"],
+        )
+        self.assertEqual(chain.operations[0][2], revisions[0]["marks_hash"])
+        self.assertEqual(chain.operations[2][2], revisions[1]["marks_hash"])
+        self.assertEqual(batch["revision"], 2)
+        self.assertEqual(batch["chain_state"], "CONFIRMED")
+        self.assertEqual(result["chain_state"], "CONFIRMED")
 
     def test_lecturer_can_submit_new_batch(self):
         self._create_fresh_assessment()

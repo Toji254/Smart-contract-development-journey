@@ -91,6 +91,7 @@ body {
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
+button:disabled, select:disabled { cursor: not-allowed; opacity: .6; }
 code { font-family: "SFMono-Regular", "Cascadia Code", Consolas, monospace; font-size: .88em; }
 img { max-width: 100%; display: block; }
 a { color: var(--accent); }

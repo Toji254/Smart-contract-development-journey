@@ -541,6 +541,11 @@ portal_operator / portal123
 admin / admin123
 ~~~
 
+The demo course includes a fresh assessment named `CAT 3 (Ready to upload)` so
+the lecturer can try CSV validation and batch submission immediately. CSV files
+use the headers `registration_number,mark`; students omitted from a valid CSV
+are recorded as missing.
+
 The server defaults to no demo data and HTTPS-only session cookies. The
 command above explicitly opts into synthetic demo accounts and an insecure
 cookie for local HTTP only. Never use demo accounts or disable secure cookies

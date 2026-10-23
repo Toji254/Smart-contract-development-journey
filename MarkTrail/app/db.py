@@ -423,6 +423,7 @@ class Database:
                 ("assessment-cat1", "CAT 1", 20),
                 ("assessment-cat2", "CAT 2", 20),
                 ("assessment-exam", "Final Exam", 60),
+                ("assessment-demo-upload", "CAT 3 (Ready to upload)", 20),
             ]
 
             for assessment_id, name, max_mark in assessments:
