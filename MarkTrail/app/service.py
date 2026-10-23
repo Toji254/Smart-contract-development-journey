@@ -2348,6 +2348,7 @@ class AppService:
             **result,
             "status": "MATCH",
             "match": True,
+            "on_chain": True,
             "local_status": batch["status"],
             "chain_status": chain_status,
         }

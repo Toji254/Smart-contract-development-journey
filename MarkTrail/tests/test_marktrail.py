@@ -976,6 +976,7 @@ class MarkTrailTests(unittest.TestCase):
         matched = self.service.reconcile_batch(self.admin["id"], batch_id)
         self.assertEqual(matched["status"], "MATCH")
         self.assertTrue(matched["match"])
+        self.assertTrue(matched["on_chain"])
 
         with self.db.transaction() as tx:
             tx.execute(
