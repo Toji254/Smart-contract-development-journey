@@ -10,7 +10,7 @@ import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from .chain import ChainClient, ChainError, ChainPendingError
+from .chain import ChainClient, ChainError, ChainPendingError, bytes32_hash
 from .db import Database, utc_now
 
 
@@ -1225,7 +1225,14 @@ class AppService:
             f"batch:{assessment_id}:{secrets.token_hex(16)}".encode("utf-8")
         ).hexdigest()
         salt = secrets.token_hex(16)
-        canonical_rows = sorted(preview["rows"], key=lambda item: item["student_id"])
+        canonical_rows = [
+            {
+                "student_id": item["student_id"],
+                "mark": item["mark"],
+                "status": item["status"],
+            }
+            for item in preview["rows"]
+        ]
         submitted_ids = {item["student_id"] for item in canonical_rows}
 
         for missing in preview["missing_students"]:
@@ -1270,10 +1277,20 @@ class AppService:
             conn.execute(
                 """
                 INSERT INTO batch_revisions
-                (batch_id, revision, marks_hash, reason_hash, kind, actor_id, chain_state, created_at)
-                VALUES (?, 1, ?, ?, 'SUBMISSION', ?, ?, ?)
+                (batch_id, revision, marks_hash, reason_hash, commitment_salt,
+                 canonical_marks, kind, actor_id, chain_state, created_at)
+                VALUES (?, 1, ?, ?, ?, ?, 'SUBMISSION', ?, ?, ?)
                 """,
-                (batch_id, marks_hash, reason_hash, user_id, chain_state, now),
+                (
+                    batch_id,
+                    marks_hash,
+                    reason_hash,
+                    salt,
+                    canonical,
+                    user_id,
+                    chain_state,
+                    now,
+                ),
             )
 
             for student in preview["missing_students"]:
@@ -1371,6 +1388,7 @@ class AppService:
         tx_hash: str | None,
         action: str,
         extra: dict | None = None,
+        update_revision: bool = True,
     ) -> None:
         with self.db.transaction() as conn:
             conn.execute(
@@ -1381,14 +1399,15 @@ class AppService:
                 """,
                 (state, tx_hash, batch_id),
             )
-            conn.execute(
-                """
-                UPDATE batch_revisions
-                SET chain_state = ?, chain_tx_hash = COALESCE(?, chain_tx_hash)
-                WHERE batch_id = ? AND revision = ?
-                """,
-                (state, tx_hash, batch_id, revision),
-            )
+            if update_revision:
+                conn.execute(
+                    """
+                    UPDATE batch_revisions
+                    SET chain_state = ?, chain_tx_hash = COALESCE(?, chain_tx_hash)
+                    WHERE batch_id = ? AND revision = ?
+                    """,
+                    (state, tx_hash, batch_id, revision),
+                )
             self._audit(
                 conn,
                 "BATCH",
@@ -1396,6 +1415,65 @@ class AppService:
                 None,
                 action,
                 extra or {},
+                chain_tx_hash=tx_hash,
+            )
+
+    def _checkpoint_recovered_revision(
+        self,
+        batch_id: str,
+        revision: int,
+        tx_hash: str,
+    ) -> None:
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE batches
+                SET chain_state = 'PENDING', chain_tx_hash = ?
+                WHERE id = ?
+                """,
+                (tx_hash, batch_id),
+            )
+            conn.execute(
+                """
+                UPDATE batch_revisions
+                SET chain_state = 'CONFIRMED', chain_tx_hash = ?
+                WHERE batch_id = ? AND revision = ?
+                """,
+                (tx_hash, batch_id, revision),
+            )
+            self._audit(
+                conn,
+                "BATCH",
+                batch_id,
+                None,
+                "CHAIN_REVISION_RECOVERY_CHECKPOINTED",
+                {"revision": revision},
+                chain_tx_hash=tx_hash,
+            )
+
+    def _checkpoint_recovered_action(
+        self,
+        batch_id: str,
+        tx_hash: str,
+        action: str,
+        metadata: dict,
+    ) -> None:
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE batches
+                SET chain_state = 'PENDING', chain_tx_hash = ?
+                WHERE id = ?
+                """,
+                (tx_hash, batch_id),
+            )
+            self._audit(
+                conn,
+                "BATCH",
+                batch_id,
+                None,
+                action,
+                metadata,
                 chain_tx_hash=tx_hash,
             )
 
@@ -1604,14 +1682,17 @@ class AppService:
             tx.execute(
                 """
                 INSERT INTO batch_revisions
-                (batch_id, revision, marks_hash, reason_hash, kind, actor_id, chain_state, created_at)
-                VALUES (?, ?, ?, ?, 'AMENDMENT', ?, ?, ?)
+                (batch_id, revision, marks_hash, reason_hash, commitment_salt,
+                 canonical_marks, kind, actor_id, chain_state, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'AMENDMENT', ?, ?, ?)
                 """,
                 (
                     report["batch_id"],
                     new_revision,
                     new_hash,
                     reason_hash,
+                    salt,
+                    canonical,
                     user_id,
                     chain_state,
                     now,
@@ -2022,16 +2103,32 @@ class AppService:
         try:
             batch = conn.execute(
                 """
-                SELECT id, revision, marks_hash, status, chain_state
-                FROM batches WHERE id = ?
+                SELECT b.id, b.revision, b.marks_hash, b.status, b.chain_state,
+                       b.commitment_salt, b.student_count, b.assessment_id,
+                       a.course_id
+                FROM batches b
+                JOIN assessments a ON a.id = b.assessment_id
+                WHERE b.id = ?
                 """,
                 (batch_id,),
             ).fetchone()
             revisions = conn.execute(
                 """
-                SELECT revision, marks_hash, reason_hash
+                SELECT revision, marks_hash, reason_hash, commitment_salt,
+                       canonical_marks
                 FROM batch_revisions WHERE batch_id = ?
                 ORDER BY revision
+                """,
+                (batch_id,),
+            ).fetchall()
+            mark_rows = conn.execute(
+                """
+                SELECT m.student_id, m.candidate_mark AS mark,
+                       m.candidate_status AS status, u.reg_number
+                FROM assessment_marks m
+                JOIN users u ON u.id = m.student_id
+                WHERE m.batch_id = ?
+                ORDER BY m.student_id
                 """,
                 (batch_id,),
             ).fetchall()
@@ -2062,6 +2159,74 @@ class AppService:
                 "match": False,
                 "reason": "The batch does not match its complete local revision history.",
             }
+
+        canonical_forms = [
+            [
+                {
+                    "student_id": int(mark["student_id"]),
+                    "mark": mark["mark"],
+                    "status": mark["status"],
+                }
+                for mark in mark_rows
+            ],
+            [
+                {
+                    "student_id": int(mark["student_id"]),
+                    "registration_number": (mark["reg_number"] or "").strip().upper(),
+                    "mark": mark["mark"],
+                    "status": mark["status"],
+                }
+                if mark["status"] == "RECORDED"
+                else {
+                    "student_id": int(mark["student_id"]),
+                    "mark": mark["mark"],
+                    "status": mark["status"],
+                }
+                for mark in mark_rows
+            ],
+        ]
+        canonical_marks = [
+            json.dumps(form, sort_keys=True, separators=(",", ":"))
+            for form in canonical_forms
+        ]
+        if len(mark_rows) != int(batch["student_count"]):
+            return {
+                "status": "MARK_COUNT_MISMATCH",
+                "match": False,
+                "reason": "The saved marks no longer contain the committed number of students.",
+            }
+
+        for index, revision in enumerate(revisions):
+            snapshot = revision["canonical_marks"]
+            salt = revision["commitment_salt"]
+            if not snapshot or not salt:
+                return {
+                    "status": "REVISION_SNAPSHOT_UNAVAILABLE",
+                    "match": False,
+                    "reason": (
+                        f"The saved mark snapshot for revision {index + 1} is unavailable; "
+                        "the complete commitment history cannot be verified."
+                    ),
+                }
+            snapshot_hash = "0x" + hashlib.sha256(
+                (salt + "|" + snapshot).encode("utf-8")
+            ).hexdigest()
+            if snapshot_hash.lower() != revision["marks_hash"].lower():
+                return {
+                    "status": "REVISION_COMMITMENT_MISMATCH",
+                    "match": False,
+                    "reason": f"The saved mark snapshot for revision {index + 1} does not match its commitment.",
+                }
+            if index == len(revisions) - 1 and (
+                salt != batch["commitment_salt"]
+                or snapshot not in canonical_marks
+                or snapshot_hash.lower() != batch["marks_hash"].lower()
+            ):
+                return {
+                    "status": "CURRENT_MARKS_MISMATCH",
+                    "match": False,
+                    "reason": "The current marks no longer match the latest saved commitment.",
+                }
 
         if not self.chain.enabled:
             return {
@@ -2097,7 +2262,7 @@ class AppService:
                         "reason": f"On-chain revision {index + 1} differs from local history.",
                     }
 
-            chain_status = self.chain.get_batch_status(batch_id)
+            chain_batch = self.chain.get_batch_details(batch_id)
         except ChainError as exc:
             return {
                 **result,
@@ -2106,11 +2271,24 @@ class AppService:
                 "reason": str(exc),
             }
 
-        expected_status = {
-            "SUBMITTED": 1,
-            "VERIFIED": 2,
-            "AMENDED": 3,
-        }.get(batch["status"])
+        expected_metadata = {
+            "course_id": bytes32_hash(batch["course_id"]),
+            "assessment_id": bytes32_hash(batch["assessment_id"]),
+            "student_count": int(batch["student_count"]),
+        }
+        mismatched_metadata = any(
+            chain_batch.get(key) != value
+            for key, value in expected_metadata.items()
+        )
+        if mismatched_metadata:
+            return {
+                **result,
+                "status": "BATCH_METADATA_MISMATCH",
+                "match": False,
+                "reason": "On-chain course, assessment, or student-count details differ from the application record.",
+            }
+
+        chain_status = chain_batch["status"]
         if chain_status != expected_status:
             return {
                 **result,
@@ -2155,6 +2333,7 @@ class AppService:
         if not batch:
             raise AppError("Batch not found.", 404)
 
+        pending_revision: int | None = None
         try:
             if batch["chain_tx_hash"]:
                 previous_tx = batch["chain_tx_hash"]
@@ -2241,6 +2420,7 @@ class AppService:
 
             tx_hash = batch["chain_tx_hash"]
             if chain_rev == 0:
+                pending_revision = 1
                 tx_hash = self.chain.submit_batch(
                     batch_id,
                     batch["course_id"],
@@ -2248,20 +2428,36 @@ class AppService:
                     int(batch["student_count"]),
                     revisions[0]["marks_hash"],
                 )
+                self._checkpoint_recovered_revision(batch_id, 1, tx_hash)
+                pending_revision = None
                 chain_rev = 1
                 chain_status = 1
                 revision_tx_hashes[0] = tx_hash
 
             while chain_rev < local_rev:
                 if chain_status != 2:
+                    pending_revision = None
                     tx_hash = self.chain.verify_batch(batch_id)
+                    self._checkpoint_recovered_action(
+                        batch_id,
+                        tx_hash,
+                        "CHAIN_RECOVERY_VERIFICATION_CONFIRMED",
+                        {"before_revision": chain_rev + 1},
+                    )
                     chain_status = 2
                 revision = revisions[chain_rev]
+                pending_revision = chain_rev + 1
                 tx_hash = self.chain.amend_batch(
                     batch_id,
                     revision["marks_hash"],
                     revision["reason_hash"],
                 )
+                self._checkpoint_recovered_revision(
+                    batch_id,
+                    chain_rev + 1,
+                    tx_hash,
+                )
+                pending_revision = None
                 revision_tx_hashes[chain_rev] = tx_hash
                 chain_rev += 1
                 chain_status = 3
@@ -2277,7 +2473,14 @@ class AppService:
                 batch["status"] == "VERIFIED"
                 and chain_status in {1, 3}
             ):
+                pending_revision = None
                 tx_hash = self.chain.verify_batch(batch_id)
+                self._checkpoint_recovered_action(
+                    batch_id,
+                    tx_hash,
+                    "CHAIN_RECOVERY_VERIFICATION_CONFIRMED",
+                    {"revision": local_rev},
+                )
                 chain_status = 2
             elif chain_status != expected_status:
                 raise ChainError(
@@ -2317,11 +2520,12 @@ class AppService:
             pending = isinstance(exc, ChainPendingError)
             self._set_chain_state(
                 batch_id,
-                int(batch["revision"]),
+                pending_revision or int(batch["revision"]),
                 "PENDING" if pending else "ERROR",
                 getattr(exc, "tx_hash", None),
                 "CHAIN_RETRY_PENDING" if pending else "CHAIN_RETRY_FAILED",
                 {"error": str(exc)},
+                update_revision=not (pending and pending_revision is None),
             )
             raise AppError("Chain retry failed: " + str(exc), 502)
 
@@ -2715,7 +2919,6 @@ class AppService:
         user_id: int,
         course_id: str,
         csv_text: str,
-        default_password: str = "ChangeMe123",
         access_until: str | None = None,
     ) -> dict:
         """Bulk create + enroll students from a CSV.
@@ -2725,7 +2928,7 @@ class AppService:
             full_name  – student's full name
             username   – login username (optional; defaults to reg_number with / replaced by -)
 
-        Returns counts: enrolled, created, skipped (already enrolled).
+        Returns counts and one-time activation credentials for new accounts.
         """
         self.require_role(user_id, {"admin"})
         access_until = self._validate_access_until(access_until)
@@ -2771,6 +2974,7 @@ class AppService:
         created = 0
         skipped = 0
         errors: list[str] = []
+        credentials: list[dict[str, str]] = []
         now = utc_now()
         seen_registrations: set[str] = set()
         seen_usernames: set[str] = set()
@@ -2806,6 +3010,7 @@ class AppService:
             try:
                 row_created = False
                 row_enrolled = False
+                activation_password: str | None = None
                 with self.db.transaction() as tx:
                     matches = tx.execute(
                         """
@@ -2850,7 +3055,8 @@ class AppService:
                                 f"Row {index}: provide a graduation or access end date for new students."
                             )
                             continue
-                        salt, digest = hash_password(default_password)
+                        activation_password = secrets.token_urlsafe(24)
+                        salt, digest = hash_password(activation_password)
                         cur = tx.execute(
                             """
                             INSERT INTO users
@@ -2878,6 +3084,14 @@ class AppService:
                         row_enrolled = True
                 created += int(row_created)
                 enrolled += int(row_enrolled)
+                if row_created and activation_password:
+                    credentials.append(
+                        {
+                            "username": uname,
+                            "full_name": full,
+                            "activation_password": activation_password,
+                        }
+                    )
             except Exception as exc:
                 if "UNIQUE" in str(exc).upper():
                     errors.append(f"Row {index}: username conflict for {uname!r}.")
@@ -2892,6 +3106,7 @@ class AppService:
             "created": created,
             "skipped": skipped,
             "errors": errors,
+            "credentials": credentials,
         }
 
     def change_password(

@@ -193,6 +193,20 @@ class Database:
                     "ALTER TABLE assessments ADD COLUMN submission_deadline TEXT"
                 )
 
+            revisions_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(batch_revisions)").fetchall()
+            }
+            if revisions_cols:
+                if "commitment_salt" not in revisions_cols:
+                    conn.execute(
+                        "ALTER TABLE batch_revisions ADD COLUMN commitment_salt TEXT"
+                    )
+                if "canonical_marks" not in revisions_cols:
+                    conn.execute(
+                        "ALTER TABLE batch_revisions ADD COLUMN canonical_marks TEXT"
+                    )
+
             conn.commit()
         except Exception:
             conn.rollback()
@@ -283,6 +297,8 @@ class Database:
                     revision INTEGER NOT NULL,
                     marks_hash TEXT NOT NULL,
                     reason_hash TEXT NOT NULL,
+                    commitment_salt TEXT,
+                    canonical_marks TEXT,
                     kind TEXT NOT NULL CHECK (kind IN ('SUBMISSION','AMENDMENT')),
                     actor_id INTEGER NOT NULL REFERENCES users(id),
                     chain_state TEXT NOT NULL,
@@ -372,8 +388,91 @@ class Database:
                 """
             )
 
+        self._backfill_current_revision_commitments()
+
         if seed_demo:
             self.seed_demo()
+
+    def _backfill_current_revision_commitments(self) -> None:
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                """
+                SELECT r.batch_id, r.revision, r.marks_hash, b.commitment_salt
+                FROM batch_revisions r
+                JOIN batches b ON b.id = r.batch_id AND b.revision = r.revision
+                WHERE r.commitment_salt IS NULL OR r.canonical_marks IS NULL
+                """
+            ).fetchall()
+            for revision in rows:
+                marks = conn.execute(
+                    """
+                    SELECT m.student_id, m.candidate_mark AS mark,
+                           m.candidate_status AS status, u.reg_number
+                    FROM assessment_marks m
+                    JOIN users u ON u.id = m.student_id
+                    WHERE m.batch_id = ?
+                    ORDER BY m.student_id
+                    """,
+                    (revision["batch_id"],),
+                ).fetchall()
+                candidate_snapshots = [
+                    [
+                        {
+                            "student_id": int(mark["student_id"]),
+                            "mark": mark["mark"],
+                            "status": mark["status"],
+                        }
+                        for mark in marks
+                    ],
+                    [
+                        {
+                            "student_id": int(mark["student_id"]),
+                            "registration_number": (mark["reg_number"] or "").strip().upper(),
+                            "mark": mark["mark"],
+                            "status": mark["status"],
+                        }
+                        if mark["status"] == "RECORDED"
+                        else {
+                            "student_id": int(mark["student_id"]),
+                            "mark": mark["mark"],
+                            "status": mark["status"],
+                        }
+                        for mark in marks
+                    ],
+                ]
+                for candidate in candidate_snapshots:
+                    canonical = json.dumps(
+                        candidate,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    computed_hash = "0x" + hashlib.sha256(
+                        (revision["commitment_salt"] + "|" + canonical).encode("utf-8")
+                    ).hexdigest()
+                    if computed_hash.lower() != revision["marks_hash"].lower():
+                        continue
+                    conn.execute(
+                        """
+                        UPDATE batch_revisions
+                        SET commitment_salt = ?, canonical_marks = ?
+                        WHERE batch_id = ? AND revision = ?
+                        """,
+                        (
+                            revision["commitment_salt"],
+                            canonical,
+                            revision["batch_id"],
+                            revision["revision"],
+                        ),
+                    )
+                    break
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def seed_demo(self) -> None:
         with self.transaction() as conn:
@@ -536,11 +635,12 @@ class Database:
         conn.execute(
             """
             INSERT INTO batch_revisions
-            (batch_id, revision, marks_hash, reason_hash, kind, actor_id,
+            (batch_id, revision, marks_hash, reason_hash, commitment_salt,
+             canonical_marks, kind, actor_id,
              chain_state, created_at)
-            VALUES (?, 1, ?, ?, 'SUBMISSION', ?, 'LOCAL_ONLY', ?)
+            VALUES (?, 1, ?, ?, ?, ?, 'SUBMISSION', ?, 'LOCAL_ONLY', ?)
             """,
-            (batch_id, marks_hash, reason_hash, lecturer_id, now),
+            (batch_id, marks_hash, reason_hash, salt, canonical, lecturer_id, now),
         )
 
         for sid, (mark, status) in marks.items():

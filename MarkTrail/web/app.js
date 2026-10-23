@@ -8,6 +8,7 @@ const state = {
   adminCourses: [],
   adminBatches: []
 };
+let bulkActivationCredentials = [];
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -1221,6 +1222,9 @@ $("#enroll-form").addEventListener("submit", async (event) => {
 $("#bulk-enroll-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(event.target);
+  bulkActivationCredentials = [];
+  $("#bulk-enroll-credentials").classList.add("hidden");
+  $("#bulk-enroll-credentials-list").replaceChildren();
   try {
     const result = await api("/api/admin/courses/" + encodeURIComponent(form.get("course_id")) + "/bulk-enroll", {
       method: "POST",
@@ -1230,12 +1234,53 @@ $("#bulk-enroll-form").addEventListener("submit", async (event) => {
       })
     });
     toast("Enrolled " + result.enrolled + " students, created " + result.created + " accounts, skipped " + result.skipped + ".");
+    bulkActivationCredentials = result.credentials || [];
+    if (bulkActivationCredentials.length) {
+      const rows = bulkActivationCredentials.map((credential) => {
+        const row = document.createElement("tr");
+        for (const value of [
+          credential.full_name,
+          credential.username,
+          credential.activation_password
+        ]) {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.appendChild(cell);
+        }
+        return row;
+      });
+      $("#bulk-enroll-credentials-list").replaceChildren(...rows);
+      $("#bulk-enroll-credentials").classList.remove("hidden");
+    }
     event.target.reset();
     await loadAdmin();
     await loadDashboard();
   } catch (error) {
     toast(error.message, "error");
   }
+});
+
+$("#download-bulk-enroll-credentials").addEventListener("click", () => {
+  if (!bulkActivationCredentials.length) {
+    toast("There are no new activation passwords to download.", "error");
+    return;
+  }
+  const escapeCsv = (value) => '"' + String(value).replaceAll('"', '""') + '"';
+  const rows = [
+    ["full_name", "username", "activation_password"],
+    ...bulkActivationCredentials.map((credential) => [
+      credential.full_name,
+      credential.username,
+      credential.activation_password
+    ])
+  ];
+  const content = rows.map((row) => row.map(escapeCsv).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "student-activation-credentials.csv";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 
 // ── Admin: create assessment ─────────────────────────────────

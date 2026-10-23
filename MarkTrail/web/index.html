@@ -329,8 +329,19 @@
               <select name="course_id" id="bulk-enroll-course" required></select>
               <label>Graduation / access end date for new students<input name="access_until" type="date" required></label>
               <textarea name="csv" class="code-input" rows="5" placeholder="reg_number,full_name&#10;SCT/003/2025,Alice Wanjiku&#10;SCT/004/2025,David Kamau"></textarea>
+              <p class="muted">New accounts receive unique one-time passwords. Download them once and deliver each through your institution's approved secure channel. Students must change the password at first sign-in.</p>
               <button class="button primary">Bulk enroll</button>
             </form>
+            <div id="bulk-enroll-credentials" class="stack hidden" aria-live="polite">
+              <p class="muted">These activation passwords are shown only in this response. Save and distribute them securely; they cannot be retrieved later.</p>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Student</th><th>Username</th><th>One-time password</th></tr></thead>
+                  <tbody id="bulk-enroll-credentials-list"></tbody>
+                </table>
+              </div>
+              <button id="download-bulk-enroll-credentials" class="button secondary" type="button">Download activation list</button>
+            </div>
           </div>
 
           <div class="card">

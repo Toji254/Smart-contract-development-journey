@@ -7,7 +7,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from app.db import Database, utc_now
+from app.chain import ChainError, bytes32_hash
+from app.db import Database, utc_now, verify_password
 from app.service import AppError, AppService
 
 
@@ -35,6 +36,7 @@ class RecoverableChain(FakeChain):
         self.reasons = {}
         self.operations = []
         self.statuses = {}
+        self.metadata = {}
         self.verify_calls = 0
         self.transaction_status = "CONFIRMED"
 
@@ -70,8 +72,16 @@ class RecoverableChain(FakeChain):
     def get_batch_status(self, batch_id):
         return self.statuses[batch_id]
 
+    def get_batch_details(self, batch_id):
+        return {**self.metadata[batch_id], "status": self.statuses[batch_id]}
+
     def submit_batch(self, batch_id, course_id, assessment_id, student_count, marks_hash):
         self.operations.append(("submit", batch_id, marks_hash))
+        self.metadata[batch_id] = {
+            "course_id": bytes32_hash(course_id),
+            "assessment_id": bytes32_hash(assessment_id),
+            "student_count": student_count,
+        }
         self.revisions[batch_id] = [marks_hash]
         self.reasons[batch_id] = ["0x" + "00" * 32]
         self.statuses[batch_id] = 1
@@ -240,6 +250,50 @@ class MarkTrailTests(unittest.TestCase):
             conn.close()
         self.assertEqual(student["access_until"], access_until)
         self.assertIsNotNone(enrollment)
+        credential = result["credentials"][0]
+        self.assertEqual(credential["username"], "new-student")
+        conn = self.db.connect()
+        try:
+            account = conn.execute(
+                "SELECT password_salt, password_hash FROM users WHERE username = 'new-student'"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertTrue(
+            verify_password(
+                credential["activation_password"],
+                account["password_salt"],
+                account["password_hash"],
+            )
+        )
+
+    def test_bulk_enroll_generates_unique_one_time_passwords(self):
+        access_until = (datetime.now(timezone.utc).date() + timedelta(days=365)).isoformat()
+        result = self.service.admin_bulk_enroll_csv(
+            self.admin["id"],
+            "course-csc201",
+            "reg_number,full_name\n"
+            "SCT/020/2026,First New Student\n"
+            "SCT/021/2026,Second New Student\n",
+            access_until=access_until,
+        )
+
+        passwords = [item["activation_password"] for item in result["credentials"]]
+        self.assertEqual(len(passwords), 2)
+        self.assertNotEqual(passwords[0], passwords[1])
+        self.assertGreaterEqual(len(passwords[0]), 32)
+        conn = self.db.connect()
+        try:
+            account_flags = conn.execute(
+                """
+                SELECT must_change_password FROM users
+                WHERE username IN ('sct-020-2026', 'sct-021-2026')
+                ORDER BY username
+                """
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual([row["must_change_password"] for row in account_flags], [1, 1])
 
     def test_bulk_enroll_rejects_missing_headers(self):
         with self.assertRaisesRegex(AppError, "reg_number.*full_name"):
@@ -716,6 +770,80 @@ class MarkTrailTests(unittest.TestCase):
             ["verify", "amend", "verify", "amend"],
         )
 
+    def test_chain_retry_checkpoints_each_confirmed_revision_before_later_failure(self):
+        self._create_fresh_assessment()
+        submitted = self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-cat3",
+            "registration_number,mark\nSCT/001/2025,19\n",
+        )
+        batch_id = submitted["batch_id"]
+        marks_hashes = ["0x" + "d1" * 32, "0x" + "d2" * 32]
+        with self.db.transaction() as conn:
+            for revision, marks_hash in enumerate(marks_hashes, start=2):
+                conn.execute(
+                    """
+                    INSERT INTO batch_revisions
+                    (batch_id, revision, marks_hash, reason_hash, kind, actor_id,
+                     chain_state, created_at)
+                    VALUES (?, ?, ?, ?, 'AMENDMENT', ?, 'ERROR', ?)
+                    """,
+                    (
+                        batch_id,
+                        revision,
+                        marks_hash,
+                        "0x" + f"{revision:02x}" * 32,
+                        self.lecturer["id"],
+                        utc_now(),
+                    ),
+                )
+            conn.execute(
+                """
+                UPDATE batches SET status = 'AMENDED', revision = 3, marks_hash = ?,
+                    chain_state = 'ERROR'
+                WHERE id = ?
+                """,
+                (marks_hashes[-1], batch_id),
+            )
+
+        class FailingFinalAmendmentChain(RecoverableChain):
+            def amend_batch(self, batch_id, marks_hash, reason_hash):
+                if len([op for op in self.operations if op[0] == "amend"]) == 1:
+                    raise ChainError("simulated later amendment failure")
+                return super().amend_batch(batch_id, marks_hash, reason_hash)
+
+        chain = FailingFinalAmendmentChain()
+        conn = self.db.connect()
+        try:
+            first_hash = conn.execute(
+                "SELECT marks_hash FROM batch_revisions WHERE batch_id = ? AND revision = 1",
+                (batch_id,),
+            ).fetchone()["marks_hash"]
+        finally:
+            conn.close()
+        chain.revisions[batch_id] = [first_hash]
+        chain.reasons[batch_id] = ["0x" + "00" * 32]
+        chain.statuses[batch_id] = 1
+        self.service.chain = chain
+
+        with self.assertRaisesRegex(AppError, "simulated later amendment failure"):
+            self.service.retry_chain(self.reviewer["id"], batch_id)
+
+        conn = self.db.connect()
+        try:
+            revisions = conn.execute(
+                """
+                SELECT revision, chain_state, chain_tx_hash
+                FROM batch_revisions WHERE batch_id = ? ORDER BY revision
+                """,
+                (batch_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(revisions[1]["chain_state"], "CONFIRMED")
+        self.assertEqual(revisions[1]["chain_tx_hash"], "0x" + "02" * 32)
+        self.assertEqual(revisions[2]["chain_state"], "ERROR")
+
     def test_chain_retry_flags_status_mismatch_instead_of_confirming(self):
         self._create_fresh_assessment()
         submitted = self.service.submit_batch(
@@ -832,6 +960,11 @@ class MarkTrailTests(unittest.TestCase):
         chain.revisions[batch_id] = [local_hash]
         chain.reasons[batch_id] = ["0x" + "00" * 32]
         chain.statuses[batch_id] = 2
+        chain.metadata[batch_id] = {
+            "course_id": bytes32_hash("course-csc201"),
+            "assessment_id": bytes32_hash("assessment-cat3"),
+            "student_count": 2,
+        }
         self.service.chain = chain
 
         mismatch = self.service.reconcile_batch(self.admin["id"], batch_id)
@@ -1089,11 +1222,17 @@ class FakeChainEnabled:
         self._captured: dict = {}
         self.revisions: dict[str, list[dict[str, str]]] = {}
         self.statuses: dict[str, int] = {}
+        self.batch_details: dict[str, dict] = {}
 
     def status(self):
         return {"enabled": True, "mode": "cast", "label": "Connected to EVM chain"}
 
     def submit_batch(self, batch_id, _course_id, _assessment_id, _student_count, marks_hash) -> str:
+        self.batch_details[batch_id] = {
+            "course_id": bytes32_hash(_course_id),
+            "assessment_id": bytes32_hash(_assessment_id),
+            "student_count": _student_count,
+        }
         self.revisions[batch_id] = [
             {"marks_hash": marks_hash, "reason_hash": "0x" + "00" * 32}
         ]
@@ -1109,6 +1248,9 @@ class FakeChainEnabled:
 
     def get_batch_status(self, batch_id):
         return self.statuses[batch_id]
+
+    def get_batch_details(self, batch_id):
+        return {**self.batch_details[batch_id], "status": self.statuses[batch_id]}
 
     def reconcile(self, batch_id: str, local_revision: int, local_hash: str) -> dict:
         self._captured = {
@@ -1258,6 +1400,48 @@ class PortalChainReconcileTests(unittest.TestCase):
             conn.close()
         self.assertEqual(stage, "PORTAL_IMPORT")
 
+    def test_publish_blocked_when_candidate_mark_changes_without_commitment_update(self):
+        fake_chain = FakeChainEnabled(match=True)
+        db, service = self._make_service(fake_chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        with db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE assessment_marks SET candidate_mark = candidate_mark + 1
+                WHERE batch_id = ? AND candidate_mark IS NOT NULL
+                """,
+                (batch_id,),
+            )
+
+        with self.assertRaisesRegex(AppError, "current marks no longer match"):
+            service.publish_portal_batch(portal_id, batch_id)
+
+        conn = db.connect()
+        try:
+            row = conn.execute(
+                "SELECT pipeline_stage FROM batches WHERE id = ?", (batch_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row["pipeline_stage"], "PORTAL_IMPORT")
+
+    def test_publish_blocked_when_chain_batch_metadata_differs(self):
+        fake_chain = FakeChainEnabled(match=True)
+        db, service = self._make_service(fake_chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        fake_chain.batch_details[batch_id]["student_count"] += 1
+
+        with self.assertRaisesRegex(AppError, "course, assessment, or student-count"):
+            service.publish_portal_batch(portal_id, batch_id)
+
+        conn = db.connect()
+        try:
+            row = conn.execute(
+                "SELECT pipeline_stage FROM batches WHERE id = ?", (batch_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row["pipeline_stage"], "PORTAL_IMPORT")
 
 if __name__ == "__main__":
     unittest.main()

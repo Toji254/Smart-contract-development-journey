@@ -57,6 +57,18 @@ class DatabaseMigrationTests(unittest.TestCase):
                     verified_by INTEGER REFERENCES users(id),
                     verified_at TEXT
                 );
+                CREATE TABLE batch_revisions (
+                    batch_id TEXT NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+                    revision INTEGER NOT NULL,
+                    marks_hash TEXT NOT NULL,
+                    reason_hash TEXT NOT NULL,
+                    kind TEXT NOT NULL CHECK (kind IN ('SUBMISSION','AMENDMENT')),
+                    actor_id INTEGER NOT NULL REFERENCES users(id),
+                    chain_state TEXT NOT NULL,
+                    chain_tx_hash TEXT,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (batch_id, revision)
+                );
                 CREATE TABLE missing_reports (
                     id TEXT PRIMARY KEY,
                     assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
@@ -115,6 +127,15 @@ class DatabaseMigrationTests(unittest.TestCase):
                 """,
                 (now,),
             )
+            conn.executemany(
+                """
+                INSERT INTO batch_revisions
+                (batch_id, revision, marks_hash, reason_hash, kind, actor_id,
+                 chain_state, created_at)
+                VALUES (?, 1, 'hash', 'reason', 'SUBMISSION', 1, 'LOCAL_ONLY', ?)
+                """,
+                [("batch-1", now), ("batch-2", now)],
+            )
             conn.execute(
                 """
                 INSERT INTO missing_reports (id, assessment_id, student_id, status, opened_at)
@@ -153,6 +174,10 @@ class DatabaseMigrationTests(unittest.TestCase):
                 user_columns = {
                     row["name"] for row in check.execute("PRAGMA table_info(users)")
                 }
+                revision_columns = {
+                    row["name"]
+                    for row in check.execute("PRAGMA table_info(batch_revisions)")
+                }
             finally:
                 check.close()
 
@@ -164,6 +189,8 @@ class DatabaseMigrationTests(unittest.TestCase):
             self.assertEqual(report["status"], "OPEN")
             self.assertEqual(violations, [])
             self.assertIn("access_until", user_columns)
+            self.assertIn("commitment_salt", revision_columns)
+            self.assertIn("canonical_marks", revision_columns)
 
 
 if __name__ == "__main__":

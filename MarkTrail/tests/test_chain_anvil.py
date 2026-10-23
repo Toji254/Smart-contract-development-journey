@@ -8,7 +8,7 @@ import time
 import unittest
 from pathlib import Path
 
-from app.chain import ChainClient, ChainConfig
+from app.chain import ChainClient, ChainConfig, bytes32_hash
 from app.db import Database, hash_password, utc_now
 from app.service import AppService
 
@@ -211,6 +211,11 @@ class AnvilIntegrationTests(unittest.TestCase):
         rev_count = self.chain.get_revision_count(batch_id)
         self.assertEqual(rev_count, 1)
         self.assertEqual(self.chain.get_batch_status(batch_id), 1)
+        chain_batch = self.chain.get_batch_details(batch_id)
+        self.assertEqual(chain_batch["course_id"], bytes32_hash("course-cs101"))
+        self.assertEqual(chain_batch["assessment_id"], bytes32_hash("assess-cat1"))
+        self.assertEqual(chain_batch["student_count"], 3)
+        self.assertEqual(chain_batch["revision_count"], 1)
 
         conn = self.db.connect()
         try:

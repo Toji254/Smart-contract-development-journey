@@ -297,11 +297,22 @@ class ChainClient:
             "timestamp": int(encoded[192:256], 16),
         }
 
-    def get_batch_status(self, batch_id: str) -> int:
+    def get_batch_details(self, batch_id: str) -> dict:
         output = self.call("getBatch(bytes32)", batch_id).strip()
         if not re.fullmatch(r"0x[a-fA-F0-9]{384}", output):
-            raise ChainError(f"Could not decode batch status from getBatch: {output}")
-        return int(output[2 + 64 * 3 : 2 + 64 * 4], 16)
+            raise ChainError(f"Could not decode batch details from getBatch: {output}")
+        encoded = output[2:]
+        return {
+            "course_id": "0x" + encoded[0:64],
+            "assessment_id": "0x" + encoded[64:128],
+            "student_count": int(encoded[128:192], 16),
+            "status": int(encoded[192:256], 16),
+            "submitted_at": int(encoded[256:320], 16),
+            "revision_count": int(encoded[320:384], 16),
+        }
+
+    def get_batch_status(self, batch_id: str) -> int:
+        return self.get_batch_details(batch_id)["status"]
 
     def reconcile(self, batch_id: str, local_revision: int, local_hash: str) -> dict:
         if not self.enabled:

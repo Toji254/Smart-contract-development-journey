@@ -279,6 +279,13 @@ The important invariant is:
 
 > The application must be able to prove which exact version of a batch was committed without publishing the students' marks.
 
+Before publishing, MarkTrail rebuilds the canonical marks from the current
+candidate records and recomputes the latest salted commitment. It also checks
+the on-chain course, assessment, and student count. Each new revision stores
+its own salt and canonical snapshot for later verification. Existing amended
+history without saved revision salts cannot be reconstructed; those records
+fail closed until their audit history can be independently restored.
+
 ### 8. Test the contract
 
 Start with ordinary tests:
@@ -570,6 +577,10 @@ New student accounts require a graduation/access end date, and the system
 blocks sign-in and existing sessions after that date. Administrators can also
 disable or re-enable any account from Setup. Existing accounts with no end date
 remain active until an administrator sets one or disables the account.
+Bulk enrollment creates a different high-entropy, one-time password for each
+new student and displays it once for secure distribution by the institution.
+The credential list is not stored by MarkTrail; students must change their
+password at first sign-in.
 
 For a new installation without demo users, create the first administrator
 interactively with `python3 run.py --create-admin`, then start the server with

@@ -72,6 +72,27 @@ class ChainClientTests(unittest.TestCase):
             with self.assertRaisesRegex(ChainError, "mined but reverted"):
                 self.client.verify_batch("0x" + "33" * 32)
 
+    def test_get_batch_details_decodes_all_contract_fields(self):
+        words = [
+            "11" * 32,
+            "22" * 32,
+            f"{87:064x}",
+            f"{2:064x}",
+            f"{123456:064x}",
+            f"{3:064x}",
+        ]
+        with patch.object(self.client, "call", return_value="0x" + "".join(words)):
+            details = self.client.get_batch_details("0x" + "33" * 32)
+
+        self.assertEqual(details, {
+            "course_id": "0x" + "11" * 32,
+            "assessment_id": "0x" + "22" * 32,
+            "student_count": 87,
+            "status": 2,
+            "submitted_at": 123456,
+            "revision_count": 3,
+        })
+
 
 if __name__ == "__main__":
     unittest.main()

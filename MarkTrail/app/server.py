@@ -375,7 +375,6 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     user_id,
                     match.group(1),
                     str(body.get("csv", "")),
-                    str(body.get("default_password", "ChangeMe123")),
                     str(body.get("access_until", "")) or None,
                 )
             )
