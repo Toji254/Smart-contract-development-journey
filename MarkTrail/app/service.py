@@ -918,20 +918,20 @@ class AppService:
         if batch["status"] != "VERIFIED" or batch["pipeline_stage"] != "PORTAL_IMPORT":
             raise AppError("This batch is not ready for portal publication.")
 
-        if self.chain.enabled:
-            integrity = self._chain_integrity(batch_id)
-            if not integrity.get("match"):
-                raise AppError(
-                    "Publication blocked: the complete local and on-chain "
-                    "batch history could not be verified. "
-                    f"{integrity.get('reason', 'Resolve the discrepancy before publishing.')}",
-                    409,
-                )
+        integrity = self._chain_integrity(batch_id)
+        if not integrity.get("match"):
+            raise AppError(
+                "Publication blocked: the complete local commitment and "
+                "configured on-chain batch history could not be verified. "
+                f"{integrity.get('reason', 'Resolve the discrepancy before publishing.')}",
+                409,
+            )
 
         with self.db.transaction() as conn:
             current = conn.execute(
                 """
-                SELECT status, pipeline_stage, revision, marks_hash
+                SELECT status, pipeline_stage, revision, marks_hash,
+                       commitment_salt, student_count
                 FROM batches WHERE id = ?
                 """,
                 (batch_id,),
@@ -945,6 +945,53 @@ class AppService:
             ):
                 raise AppError(
                     "Publication blocked: the batch changed while its history was being checked.",
+                    409,
+                )
+            latest_revision = conn.execute(
+                """
+                SELECT marks_hash, commitment_salt, canonical_marks
+                FROM batch_revisions
+                WHERE batch_id = ? AND revision = ?
+                """,
+                (batch_id, current["revision"]),
+            ).fetchone()
+            current_marks = conn.execute(
+                """
+                SELECT m.student_id, m.candidate_mark AS mark,
+                       m.candidate_status AS status, u.reg_number
+                FROM assessment_marks m
+                JOIN users u ON u.id = m.student_id
+                WHERE m.batch_id = ?
+                ORDER BY m.student_id
+                """,
+                (batch_id,),
+            ).fetchall()
+            current_forms = {
+                self._canonical_mark_snapshot(current_marks, "mark", "status", False),
+                self._canonical_mark_snapshot(current_marks, "mark", "status", True),
+            }
+            if (
+                not latest_revision
+                or not latest_revision["canonical_marks"]
+                or not latest_revision["commitment_salt"]
+                or len(current_marks) != int(current["student_count"])
+                or latest_revision["marks_hash"].lower() != current["marks_hash"].lower()
+                or latest_revision["commitment_salt"] != current["commitment_salt"]
+                or latest_revision["canonical_marks"] not in current_forms
+                or (
+                    "0x"
+                    + hashlib.sha256(
+                        (
+                            latest_revision["commitment_salt"]
+                            + "|"
+                            + latest_revision["canonical_marks"]
+                        ).encode("utf-8")
+                    ).hexdigest()
+                ).lower()
+                != current["marks_hash"].lower()
+            ):
+                raise AppError(
+                    "Publication blocked: marks changed while publication was being prepared.",
                     409,
                 )
             conn.execute(
@@ -2105,7 +2152,7 @@ class AppService:
                 """
                 SELECT b.id, b.revision, b.marks_hash, b.status, b.chain_state,
                        b.commitment_salt, b.student_count, b.assessment_id,
-                       a.course_id
+                       a.course_id, b.pipeline_stage
                 FROM batches b
                 JOIN assessments a ON a.id = b.assessment_id
                 WHERE b.id = ?
@@ -2124,7 +2171,8 @@ class AppService:
             mark_rows = conn.execute(
                 """
                 SELECT m.student_id, m.candidate_mark AS mark,
-                       m.candidate_status AS status, u.reg_number
+                       m.candidate_status AS status, m.published_mark,
+                       m.published_status, u.reg_number
                 FROM assessment_marks m
                 JOIN users u ON u.id = m.student_id
                 WHERE m.batch_id = ?
@@ -2161,34 +2209,10 @@ class AppService:
             }
 
         canonical_forms = [
-            [
-                {
-                    "student_id": int(mark["student_id"]),
-                    "mark": mark["mark"],
-                    "status": mark["status"],
-                }
-                for mark in mark_rows
-            ],
-            [
-                {
-                    "student_id": int(mark["student_id"]),
-                    "registration_number": (mark["reg_number"] or "").strip().upper(),
-                    "mark": mark["mark"],
-                    "status": mark["status"],
-                }
-                if mark["status"] == "RECORDED"
-                else {
-                    "student_id": int(mark["student_id"]),
-                    "mark": mark["mark"],
-                    "status": mark["status"],
-                }
-                for mark in mark_rows
-            ],
+            self._canonical_mark_snapshot(mark_rows, "mark", "status", False),
+            self._canonical_mark_snapshot(mark_rows, "mark", "status", True),
         ]
-        canonical_marks = [
-            json.dumps(form, sort_keys=True, separators=(",", ":"))
-            for form in canonical_forms
-        ]
+        canonical_marks = canonical_forms
         if len(mark_rows) != int(batch["student_count"]):
             return {
                 "status": "MARK_COUNT_MISMATCH",
@@ -2228,11 +2252,32 @@ class AppService:
                     "reason": "The current marks no longer match the latest saved commitment.",
                 }
 
+        if batch["pipeline_stage"] == "PUBLISHED":
+            published_forms = [
+                self._canonical_mark_snapshot(
+                    mark_rows, "published_mark", "published_status", False
+                ),
+                self._canonical_mark_snapshot(
+                    mark_rows, "published_mark", "published_status", True
+                ),
+            ]
+            latest_snapshot = revisions[-1]["canonical_marks"]
+            if latest_snapshot not in published_forms:
+                return {
+                    "status": "PUBLISHED_MARKS_MISMATCH",
+                    "match": False,
+                    "reason": "Published marks no longer match the committed revision.",
+                }
+
         if not self.chain.enabled:
             return {
                 "status": "LOCAL_ONLY",
-                "match": False,
-                "reason": "Blockchain integration is disabled.",
+                "match": True,
+                "reason": (
+                    "Local marks match the saved commitment. No independent "
+                    "on-chain anchor is configured."
+                ),
+                "on_chain": False,
             }
 
         result = self.chain.reconcile(
@@ -2306,6 +2351,29 @@ class AppService:
             "local_status": batch["status"],
             "chain_status": chain_status,
         }
+
+    @staticmethod
+    def _canonical_mark_snapshot(
+        rows: list,
+        mark_key: str,
+        status_key: str,
+        include_registration_number: bool,
+    ) -> str:
+        canonical_rows = []
+        for row in rows:
+            item = {
+                "student_id": int(row["student_id"]),
+                "mark": row[mark_key],
+                "status": row[status_key],
+            }
+            if include_registration_number and item["status"] == "RECORDED":
+                item["registration_number"] = (row["reg_number"] or "").strip().upper()
+            canonical_rows.append(item)
+        return json.dumps(
+            canonical_rows,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
     def reconcile_batch(self, user_id: int, batch_id: str) -> dict:
         self.require_role(user_id, {"admin"})

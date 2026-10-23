@@ -1149,7 +1149,12 @@ $("#reconcile-audit").addEventListener("click", async () => {
   const endpoint = "/api/admin/reconcile/" + encodeURIComponent(batchId);
   try {
     const result = await api(endpoint);
-    toast(result.status === "MATCH" ? "The saved record matches the verified copy." : "The saved record could not be verified. Review the batch status.", result.status === "MATCH" ? "success" : "error");
+    const message = result.on_chain
+      ? "The saved record matches the verified blockchain copy."
+      : result.match
+        ? "The saved marks match the local commitment, but there is no independent blockchain copy."
+        : "The saved record could not be verified. Review the batch status.";
+    toast(message, result.match ? "success" : "error");
   } catch (error) {
     toast(error.message, "error");
   }

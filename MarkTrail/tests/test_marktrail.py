@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from app.chain import ChainError, bytes32_hash
 from app.db import Database, utc_now, verify_password
@@ -1370,7 +1371,7 @@ class PortalChainReconcileTests(unittest.TestCase):
         batch_id, portal_id = self._advance_to_portal_import(db, service)
         fake_chain.statuses[batch_id] = 3
 
-        with self.assertRaisesRegex(AppError, "complete local and on-chain batch history"):
+        with self.assertRaisesRegex(AppError, "configured on-chain batch history"):
             service.publish_portal_batch(portal_id, batch_id)
 
         conn = db.connect()
@@ -1388,7 +1389,7 @@ class PortalChainReconcileTests(unittest.TestCase):
         batch_id, portal_id = self._advance_to_portal_import(db, service)
         fake_chain.revisions[batch_id][0]["reason_hash"] = "0x" + "ee" * 32
 
-        with self.assertRaisesRegex(AppError, "complete local and on-chain batch history"):
+        with self.assertRaisesRegex(AppError, "configured on-chain batch history"):
             service.publish_portal_batch(portal_id, batch_id)
 
         conn = db.connect()
@@ -1442,6 +1443,89 @@ class PortalChainReconcileTests(unittest.TestCase):
         finally:
             conn.close()
         self.assertEqual(row["pipeline_stage"], "PORTAL_IMPORT")
+
+    def test_local_only_publication_still_checks_candidate_commitment(self):
+        chain = FakeChain()
+        db, service = self._make_service(chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        with db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE assessment_marks SET candidate_mark = candidate_mark + 1
+                WHERE batch_id = ? AND candidate_mark IS NOT NULL
+                """,
+                (batch_id,),
+            )
+
+        with self.assertRaisesRegex(AppError, "current marks no longer match"):
+            service.publish_portal_batch(portal_id, batch_id)
+
+    def test_publication_rechecks_marks_inside_write_transaction(self):
+        db, service = self._make_service(FakeChain())
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        original_integrity = service._chain_integrity
+
+        def integrity_then_mutate(target_batch_id):
+            result = original_integrity(target_batch_id)
+            with db.transaction() as conn:
+                conn.execute(
+                    """
+                    UPDATE assessment_marks SET candidate_mark = candidate_mark + 1
+                    WHERE batch_id = ? AND candidate_mark IS NOT NULL
+                    """,
+                    (target_batch_id,),
+                )
+            return result
+
+        with patch.object(service, "_chain_integrity", side_effect=integrity_then_mutate):
+            with self.assertRaisesRegex(AppError, "marks changed while publication"):
+                service.publish_portal_batch(portal_id, batch_id)
+
+        conn = db.connect()
+        try:
+            result = conn.execute(
+                """
+                SELECT b.pipeline_stage, m.published_mark
+                FROM batches b
+                JOIN assessment_marks m ON m.batch_id = b.id
+                WHERE b.id = ? AND m.candidate_mark IS NOT NULL
+                LIMIT 1
+                """,
+                (batch_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(result["pipeline_stage"], "PORTAL_IMPORT")
+        self.assertIsNone(result["published_mark"])
+
+    def test_reconciliation_detects_tampered_published_marks_in_local_mode(self):
+        db, service = self._make_service(FakeChain())
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        service.publish_portal_batch(portal_id, batch_id)
+        with db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE assessment_marks SET published_mark = published_mark + 1
+                WHERE batch_id = ? AND published_mark IS NOT NULL
+                """,
+                (batch_id,),
+            )
+
+        result = service._chain_integrity(batch_id)
+
+        self.assertEqual(result["status"], "PUBLISHED_MARKS_MISMATCH")
+        self.assertFalse(result["match"])
+
+    def test_local_only_reconciliation_reports_missing_chain_anchor(self):
+        db, service = self._make_service(FakeChain())
+        batch_id, _portal_id = self._advance_to_portal_import(db, service)
+
+        result = service._chain_integrity(batch_id)
+
+        self.assertEqual(result["status"], "LOCAL_ONLY")
+        self.assertTrue(result["match"])
+        self.assertFalse(result["on_chain"])
+        self.assertIn("No independent on-chain anchor", result["reason"])
 
 if __name__ == "__main__":
     unittest.main()

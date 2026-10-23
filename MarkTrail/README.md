@@ -285,6 +285,10 @@ the on-chain course, assessment, and student count. Each new revision stores
 its own salt and canonical snapshot for later verification. Existing amended
 history without saved revision salts cannot be reconstructed; those records
 fail closed until their audit history can be independently restored.
+These local commitment checks also run when blockchain integration is off;
+local-only reconciliation reports that no independent on-chain anchor exists.
+Publication repeats the marks check in the write transaction, and later
+reconciliation checks that published marks still match the committed revision.
 
 ### 8. Test the contract
 
