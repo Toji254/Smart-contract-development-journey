@@ -21,6 +21,7 @@ function increase(uint256 add)external {
 }
 
 function decrease(uint256 minus)external {
+    require (minus < value,"invalid number") ;
     value-=minus;
 }
 
