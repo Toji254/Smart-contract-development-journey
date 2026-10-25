@@ -2,11 +2,26 @@
 pragma solidity ^0.8.20;
 
 contract SimpleStorage{
-//uint256 value;
-mapping (address => uint256 number) private value;
 
-function checkvalue() external view returns(uint256){
-return value[msg.sender];
-//value[]
+uint256 public value;
+
+constructor(uint256 _value){
+    value=_value;
 }
+
+//mapping (address => uint256 number) private _value;
+
+function setvalue(uint256 _value)external{
+    value = _value;
+
+}
+
+function increase(uint256 add)external {
+    value+=add;
+}
+
+function decrease(uint256 minus)external {
+    value-=minus;
+}
+
 }
