@@ -2,7 +2,7 @@
 
 This is the note index.
 
-Notes are added when the conversation uses the study trigger: **`study`** or **`anchor`**, or when I explicitly ask for a knowledge-web capture.
+Notes are added when I use the trigger **`Add`** (case-insensitive), or when I explicitly ask for a knowledge-web capture.
 
 ## Rules for every note
 
