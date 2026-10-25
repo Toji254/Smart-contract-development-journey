@@ -42,6 +42,11 @@ flowchart TD
     S --> CALLER["msg.sender"]
     S --> CHECK["checkvalue() / returns uint256"]
     S --> DEFAULT["Default uint256 value: 0"]
+    S --> INIT["Constructor: starting value"]
+    S --> SVAR["State variable: current value"]
+    S --> SETTER["Setter: changes current value"]
+    S --> GETTER["Getter: reads current value"]
+    S --> BODY["Function body executes instructions"]
 
     KEY --> LOOKUP
     VAL --> LOOKUP
@@ -49,6 +54,14 @@ flowchart TD
     CHECK --> LOOKUP
     LOOKUP --> STORAGE
     DEFAULT --> LOOKUP
+
+    INIT --> SVAR
+    SETTER --> BODY
+    BODY --> ASSIGN["Assignment: value = _value"]
+    PARAM["Function parameter receives input"] --> ASSIGN
+    ASSIGN --> SVAR
+    SVAR --> GETTER
+    SVAR --> STORAGE
 
     INT --> CALL["Calling a function through a contract/interface"]
     ERC20 --> TF
@@ -72,11 +85,13 @@ flowchart TD
     classDef security fill:#fff7ed,stroke:#ea580c,color:#111827;
 
     class T,E,P,B,S project;
-    class ETH,OWN,ACT,STATE,INT,ERC20,ERC721,TF,ALLOW,INH,STRUCT,MAP,ENUM,ID,CALL,EVM,STORAGE,KEY,VAL,LOOKUP,CALLER,CHECK,DEFAULT concept;
+    class ETH,OWN,ACT,STATE,INT,ERC20,ERC721,TF,ALLOW,INH,STRUCT,MAP,ENUM,ID,CALL,EVM,STORAGE,KEY,VAL,LOOKUP,CALLER,CHECK,DEFAULT,INIT,SVAR,SETTER,GETTER,BODY,ASSIGN,PARAM concept;
     class SEC,DISC security;
 ~~~
 
-New capture: [SimpleStorage refresher — mapping keys, values, and caller-based lookup](notes/simple-storage-mapping-access.md).
+New captures:
+- [SimpleStorage refresher — mapping keys, values, and caller-based lookup](notes/simple-storage-mapping-access.md).
+- [SimpleStorage refresher — constructor, state variable, setter, and getter](notes/simple-storage-constructor-setter-getter.md).
 
 ## How to read it
 
