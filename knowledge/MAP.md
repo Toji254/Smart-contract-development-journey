@@ -53,6 +53,7 @@ flowchart TD
     S --> LOCAL["Local variables and parameters: no visibility setting"]
     S --> MAPGET["Public mapping/array getter: one key or index"]
     S --> VISCHEAT["Visibility and getters cheatsheet"]
+    S --> GETWHEN["When to use a getter: inside vs outside"]
 
     KEY --> LOOKUP
     VAL --> LOOKUP
@@ -74,6 +75,8 @@ flowchart TD
     MAPGET --> AUTOGET
     VISCHEAT --> VIS
     VISCHEAT --> AUTOGET
+    GETWHEN --> GETTER
+    GETWHEN --> SVAR
     VIS --> GETTER
     SVAR --> STORAGE
 
@@ -99,7 +102,7 @@ flowchart TD
     classDef security fill:#fff7ed,stroke:#ea580c,color:#111827;
 
     class T,E,P,B,S project;
-    class ETH,OWN,ACT,STATE,INT,ERC20,ERC721,TF,ALLOW,INH,STRUCT,MAP,ENUM,ID,CALL,EVM,STORAGE,KEY,VAL,LOOKUP,CALLER,CHECK,DEFAULT,INIT,SVAR,SETTER,GETTER,BODY,ASSIGN,PARAM,VIS,AUTOGET,PUBLICFN,LOCAL,MAPGET,VISCHEAT concept;
+    class ETH,OWN,ACT,STATE,INT,ERC20,ERC721,TF,ALLOW,INH,STRUCT,MAP,ENUM,ID,CALL,EVM,STORAGE,KEY,VAL,LOOKUP,CALLER,CHECK,DEFAULT,INIT,SVAR,SETTER,GETTER,BODY,ASSIGN,PARAM,VIS,AUTOGET,PUBLICFN,LOCAL,MAPGET,VISCHEAT,GETWHEN concept;
     class SEC,DISC security;
 ~~~
 
@@ -108,6 +111,7 @@ New captures:
 - [SimpleStorage refresher — constructor, state variable, setter, and getter](notes/simple-storage-constructor-setter-getter.md).
 - [Solidity visibility and automatic getters](notes/solidity-visibility-and-automatic-getters.md).
 - [Solidity visibility and getters cheatsheet](notes/solidity-visibility-getters-cheatsheet.md).
+- [When to use a getter](notes/when-to-use-a-getter.md).
 
 ## How to read it
 
