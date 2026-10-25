@@ -147,6 +147,7 @@ SimpleStorage refresher
 Related Solidity ideas:
 - [Knowledge Map](../MAP.md) — mappings, storage, and EVM reasoning.
 - This also connects to future `SimpleStorage` steps: writing a value to a mapping, then checking which key the read function uses.
+- [Constructor, state variable, setter, and getter](./simple-storage-constructor-setter-getter.md) — how the constructor initializes a shared value and how a later function changes it.
 
 ---
 
