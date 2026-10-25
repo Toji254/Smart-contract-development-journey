@@ -47,6 +47,11 @@ flowchart TD
     S --> SETTER["Setter: changes current value"]
     S --> GETTER["Getter: reads current value"]
     S --> BODY["Function body executes instructions"]
+    S --> VIS["Visibility: public / external / internal / private"]
+    S --> AUTOGET["Public state variable: automatic getter"]
+    S --> PUBLICFN["Public function: externally and internally callable"]
+    S --> LOCAL["Local variables and parameters: no visibility setting"]
+    S --> MAPGET["Public mapping/array getter: one key or index"]
 
     KEY --> LOOKUP
     VAL --> LOOKUP
@@ -61,6 +66,12 @@ flowchart TD
     PARAM["Function parameter receives input"] --> ASSIGN
     ASSIGN --> SVAR
     SVAR --> GETTER
+    SVAR --> AUTOGET
+    AUTOGET --> GETTER
+    PUBLICFN --> VIS
+    LOCAL --> BODY
+    MAPGET --> AUTOGET
+    VIS --> GETTER
     SVAR --> STORAGE
 
     INT --> CALL["Calling a function through a contract/interface"]
@@ -85,13 +96,14 @@ flowchart TD
     classDef security fill:#fff7ed,stroke:#ea580c,color:#111827;
 
     class T,E,P,B,S project;
-    class ETH,OWN,ACT,STATE,INT,ERC20,ERC721,TF,ALLOW,INH,STRUCT,MAP,ENUM,ID,CALL,EVM,STORAGE,KEY,VAL,LOOKUP,CALLER,CHECK,DEFAULT,INIT,SVAR,SETTER,GETTER,BODY,ASSIGN,PARAM concept;
+    class ETH,OWN,ACT,STATE,INT,ERC20,ERC721,TF,ALLOW,INH,STRUCT,MAP,ENUM,ID,CALL,EVM,STORAGE,KEY,VAL,LOOKUP,CALLER,CHECK,DEFAULT,INIT,SVAR,SETTER,GETTER,BODY,ASSIGN,PARAM,VIS,AUTOGET,PUBLICFN,LOCAL,MAPGET concept;
     class SEC,DISC security;
 ~~~
 
 New captures:
 - [SimpleStorage refresher — mapping keys, values, and caller-based lookup](notes/simple-storage-mapping-access.md).
 - [SimpleStorage refresher — constructor, state variable, setter, and getter](notes/simple-storage-constructor-setter-getter.md).
+- [Solidity visibility and automatic getters](notes/solidity-visibility-and-automatic-getters.md).
 
 ## How to read it
 
