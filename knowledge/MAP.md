@@ -12,6 +12,7 @@ flowchart TD
     J --> E["ETH Escrow"]
     J --> P["Purchase NFT with ERC20"]
     J --> B["BountyArena"]
+    J --> S["SimpleStorage refresher"]
 
     T --> ETH["ETH / msg.value / balances"]
     T --> OWN["Ownership / privileged actions"]
@@ -34,6 +35,21 @@ flowchart TD
     B --> OWN
     B --> ETH
 
+    S --> MAP
+    S --> KEY["Mapping key type: address"]
+    S --> VAL["Mapped value: uint256"]
+    S --> LOOKUP["Mapping access: value[key]"]
+    S --> CALLER["msg.sender"]
+    S --> CHECK["checkvalue() / returns uint256"]
+    S --> DEFAULT["Default uint256 value: 0"]
+
+    KEY --> LOOKUP
+    VAL --> LOOKUP
+    CALLER --> LOOKUP
+    CHECK --> LOOKUP
+    LOOKUP --> STORAGE
+    DEFAULT --> LOOKUP
+
     INT --> CALL["Calling a function through a contract/interface"]
     ERC20 --> TF
     ALLOW --> TF
@@ -55,10 +71,12 @@ flowchart TD
     classDef concept fill:#ecfeff,stroke:#0891b2,color:#111827;
     classDef security fill:#fff7ed,stroke:#ea580c,color:#111827;
 
-    class T,E,P,B project;
-    class ETH,OWN,ACT,STATE,INT,ERC20,ERC721,TF,ALLOW,INH,STRUCT,MAP,ENUM,ID,CALL,EVM,STORAGE concept;
+    class T,E,P,B,S project;
+    class ETH,OWN,ACT,STATE,INT,ERC20,ERC721,TF,ALLOW,INH,STRUCT,MAP,ENUM,ID,CALL,EVM,STORAGE,KEY,VAL,LOOKUP,CALLER,CHECK,DEFAULT concept;
     class SEC,DISC security;
 ~~~
+
+New capture: [SimpleStorage refresher — mapping keys, values, and caller-based lookup](notes/simple-storage-mapping-access.md).
 
 ## How to read it
 
@@ -70,7 +88,7 @@ For example:
 
 That concept is then connected to allowances, because ERC20 `transferFrom` normally depends on an allowance being available.
 
-The actual study notes will sit behind these concepts as they are captured.
+The actual study notes sit behind these concepts as they are captured.
 
 ## Notes index
 
