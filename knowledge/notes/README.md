@@ -2,7 +2,7 @@
 
 This is the note index.
 
-Notes are added when the conversation uses the study trigger: **`study`** or **`anchor`**.
+Notes are added when the conversation uses the study trigger: **`study`** or **`anchor`**, or when I explicitly ask for a knowledge-web capture.
 
 ## Rules for every note
 
@@ -41,7 +41,7 @@ That makes the progression useful for revision and auditing my own reasoning.
 Notes should link to:
 
 - related notes
-- the project where the idea appeared
+- the project or exercise where the idea appeared
 - other Solidity concepts it depends on
 - security ideas that use the concept
 
@@ -51,6 +51,4 @@ Use **[NOTE TEMPLATE](../_NOTE_TEMPLATE.md)** when creating a new entry.
 
 ## Captured notes
 
-_No study notes have been captured yet._
-
-This is intentional: the knowledge layer starts recording from the trigger instead of pretending that every old conversation was formally studied.
+- [SimpleStorage refresher: mapping keys and values](./simple-storage-mapping-access.md) — the difference between a mapping's name, key type, mapped-value name, and a concrete lookup such as `value[msg.sender]`; includes the original syntax mistake and the full explanation.
