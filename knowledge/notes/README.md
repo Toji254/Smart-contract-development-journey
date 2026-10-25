@@ -52,3 +52,4 @@ Use **[NOTE TEMPLATE](../_NOTE_TEMPLATE.md)** when creating a new entry.
 ## Captured notes
 
 - [SimpleStorage refresher: mapping keys and values](./simple-storage-mapping-access.md) — the difference between a mapping's name, key type, mapped-value name, and a concrete lookup such as `value[msg.sender]`; includes the original syntax mistake and the full explanation.
+- [SimpleStorage refresher: constructor, state variable, setter, and getter](./simple-storage-constructor-setter-getter.md) — why the constructor sets the starting value rather than freezing it, how a setter explicitly updates state, and how a getter reads the current value.
