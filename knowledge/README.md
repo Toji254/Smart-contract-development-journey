@@ -59,6 +59,7 @@ The same concept can appear in several projects. A note should therefore link ba
 | [ETH Escrow](../ETH%20Escrow/README.md) | actors, state transitions, ETH accounting |
 | [Purchase NFT with ERC20 Tokens](../Purchase%20NFT%20with%20ERC20%20tokens/README.md) | interfaces, ERC20, ERC721, `transferFrom`, allowances, inheritance |
 | [BountyArena](../Bounty%20Arena/README.md) | structs, mappings, enums, IDs, ownership, interconnected state |
+| [Token Sale Contract](../Token%20Sale%20Contract/README.md) | ERC20 implementation vs IERC20 interface, contract references, external calls, ETH/token sale accounting |
 
 These are starting connections. New study notes should make the map richer as the journey continues.
 
