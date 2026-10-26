@@ -13,6 +13,7 @@ flowchart TD
     J --> P["Purchase NFT with ERC20"]
     J --> B["BountyArena"]
     J --> S["SimpleStorage refresher"]
+    J --> SALE["Token Sale Contract"]
 
     T --> ETH["ETH / msg.value / balances"]
     T --> OWN["Ownership / privileged actions"]
@@ -27,6 +28,10 @@ flowchart TD
     P --> TF["transferFrom"]
     P --> ALLOW["Allowances"]
     P --> INH["Inheritance"]
+
+    SALE --> IMPORT["Import: make definition available"]
+    SALE --> INT
+    SALE --> REF["Interface-typed contract reference"]
 
     B --> STRUCT["Structs"]
     B --> MAP["Mappings"]
@@ -81,9 +86,10 @@ flowchart TD
     SVAR --> STORAGE
 
     INT --> CALL["Calling a function through a contract/interface"]
+    REF --> CALL
+    INH --> IMPLEMENT["Implements interface / inherits behavior"]
     ERC20 --> TF
     ALLOW --> TF
-    INH --> CALL
 
     CALL --> EVM["EVM behaviour"]
     STATE --> EVM
@@ -101,12 +107,13 @@ flowchart TD
     classDef concept fill:#ecfeff,stroke:#0891b2,color:#111827;
     classDef security fill:#fff7ed,stroke:#ea580c,color:#111827;
 
-    class T,E,P,B,S project;
-    class ETH,OWN,ACT,STATE,INT,ERC20,ERC721,TF,ALLOW,INH,STRUCT,MAP,ENUM,ID,CALL,EVM,STORAGE,KEY,VAL,LOOKUP,CALLER,CHECK,DEFAULT,INIT,SVAR,SETTER,GETTER,BODY,ASSIGN,PARAM,VIS,AUTOGET,PUBLICFN,LOCAL,MAPGET,VISCHEAT,GETWHEN concept;
+    class T,E,P,B,S,SALE project;
+    class ETH,OWN,ACT,STATE,INT,ERC20,ERC721,TF,ALLOW,INH,STRUCT,MAP,ENUM,ID,CALL,EVM,STORAGE,KEY,VAL,LOOKUP,CALLER,CHECK,DEFAULT,INIT,SVAR,SETTER,GETTER,BODY,ASSIGN,PARAM,VIS,AUTOGET,PUBLICFN,LOCAL,MAPGET,VISCHEAT,GETWHEN,REF,IMPORT,IMPLEMENT concept;
     class SEC,DISC security;
 ~~~
 
 New captures:
+- [Solidity interfaces: inheritance vs interacting through a reference](notes/solidity-interface-inheritance-vs-interaction.md).
 - [SimpleStorage refresher — mapping keys, values, and caller-based lookup](notes/simple-storage-mapping-access.md).
 - [SimpleStorage refresher — constructor, state variable, setter, and getter](notes/simple-storage-constructor-setter-getter.md).
 - [Solidity visibility and automatic getters](notes/solidity-visibility-and-automatic-getters.md).
