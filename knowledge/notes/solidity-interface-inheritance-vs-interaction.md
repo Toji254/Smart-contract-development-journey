@@ -7,7 +7,7 @@
 
 **Project:** [Token Sale Contract](../../Token%20Sale%20Contract/README.md)  
 **Current sale draft:** [Token Sale Contract.sol](../../Token%20Sale%20Contract/src/Token%20Sale%20Contract.sol)  
-**Token implementation:** [Token.sol](../../Token%20Sale%20Contract/src/Token.sol)  
+**Token implementation:** `Token.sol` (the token contract discussed in this session)  
 **Related project:** [Purchase NFT with ERC20 Tokens](../../Purchase%20NFT%20with%20ERC20%20tokens/README.md)  
 **Knowledge map:** [Knowledge Map](../MAP.md)
 
