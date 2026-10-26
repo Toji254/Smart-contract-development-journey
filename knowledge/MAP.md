@@ -114,6 +114,7 @@ flowchart TD
 
 New captures:
 - [Solidity interfaces: inheritance vs interacting through a reference](notes/solidity-interface-inheritance-vs-interaction.md).
+- [Using an interface type: addresses and constructors](notes/solidity-interface-type-address-and-constructor.md).
 - [SimpleStorage refresher — mapping keys, values, and caller-based lookup](notes/simple-storage-mapping-access.md).
 - [SimpleStorage refresher — constructor, state variable, setter, and getter](notes/simple-storage-constructor-setter-getter.md).
 - [Solidity visibility and automatic getters](notes/solidity-visibility-and-automatic-getters.md).
