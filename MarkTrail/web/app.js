@@ -365,6 +365,10 @@ async function loadStudent() {
           ? '<span class="badge muted">Not entered</span>'
           : badge(item.mark_entry_status);
         const result = badge(item.result_status);
+        const evidenceCases = (item.cases || []).map((caseItem) =>
+          '<div class="student-case-status"><span>' + esc(evidenceCaseLabel(caseItem.category)) + '</span>' +
+          badge(caseItem.status) + '<small>' + esc(caseItem.id) + '</small></div>'
+        ).join("");
         const lecturerCard = !item.session_id
           ? '<span class="muted">No exam session recorded</span>'
           : ["FINAL_EXAM", "SPECIAL_EXAM"].includes(item.session_type)
@@ -387,7 +391,11 @@ async function loadStudent() {
           '<div><span>Lecturer exam-card signature</span>' + lecturerCard + '</div>' +
           '<div><span>Marks entry</span>' + markEntry + '</div>' +
           '<div><span>Result stage</span>' + result + '</div>' +
-          '</div></article>';
+          '</div>' +
+          (evidenceCases
+            ? '<div class="student-cases"><strong>Evidence cases</strong>' + evidenceCases + '</div>'
+            : '') +
+          '</article>';
       }).join("")
     : '<div class="card"><p class="muted">No assessments are linked to your student account yet. Contact your department if this does not look right.</p></div>';
 
@@ -1923,6 +1931,15 @@ $("#evidence-session-form").addEventListener("submit", async (event) => {
     toast("Examination session created with " + result.candidate_count + " candidates.");
     await loadEvidenceAssessment(state.evidenceSelectedAssessment);
     await loadEvidenceSession(result.session_id);
+  } catch (error) {
+    toast(error.message, "error");
+  }
+});
+
+$("#evidence-cases-refresh").addEventListener("click", async () => {
+  try {
+    await loadEvidenceCases();
+    toast("Evidence case queue refreshed.");
   } catch (error) {
     toast(error.message, "error");
   }
