@@ -392,6 +392,58 @@
         </div>
       </section>
 
+      <!-- ───── ASSESSMENT EVIDENCE ───── -->
+      <section id="evidence-panel" class="panel hidden">
+        <div data-role-view="evidence">
+          <div class="callout">
+            <strong>Assessment evidence workspace</strong>
+            <p>Keep the examination register, script receipts and marking handovers connected to the exact assessment. A missing signature is an exception to investigate, not an automatic absence.</p>
+          </div>
+
+          <div class="card">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">ASSESSMENT</p>
+                <h2>Start an examination session</h2>
+              </div>
+              <button class="button secondary" id="evidence-refresh" type="button">Refresh</button>
+            </div>
+            <form id="evidence-session-form" class="form-grid">
+              <label>
+                Assessment
+                <select id="evidence-assessment" name="assessment_id" required></select>
+              </label>
+              <label>
+                Examination date and time
+                <input id="evidence-exam-at" name="exam_at" type="datetime-local" required>
+              </label>
+              <label>
+                Venue
+                <input id="evidence-venue" name="venue" maxlength="120" placeholder="e.g. Lecture Theatre 2" required>
+              </label>
+              <div class="actions">
+                <button class="button primary" type="submit">Create locked candidate register</button>
+              </div>
+            </form>
+            <p class="muted">MarkTrail snapshots the approved course roster when the session is created. Later enrolment changes do not silently rewrite this exam's candidate list.</p>
+          </div>
+
+          <div class="card">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">EXAM SESSIONS</p>
+                <h2>Assessment sessions</h2>
+              </div>
+            </div>
+            <div id="evidence-sessions" class="stack">
+              <p class="muted">Choose an assessment to see its examination sessions.</p>
+            </div>
+          </div>
+
+          <div id="evidence-workspace" class="stack"></div>
+        </div>
+      </section>
+
       <!-- ───── AUDIT ───── -->
       <section id="audit-panel" class="panel hidden">
         <div class="section-head">
