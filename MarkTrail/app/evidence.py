@@ -842,6 +842,25 @@ class AssessmentEvidenceService:
         finally:
             conn.close()
 
+    def staff_options(self, user_id: int) -> list[dict[str, Any]]:
+        self._require_staff(user_id)
+        conn = self.db.connect()
+        try:
+            return [
+                dict(row) for row in conn.execute(
+                    """
+                    SELECT id, full_name, role
+                    FROM users
+                    WHERE active = 1 AND role IN (
+                        'lecturer','reviewer','exam_office','portal_operator','admin'
+                    )
+                    ORDER BY full_name
+                    """
+                ).fetchall()
+            ]
+        finally:
+            conn.close()
+
     def assessment_detail(self, user_id: int, assessment_id: str) -> dict[str, Any]:
         _actor, assessment = self._authorize_assessment(user_id, assessment_id)
         conn = self.db.connect()
