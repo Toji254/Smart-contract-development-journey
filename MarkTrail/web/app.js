@@ -99,7 +99,17 @@ function badge(value) {
     CONFIRMED: ["success", "Record checked"],
     LOCAL_ONLY: ["muted", "History saved"],
     ERROR: ["error", "Needs attention"],
-    PENDING: ["warning", "Check pending"]
+    PENDING: ["warning", "Check pending"],
+    PRESENT: ["success", "Recorded present"],
+    ABSENT: ["warning", "Recorded absent"],
+    EXCUSED: ["info", "Excused"],
+    CONTESTED: ["warning", "Disputed"],
+    RECEIVED: ["success", "Script received"],
+    HANDOFF_PENDING: ["warning", "Handover pending"],
+    ASSIGNED: ["info", "Assigned to marker"],
+    MARKED: ["success", "Marking completed"],
+    FLAGGED: ["warning", "Needs review"],
+    NOT_ENTERED: ["muted", "No mark entry recorded"]
   };
   const stages = {
     DEPARTMENT_REVIEW: ["warning", "Awaiting department review"],
@@ -118,7 +128,7 @@ function showView(view) {
   document.querySelectorAll(".panel").forEach((panel) => panel.classList.add("hidden"));
   const role = state.user.role;
   const panelMap = {
-    student: { home: "student-panel", marks: "student-panel", reports: "student-panel", audit: "audit-panel" },
+    student: { home: "student-panel", marks: "student-panel", progress: "student-panel", reports: "student-panel", audit: "audit-panel" },
     lecturer: { home: "lecturer-panel", batches: "lecturer-panel", reports: "lecturer-panel", evidence: "evidence-panel", audit: "audit-panel" },
     reviewer: { home: "reviewer-panel", verify: "reviewer-panel", evidence: "evidence-panel", audit: "audit-panel" },
     exam_office: { home: "exam-office-panel", process: "exam-office-panel", evidence: "evidence-panel", audit: "audit-panel" },
@@ -152,6 +162,7 @@ function updatePageHeading(view) {
   const titles = {
     home: ["Dashboard", "The current state of your marks workflow."],
     marks: ["My marks", "See what's published and what still needs attention."],
+    progress: ["My exam progress", "See the evidence recorded for your own assessments."],
     reports: ["My reports", "See updates on the missing marks you reported."],
     batches: ["Upload and batches", "Upload marks and follow their progress."],
     verify: ["Review batches", "Check submitted marks and approve them for processing."],
@@ -169,7 +180,7 @@ function updatePageHeading(view) {
 function buildNav() {
   const role = state.user.role;
   const views = {
-    student: [["home", "Dashboard"], ["marks", "My marks"], ["reports", "My reports"], ["audit", "History"]],
+    student: [["home", "Dashboard"], ["marks", "My marks"], ["progress", "Exam progress"], ["reports", "My reports"], ["audit", "History"]],
     lecturer: [["home", "Dashboard"], ["batches", "Upload & batches"], ["evidence", "Exam evidence"], ["reports", "Issues"], ["audit", "History"]],
     reviewer: [["home", "Dashboard"], ["verify", "Review batches"], ["evidence", "Exam evidence"], ["audit", "History"]],
     exam_office: [["home", "Dashboard"], ["process", "Process batches"], ["evidence", "Exam evidence"], ["audit", "History"]],
@@ -230,10 +241,11 @@ async function loadDashboard() {
 
 // ── Student ──────────────────────────────────────────────────
 async function loadStudent() {
-  const [marksData, reportsData, notificationData] = await Promise.all([
+  const [marksData, reportsData, notificationData, progressData] = await Promise.all([
     api("/api/student/marks"),
     api("/api/student/reports"),
-    api("/api/student/notifications")
+    api("/api/student/notifications"),
+    api("/api/student/progress")
   ]);
   const notifications = notificationData.notifications;
   const unreadCount = notifications.filter((item) => !item.read_at).length;
@@ -322,6 +334,40 @@ async function loadStudent() {
       }
     });
   });
+
+  const progressRoot = $("#student-progress");
+  progressRoot.innerHTML = progressData.progress.length
+    ? progressData.progress.map((item) => {
+        const attendance = item.attendance_status
+          ? badge(item.attendance_status)
+          : '<span class="badge muted">Not recorded</span>';
+        const signature = item.signature_recorded === null
+          ? "Not checked"
+          : (item.signature_recorded ? "Recorded" : "Not recorded");
+        const script = item.script_status
+          ? badge(item.script_status)
+          : '<span class="badge muted">No receipt recorded</span>';
+        const markEntry = item.mark_entry_status === "NOT_ENTERED"
+          ? '<span class="badge muted">Not entered</span>'
+          : badge(item.mark_entry_status);
+        const result = badge(item.result_status);
+        const session = item.evidence_available
+          ? '<p class="muted">' + esc(item.exam_at || "Exam time not recorded") +
+            (item.venue ? " · " + esc(item.venue) : "") + '</p>'
+          : '<p class="muted">No examination evidence has been captured in MarkTrail for this assessment yet.</p>';
+        return '<article class="student-progress-card"><div class="issue-top"><div><p class="eyebrow">' +
+          esc(item.course) + '</p><h3>' + esc(item.assessment) + '</h3></div>' +
+          (item.session_status ? badge(item.session_status) : '<span class="badge muted">No session</span>') +
+          '</div>' + session +
+          '<div class="student-progress-states">' +
+          '<div><span>Attendance</span>' + attendance + '</div>' +
+          '<div><span>Signature on register</span><strong>' + esc(signature) + '</strong></div>' +
+          '<div><span>Script receipt</span>' + script + '</div>' +
+          '<div><span>Marks entry</span>' + markEntry + '</div>' +
+          '<div><span>Result stage</span>' + result + '</div>' +
+          '</div></article>';
+      }).join("")
+    : '<div class="card"><p class="muted">No assessments are linked to your student account yet. Contact your department if this does not look right.</p></div>';
 
   $("#student-reports").innerHTML =
     reportsData.reports.length === 0
