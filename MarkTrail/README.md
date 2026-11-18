@@ -562,6 +562,7 @@ student / student123
 lecturer / lecturer123
 reviewer / reviewer123
 exam_office / office123
+senate_office / senate123
 portal_operator / portal123
 admin / admin123
 ~~~
@@ -570,6 +571,19 @@ The demo course includes a fresh assessment named `CAT 3 (Ready to upload)` so
 the lecturer can try CSV validation and batch submission immediately. CSV files
 use the headers `registration_number,mark`; students omitted from a valid CSV
 are recorded as missing.
+
+Assessments have an explicit result-release policy:
+- `DIRECT` is for CATs/coursework that the university authorises for direct release.
+- `SENATE` routes the verified batch from the exam office to the Senate Secretariat.
+  The Secretariat records an approval or deferral against a meeting/minute reference.
+  Deferred or pending batches are not available to the portal operator.
+- Existing assessments from older databases are migrated as `UNCLASSIFIED`.
+  An administrator must explicitly classify them before exam-office processing or
+  portal publication can continue.
+
+The synthetic demo `Final Exam` uses the Senate path and is seeded with a clearly
+labelled synthetic Senate approval so the portal publication flow can be tested.
+The demo `senate_office / senate123` account is only for local development.
 
 The server defaults to no demo data and HTTPS-only session cookies. The
 command above explicitly opts into synthetic demo accounts and an insecure
