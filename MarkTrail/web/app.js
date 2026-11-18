@@ -7,6 +7,8 @@ const state = {
   adminUsers: [],
   adminCourses: [],
   adminBatches: [],
+  adminAssessments: [],
+  senateBatches: [],
   evidenceAssessments: [],
   evidenceStaff: [],
   evidenceSessions: [],
@@ -109,7 +111,14 @@ function badge(value) {
     ASSIGNED: ["info", "Assigned to marker"],
     MARKED: ["success", "Marking completed"],
     FLAGGED: ["warning", "Needs review"],
-    NOT_ENTERED: ["muted", "No mark entry recorded"]
+    NOT_ENTERED: ["muted", "No mark entry recorded"],
+    SENATE_APPROVAL: ["warning", "Awaiting Senate approval"],
+    SENATE_DEFERRED: ["warning", "Deferred by Senate"],
+    AWAITING_SENATE_APPROVAL: ["warning", "Awaiting Senate approval"],
+    RELEASE_POLICY_UNCLASSIFIED: ["warning", "Release policy not classified"],
+    DIRECT: ["success", "Direct release"],
+    SENATE: ["info", "Senate approval required"],
+    UNCLASSIFIED: ["warning", "Unclassified"]
   };
   const stages = {
     DEPARTMENT_REVIEW: ["warning", "Awaiting department review"],
@@ -133,6 +142,7 @@ function showView(view) {
     reviewer: { home: "reviewer-panel", verify: "reviewer-panel", evidence: "evidence-panel", audit: "audit-panel" },
     exam_office: { home: "exam-office-panel", process: "exam-office-panel", evidence: "evidence-panel", audit: "audit-panel" },
     portal_operator: { home: "portal-operator-panel", import: "portal-operator-panel", audit: "audit-panel" },
+    senate_office: { home: "senate-panel", review: "senate-panel", audit: "audit-panel" },
     admin: { home: "admin-panel", setup: "admin-panel", evidence: "evidence-panel", audit: "audit-panel" }
   };
   const id = panelMap[role]?.[view] || panelMap[role]?.home;
@@ -168,7 +178,8 @@ function updatePageHeading(view) {
     verify: ["Review batches", "Check submitted marks and approve them for processing."],
     process: ["Process batches", "Record exam-office processing."],
     import: ["Publish marks", "Make processed marks available to students."],
-    setup: ["Institution setup", "Users, courses, rosters, and assessments."],
+    setup: ["Institution setup", "Users, courses, rosters, assessments and release policies."],
+    review: ["Senate approvals", "Approve or defer final-result batches with a meeting reference."],
     evidence: ["Assessment evidence", "Track attendance, scripts, custody and marking before marks are submitted."],
     audit: ["Batch history", "Follow the handoffs and see what changed."]
   };
@@ -185,6 +196,7 @@ function buildNav() {
     reviewer: [["home", "Dashboard"], ["verify", "Review batches"], ["evidence", "Exam evidence"], ["audit", "History"]],
     exam_office: [["home", "Dashboard"], ["process", "Process batches"], ["evidence", "Exam evidence"], ["audit", "History"]],
     portal_operator: [["home", "Dashboard"], ["import", "Publish marks"], ["audit", "History"]],
+    senate_office: [["home", "Dashboard"], ["review", "Senate approvals"], ["audit", "History"]],
     admin: [["home", "Dashboard"], ["setup", "Setup"], ["evidence", "Exam evidence"], ["audit", "History"]]
   };
   $("#nav").innerHTML = (views[role] || [])
@@ -207,6 +219,7 @@ function renderStats(dashboard) {
     lecturer: [["Batches", counts.batches], ["Open issues", counts.issues]],
     reviewer: [["Pending verification", counts.pending_verification]],
     exam_office: [["Pending processing", counts.pending_processing]],
+    senate_office: [["Awaiting decision", counts.pending_senate]],
     portal_operator: [["Pending import", counts.pending_import]]
   };
   const entries = roleStats[role] || [
@@ -647,8 +660,10 @@ async function loadExamOffice() {
   $("#exam-office-batches").querySelectorAll("[data-process-batch]").forEach((button) => {
     button.addEventListener("click", async () => {
       try {
-        await api("/api/exam-office/batches/" + encodeURIComponent(button.dataset.processBatch) + "/process", { method: "POST" });
-        toast("Processing recorded. The batch is now ready for portal import.");
+        const result = await api("/api/exam-office/batches/" + encodeURIComponent(button.dataset.processBatch) + "/process", { method: "POST" });
+        toast(result.senate_status === "PENDING"
+          ? "Exam-office processing recorded. The batch is now awaiting Senate approval."
+          : "Processing recorded. The batch is ready for direct portal import.");
         await loadExamOffice();
         await loadDashboard();
       } catch (error) {
@@ -657,6 +672,73 @@ async function loadExamOffice() {
     });
   });
   $("#exam-office-batches").querySelectorAll("[data-audit-batch]").forEach((button) => {
+    button.addEventListener("click", () => openAuditForBatch(button.dataset.auditBatch));
+  });
+}
+
+// ── University Senate ────────────────────────────────────────
+async function loadSenate() {
+  const data = await api("/api/senate/batches");
+  state.senateBatches = data.batches || [];
+  const root = $("#senate-batches");
+  root.innerHTML = state.senateBatches.length
+    ? state.senateBatches.map((batch) =>
+        '<article class="issue senate-batch" data-senate-batch="' + esc(batch.id) + '">' +
+        '<div class="issue-top"><div><div class="issue-title">' +
+        esc(batch.course + " · " + batch.assessment) + '</div><p class="muted">' +
+        esc(batch.lecturer_name + " · " + batch.student_count + " students · revision " + batch.revision) +
+        '</p></div>' + badge(batch.senate_status) + '</div>' +
+        '<p class="muted">This assessment is configured for Senate approval. Marks remain unpublished until an approval decision is recorded.</p>' +
+        '<div class="form-grid senate-decision-fields">' +
+        '<label>Meeting / minutes reference<input data-senate-meeting maxlength="120" placeholder="e.g. Senate 04/2026 · Min 12"></label>' +
+        '<label>Decision reason<textarea data-senate-reason rows="2" maxlength="1000" placeholder="Required when deferring"></textarea></label>' +
+        '</div><div class="actions">' +
+        '<button type="button" class="button primary" data-senate-approve="' + esc(batch.id) + '">Approve for release</button>' +
+        '<button type="button" class="button secondary" data-senate-defer="' + esc(batch.id) + '">Defer result</button>' +
+        '<button type="button" class="button ghost" data-audit-batch="' + esc(batch.id) + '">View history</button>' +
+        '</div></article>'
+      ).join("")
+    : '<div class="card"><p class="muted">No final-result batches are awaiting a Senate decision.</p></div>';
+
+  root.querySelectorAll("[data-senate-approve], [data-senate-defer]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const card = button.closest("[data-senate-batch]");
+      const meeting = card.querySelector("[data-senate-meeting]").value.trim();
+      const reason = card.querySelector("[data-senate-reason]").value.trim();
+      const decision = button.hasAttribute("data-senate-approve") ? "APPROVED" : "DEFERRED";
+      if (meeting.length < 4) {
+        toast("Enter the Senate meeting or minutes reference.", "error");
+        return;
+      }
+      if (decision === "DEFERRED" && reason.length < 8) {
+        toast("Add a reason before deferring this result.", "error");
+        return;
+      }
+      if (!confirm(
+        decision === "APPROVED"
+          ? "Record Senate approval for this exact batch revision? The result will become eligible for portal import."
+          : "Defer this result? It will remain blocked from publication until a later Senate decision."
+      )) return;
+
+      button.disabled = true;
+      try {
+        await api("/api/senate/batches/" + encodeURIComponent(button.dataset.senateApprove || button.dataset.senateDefer) + "/decision", {
+          method: "POST",
+          body: JSON.stringify({ decision, meeting_reference: meeting, reason })
+        });
+        toast(decision === "APPROVED"
+          ? "Senate approval recorded. The result is now eligible for portal import."
+          : "Senate deferral recorded. The result remains unpublished.");
+        await loadSenate();
+        await loadDashboard();
+      } catch (error) {
+        toast(error.message, "error");
+        button.disabled = false;
+      }
+    });
+  });
+
+  root.querySelectorAll("[data-audit-batch]").forEach((button) => {
     button.addEventListener("click", () => openAuditForBatch(button.dataset.auditBatch));
   });
 }
@@ -700,14 +782,16 @@ async function loadPortalOperator() {
 
 // ── Admin ────────────────────────────────────────────────────
 async function loadAdmin() {
-  const [users, coursesData, batches] = await Promise.all([
+  const [users, coursesData, batches, assessmentsData] = await Promise.all([
     api("/api/admin/users"),
     api("/api/admin/courses"),
-    api("/api/admin/batches")
+    api("/api/admin/batches"),
+    api("/api/admin/assessments")
   ]);
   state.adminUsers = users.users;
   state.adminCourses = coursesData.courses;
   state.adminBatches = batches.batches;
+  state.adminAssessments = assessmentsData.assessments || [];
 
   const today = new Date().toISOString().slice(0, 10);
   const lecturers = state.adminUsers.filter(
@@ -786,6 +870,62 @@ async function loadAdmin() {
         esc(course.assessments) + "</td></tr>"
     ).join("") +
     "</tbody></table>";
+
+  const assessmentPolicies = $("#admin-assessments");
+  assessmentPolicies.innerHTML = state.adminAssessments.length
+    ? '<table><thead><tr><th>Course · Assessment</th><th>Policy</th><th>Batch state</th><th>Classify / update</th></tr></thead><tbody>' +
+      state.adminAssessments.map((item) => {
+        const locked = item.pipeline_stage === "PUBLISHED" ||
+          ["PENDING", "DEFERRED", "APPROVED"].includes(item.senate_status);
+        const options = ["DIRECT", "SENATE"].map((policy) =>
+          '<option value="' + policy + '"' + (item.release_policy === policy ? " selected" : "") + ">" +
+          (policy === "DIRECT" ? "Direct release" : "Senate approval") + "</option>"
+        ).join("");
+        return '<tr><td><strong>' + esc(item.course_code + " · " + item.name) +
+          '</strong><small class="muted">' + esc(item.course_title) + '</small></td>' +
+          "<td>" + badge(item.release_policy) + "</td>" +
+          "<td>" + (item.batch_id ? badge(item.pipeline_stage || "UNKNOWN") : '<span class="muted">No batch yet</span>') +
+          (item.senate_status ? '<small class="muted">Senate: ' + esc(item.senate_status) + "</small>" : "") + "</td>" +
+          '<td><form class="release-policy-form" data-assessment-id="' + esc(item.id) + '">' +
+          '<select name="release_policy" aria-label="Release policy for ' + esc(item.name) + '"' +
+          (locked ? " disabled" : "") + ">" + options + "</select>" +
+          '<input name="reason" maxlength="1000" placeholder="Reason for classification / change"' +
+          (locked ? " disabled" : "") + ">" +
+          '<button class="button secondary"' + (locked ? " disabled" : "") + ">Save policy</button>" +
+          (locked ? '<small class="muted">Locked after Senate decision or publication.</small>' : "") +
+          "</form></td></tr>";
+      }).join("") + "</tbody></table>"
+    : '<p class="muted">No assessments available.</p>';
+
+  assessmentPolicies.querySelectorAll(".release-policy-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const values = new FormData(form);
+      const policy = String(values.get("release_policy") || "");
+      const reason = String(values.get("reason") || "").trim();
+      if (!["DIRECT", "SENATE"].includes(policy)) {
+        toast("Choose DIRECT or SENATE.", "error");
+        return;
+      }
+      if (reason.length < 8) {
+        toast("Explain the policy classification in at least 8 characters.", "error");
+        return;
+      }
+      const button = form.querySelector("button");
+      button.disabled = true;
+      try {
+        await api("/api/admin/assessments/" + encodeURIComponent(form.dataset.assessmentId) + "/release-policy", {
+          method: "POST",
+          body: JSON.stringify({ release_policy: policy, reason })
+        });
+        toast("Assessment release policy updated.");
+        await loadAdmin();
+      } catch (error) {
+        toast(error.message, "error");
+        button.disabled = false;
+      }
+    });
+  });
 
   const batchesContainer = $("#admin-batches");
   if (batchesContainer) {
@@ -1704,6 +1844,7 @@ async function loadCurrentView() {
     if (state.user.role === "lecturer") await loadLecturer();
     if (state.user.role === "reviewer") await loadReviewer();
     if (state.user.role === "exam_office") await loadExamOffice();
+    if (state.user.role === "senate_office") await loadSenate();
     if (state.user.role === "portal_operator") await loadPortalOperator();
     if (state.user.role === "admin") await loadAdmin();
     if (state.navView === "evidence") await loadEvidence();
@@ -1979,10 +2120,15 @@ $("#create-assessment-form").addEventListener("submit", async (event) => {
   try {
     await api("/api/admin/courses/" + encodeURIComponent(form.get("course_id")) + "/assessments", {
       method: "POST",
-      body: JSON.stringify({ name: data.name, max_mark: data.max_mark, submission_deadline: data.submission_deadline || null })
+      body: JSON.stringify({
+        name: data.name,
+        max_mark: data.max_mark,
+        submission_deadline: data.submission_deadline || null,
+        release_policy: data.release_policy
+      })
     });
     event.target.reset();
-    toast("Assessment created.");
+    toast("Assessment created with " + (data.release_policy === "SENATE" ? "Senate approval required." : "direct release.") );
     await loadAdmin();
   } catch (error) {
     toast(error.message, "error");
