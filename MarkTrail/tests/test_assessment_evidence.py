@@ -259,6 +259,69 @@ class AssessmentEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(corrected["attendance"]["attendance_status"], "EXCUSED")
 
+    def test_activity_timeline_keeps_attendance_corrections_and_script_handoffs(self):
+        session_id = self.create_session()
+        candidates = self.record_complete_register(session_id)
+        script = self.evidence.receive_script(
+            self.users["lecturer"],
+            session_id,
+            candidates[0]["student_id"],
+            "TIMELINE-PACKET-01",
+        )
+        self.evidence.request_script_handoff(
+            self.users["lecturer"],
+            script["script_id"],
+            self.users["reviewer"],
+            "Second marker review requested.",
+        )
+        self.evidence.accept_script_handoff(
+            self.users["reviewer"], script["script_id"]
+        )
+
+        detail = self.evidence.session_detail(self.users["reviewer"], session_id)
+        events = detail["activity"]
+        event_types = {(event["category"], event["event_type"]) for event in events}
+        self.assertIn(("SESSION", "SESSION_CREATED"), event_types)
+        self.assertIn(("ATTENDANCE", "RECORDED"), event_types)
+        self.assertIn(("SCRIPT", "RECEIVED"), event_types)
+        self.assertIn(("SCRIPT", "HANDOFF_REQUESTED"), event_types)
+        self.assertIn(("SCRIPT", "HANDOFF_ACCEPTED"), event_types)
+
+        handoff = next(
+            event for event in events
+            if event["category"] == "SCRIPT" and event["event_type"] == "HANDOFF_REQUESTED"
+        )
+        self.assertEqual(handoff["recipient_name"], "Prof. Grace Wambui")
+        self.assertEqual(handoff["script_ref"], "TIMELINE-PACKET-01")
+
+    def test_evidence_event_tables_reject_update_and_delete(self):
+        import sqlite3
+
+        session_id = self.create_session()
+        candidates = self.record_complete_register(session_id)
+        script = self.evidence.receive_script(
+            self.users["lecturer"],
+            session_id,
+            candidates[0]["student_id"],
+            "IMMUTABLE-PACKET-01",
+        )
+        with self.db.transaction() as conn:
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "append-only"):
+                conn.execute(
+                    "UPDATE exam_script_events SET note = 'rewritten' WHERE script_id = ?",
+                    (script["script_id"],),
+                )
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "append-only"):
+                conn.execute(
+                    "DELETE FROM exam_attendance_events WHERE session_id = ?",
+                    (session_id,),
+                )
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "append-only"):
+                conn.execute(
+                    "DELETE FROM exam_session_events WHERE session_id = ?",
+                    (session_id,),
+                )
+
     def test_student_cannot_access_staff_evidence_management(self):
         with self.assertRaisesRegex(AppError, "permission"):
             self.evidence.list_assessments(self.users["student"])
