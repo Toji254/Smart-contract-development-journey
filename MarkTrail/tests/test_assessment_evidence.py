@@ -29,12 +29,13 @@ class AssessmentEvidenceTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def create_session(self, assessment_id="assessment-demo-upload"):
+    def create_session(self, assessment_id="assessment-demo-upload", session_type="FINAL_EXAM"):
         return self.evidence.create_session(
             self.users["lecturer"],
             assessment_id,
             "2026-11-20T09:00:00",
             "Main Campus · Lecture Theatre 2",
+            session_type,
         )["session_id"]
 
     def roster(self, session_id):
@@ -195,6 +196,102 @@ class AssessmentEvidenceTests(unittest.TestCase):
             "ATTENDANCE_SIGNATURE_STATUS_CONFLICT",
             {item["code"] for item in recorded["issues"]},
         )
+
+    def test_lecturer_can_sign_physical_exam_card_after_evidence_reconciles(self):
+        session_id = self.create_session(session_type="FINAL_EXAM")
+        candidates = self.record_complete_register(session_id)
+        present = candidates[0]
+        absent = candidates[1]
+        self.evidence.receive_script(
+            self.users["lecturer"],
+            session_id,
+            present["student_id"],
+            "CARD-SIGNOFF-PACKET-01",
+        )
+
+        with self.assertRaisesRegex(AppError, "Close the examination attendance register"):
+            self.evidence.sign_exam_cards(
+                self.users["lecturer"], session_id,
+                [{"student_id": present["student_id"]}],
+            )
+
+        self.evidence.close_session(self.users["lecturer"], session_id)
+        before = self.evidence.session_detail(self.users["lecturer"], session_id)
+        self.assertIn(
+            "LECTURER_EXAM_CARD_SIGNOFF_PENDING",
+            {
+                issue["code"] for issue in before["exceptions"]
+                if issue["student_id"] == present["student_id"]
+            },
+        )
+
+        with self.assertRaisesRegex(AppError, "Only the lecturer in charge"):
+            self.evidence.sign_exam_cards(
+                self.users["reviewer"], session_id,
+                [{"student_id": present["student_id"]}],
+            )
+        with self.assertRaisesRegex(AppError, "only for candidates recorded PRESENT"):
+            self.evidence.sign_exam_cards(
+                self.users["lecturer"], session_id,
+                [{"student_id": absent["student_id"]}],
+            )
+
+        result = self.evidence.sign_exam_cards(
+            self.users["lecturer"], session_id,
+            [{
+                "student_id": present["student_id"],
+                "note": "Physical card signed after checking the unit examination record.",
+            }],
+        )
+        self.assertEqual(result["signed"], 1)
+
+        after = self.evidence.session_detail(self.users["lecturer"], session_id)
+        signed_candidate = next(
+            row for row in after["candidates"]
+            if row["student_id"] == present["student_id"]
+        )
+        self.assertEqual(
+            signed_candidate["card_signoff"]["signed_by_name"],
+            "Prof. Grace Wambui",
+        )
+        self.assertNotIn(
+            "LECTURER_EXAM_CARD_SIGNOFF_PENDING",
+            {issue["code"] for issue in signed_candidate["issues"]},
+        )
+        self.assertIn(
+            "PHYSICAL_CARD_SIGNED",
+            {event["event_type"] for event in after["activity"]},
+        )
+
+        student_view = self.evidence.student_progress(present["student_id"])
+        own = next(
+            row for row in student_view
+            if row["assessment_id"] == "assessment-demo-upload"
+            and row["session_id"] == session_id
+        )
+        self.assertTrue(own["lecturer_card_signed"])
+        self.assertNotIn("lecturer_card_signed_by", own)
+
+        with self.assertRaisesRegex(AppError, "already been signed"):
+            self.evidence.sign_exam_cards(
+                self.users["lecturer"], session_id,
+                [{"student_id": present["student_id"]}],
+            )
+
+    def test_cat_session_does_not_require_physical_exam_card_signoff(self):
+        session_id = self.create_session(session_type="CAT")
+        self.record_complete_register(session_id)
+        self.evidence.close_session(self.users["lecturer"], session_id)
+        detail = self.evidence.session_detail(self.users["lecturer"], session_id)
+        self.assertNotIn(
+            "LECTURER_EXAM_CARD_SIGNOFF_PENDING",
+            {issue["code"] for issue in detail["exceptions"]},
+        )
+        with self.assertRaisesRegex(AppError, "only for final or special examination"):
+            self.evidence.sign_exam_cards(
+                self.users["lecturer"], session_id,
+                [{"student_id": detail["candidates"][0]["student_id"]}],
+            )
 
     def test_present_candidate_without_script_is_flagged(self):
         session_id = self.create_session()
