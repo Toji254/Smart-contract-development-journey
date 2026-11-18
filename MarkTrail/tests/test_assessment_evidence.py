@@ -250,9 +250,17 @@ class AssessmentEvidenceTests(unittest.TestCase):
             row for row in after["candidates"]
             if row["student_id"] == present["student_id"]
         )
+        conn = self.db.connect()
+        try:
+            expected_lecturer_name = conn.execute(
+                "SELECT full_name FROM users WHERE id = ?",
+                (self.users["lecturer"],),
+            ).fetchone()["full_name"]
+        finally:
+            conn.close()
         self.assertEqual(
             signed_candidate["card_signoff"]["signed_by_name"],
-            "Prof. Grace Wambui",
+            expected_lecturer_name,
         )
         self.assertNotIn(
             "LECTURER_EXAM_CARD_SIGNOFF_PENDING",
