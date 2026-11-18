@@ -248,6 +248,25 @@
         </div>
       </section>
 
+      <!-- ───── SENATE SECRETARIAT ───── -->
+      <section id="senate-panel" class="panel hidden">
+        <div class="callout" data-role-view="home">
+          <strong>University Senate results review</strong>
+          <p>Review only assessments explicitly configured for Senate approval. CATs and other direct-release assessments do not enter this queue.</p>
+        </div>
+        <div data-role-view="review">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">SENATE SECRETARIAT</p>
+              <h2>Results awaiting Senate decision</h2>
+              <p class="muted">Record the meeting/minute reference. A deferred batch stays blocked from portal publication.</p>
+            </div>
+            <button class="button secondary" data-refresh type="button">Refresh</button>
+          </div>
+          <div id="senate-batches"></div>
+        </div>
+      </section>
+
       <!-- ───── PORTAL OPERATOR ───── -->
       <section id="portal-operator-panel" class="panel hidden">
         <div class="callout" data-role-view="home">
@@ -295,6 +314,7 @@
                 <option value="lecturer">Lecturer</option>
                 <option value="reviewer">Reviewer</option>
                 <option value="exam_office">Exam office</option>
+                <option value="senate_office">Senate Secretariat</option>
                 <option value="portal_operator">Portal operator</option>
                 <option value="admin">Admin</option>
               </select>
@@ -364,8 +384,22 @@
               <input name="name" placeholder="CAT 1" required>
               <input name="max_mark" type="number" step="0.01" min="0.01" placeholder="20" required>
               <input name="submission_deadline" type="datetime-local" placeholder="Submission deadline (optional)">
+              <label>Result release policy
+                <select name="release_policy" required>
+                  <option value="">Choose release policy</option>
+                  <option value="DIRECT">CAT / coursework — direct release</option>
+                  <option value="SENATE">Main exam / final result — Senate approval</option>
+                </select>
+              </label>
               <button class="button primary">Create assessment</button>
             </form>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3>Existing assessment release policies</h3>
+            </div>
+            <p class="muted">Older assessments are shown as UNCLASSIFIED until an administrator explicitly chooses direct release or Senate approval. Unclassified batches cannot be published.</p>
+            <div id="admin-assessments" class="table-wrap"></div>
           </div>
         </div>
 
