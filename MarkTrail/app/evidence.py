@@ -1441,6 +1441,7 @@ class AssessmentEvidenceService:
                     a.id AS assessment_id,
                     a.name AS assessment,
                     a.max_mark,
+                    a.release_policy,
                     c.code AS course_code,
                     c.title AS course_title,
                     x.session_id,
@@ -1459,7 +1460,8 @@ class AssessmentEvidenceService:
                     x.card_signed_at,
                     COALESCE(m.candidate_status, 'NOT_ENTERED') AS mark_entry_status,
                     COALESCE(m.published_status, 'MISSING') AS published_status,
-                    COALESCE(b.pipeline_stage, 'NOT_SUBMITTED') AS pipeline_stage
+                    COALESCE(b.pipeline_stage, 'NOT_SUBMITTED') AS pipeline_stage,
+                    COALESCE(b.senate_status, 'NOT_REQUIRED') AS senate_status
                 FROM enrollments e
                 JOIN courses c ON c.id = e.course_id
                 JOIN assessments a ON a.course_id = c.id
@@ -1508,6 +1510,8 @@ class AssessmentEvidenceService:
                     "assessment": row["assessment"],
                     "course": row["course_code"] + " · " + row["course_title"],
                     "max_mark": row["max_mark"],
+                    "release_policy": row["release_policy"],
+                    "senate_status": row["senate_status"],
                     "session_id": row["session_id"],
                     "exam_at": row["exam_at"],
                     "venue": row["venue"],
@@ -1528,7 +1532,19 @@ class AssessmentEvidenceService:
                     "result_status": (
                         row["published_status"]
                         if row["pipeline_stage"] == "PUBLISHED"
-                        else row["pipeline_stage"]
+                        else (
+                            "RELEASE_POLICY_UNCLASSIFIED"
+                            if row["release_policy"] == "UNCLASSIFIED" and row["pipeline_stage"] != "NOT_SUBMITTED"
+                            else (
+                                "SENATE_APPROVAL"
+                                if row["release_policy"] == "SENATE" and row["senate_status"] == "PENDING"
+                                else (
+                                    "SENATE_DEFERRED"
+                                    if row["release_policy"] == "SENATE" and row["senate_status"] == "DEFERRED"
+                                    else row["pipeline_stage"]
+                                )
+                            )
+                        )
                     ),
                     "evidence_available": row["session_id"] is not None,
                 })
@@ -1546,7 +1562,7 @@ class AssessmentEvidenceService:
                     SELECT id, full_name, role
                     FROM users
                     WHERE active = 1 AND role IN (
-                        'lecturer','reviewer','exam_office','portal_operator','admin'
+                        'lecturer','reviewer','exam_office','senate_office','portal_operator','admin'
                     )
                     ORDER BY full_name
                     """
