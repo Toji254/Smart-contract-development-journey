@@ -1460,6 +1460,7 @@ class AssessmentEvidenceService:
                        assigned_role, assigned_user_id
                 FROM evidence_cases
                 WHERE session_id = ? AND status = 'OPEN'
+                  AND category NOT LIKE 'STUDENT_REPORTED_%'
                 """,
                 (session_id,),
             ).fetchall()
@@ -2163,13 +2164,13 @@ class AssessmentEvidenceService:
                 event_type = "OPENED"
             else:
                 case_id = existing["id"]
-                if existing["status"] in {"RESOLVED", "DISMISSED"}:
+                if existing["status"] in {"RESOLVED", "DISMISSED", "EVIDENCE_CLEARED"}:
                     conn.execute(
                         """
                         UPDATE evidence_cases
                         SET status = 'OPEN', assigned_role = ?, assigned_user_id = ?,
-                            updated_at = ?, last_detected_at = ?, resolved_at = NULL,
-                            resolved_by = NULL, resolution_note = ''
+                            updated_at = ?, last_detected_at = ?, evidence_cleared_at = NULL,
+                            resolved_at = NULL, resolved_by = NULL, resolution_note = ''
                         WHERE id = ?
                         """,
                         (assigned_role, assigned_user_id, now, now, case_id),
