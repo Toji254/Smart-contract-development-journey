@@ -1562,7 +1562,8 @@ class AssessmentEvidenceService:
             sessions = [
                 dict(row) for row in conn.execute(
                     """
-                    SELECT s.id, s.exam_at, s.venue, s.status, s.candidate_count, s.created_at,
+                    SELECT s.id, s.exam_at, s.venue, s.session_type,
+                           s.status, s.candidate_count, s.created_at,
                            u.full_name AS created_by_name
                     FROM exam_sessions s
                     JOIN users u ON u.id = s.created_by
