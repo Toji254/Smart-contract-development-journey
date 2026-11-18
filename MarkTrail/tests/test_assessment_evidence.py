@@ -123,6 +123,30 @@ class AssessmentEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(AppError, "attendance decisions are not recorded"):
             self.evidence.close_session(self.users["lecturer"], session_id)
 
+    def test_signed_candidate_recorded_absent_is_a_conflict_not_discarded(self):
+        session_id = self.create_session()
+        candidates = self.roster(session_id)
+        first = candidates[0]
+        self.evidence.record_attendance(self.users["lecturer"], session_id, [{
+            "student_id": first["student_id"],
+            "attendance_status": "ABSENT",
+            "signature_present": True,
+            "exam_card_seen": True,
+            "student_id_seen": True,
+            "note": "Register shows signature but attendance disputed.",
+        }])
+        detail = self.evidence.session_detail(self.users["lecturer"], session_id)
+        recorded = next(
+            row for row in detail["candidates"]
+            if row["student_id"] == first["student_id"]
+        )
+        self.assertTrue(recorded["attendance"]["signature_present"])
+        self.assertEqual(recorded["attendance"]["attendance_status"], "ABSENT")
+        self.assertIn(
+            "ATTENDANCE_SIGNATURE_STATUS_CONFLICT",
+            {item["code"] for item in recorded["issues"]},
+        )
+
     def test_present_candidate_without_script_is_flagged(self):
         session_id = self.create_session()
         candidates = self.record_complete_register(session_id)
@@ -229,6 +253,11 @@ class AssessmentEvidenceTests(unittest.TestCase):
         self.assertEqual(linked["student_id"], candidate["student_id"])
         detail = self.evidence.session_detail(self.users["reviewer"], session_id)
         self.assertEqual(detail["unidentified_scripts"], [])
+        identity_event = next(
+            event for event in detail["activity"]
+            if event["category"] == "SCRIPT" and event["event_type"] == "IDENTITY_LINKED"
+        )
+        self.assertEqual(identity_event["candidate_name"], candidate["full_name"])
 
     def test_closed_register_correction_requires_reviewer_and_reason(self):
         session_id = self.create_session()
