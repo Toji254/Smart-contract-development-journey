@@ -319,6 +319,18 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/api/student/progress":
             return self._send_json({"progress": self.evidence.student_progress(user_id)})
 
+        if method == "POST" and path == "/api/student/evidence-cases":
+            body = self._body()
+            return self._send_json(
+                self.evidence.student_report_evidence_issue(
+                    user_id,
+                    str(body.get("session_id", "")),
+                    str(body.get("category", "")),
+                    str(body.get("description", "")),
+                ),
+                201,
+            )
+
         match = re.fullmatch(r"/api/student/marks/([^/]+)", path)
         if method == "GET" and match:
             return self._send_json(
