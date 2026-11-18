@@ -427,3 +427,86 @@ footer {
   .topbar-actions { justify-content: flex-start; }
   .stat-grid, .admin-grid, .form-grid, .split { grid-template-columns: 1fr; }
 }
+
+
+/* ── Assessment evidence workspace ─────────────────────────── */
+.evidence-session {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  color: var(--ink);
+  text-align: left;
+}
+.evidence-session:hover,
+.evidence-session.active {
+  border-color: var(--border-focus);
+  background: var(--bg-soft);
+}
+.evidence-session span { display: grid; gap: 4px; min-width: 0; }
+.evidence-session small,
+.script-card small,
+.evidence-candidate small {
+  display: block;
+  color: var(--ink-muted);
+  margin-top: 3px;
+  font-size: .78rem;
+}
+.evidence-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+.evidence-metrics > div {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-soft);
+}
+.evidence-metrics strong { font-size: 1.45rem; line-height: 1.1; }
+.evidence-metrics span { color: var(--ink-muted); font-size: .76rem; }
+.evidence-issues { display: grid; gap: 8px; }
+.evidence-issue {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(180px, 2fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.script-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+}
+.check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: .78rem;
+}
+.check-inline input { width: auto; margin: 0; }
+#evidence-workspace table { min-width: 1120px; }
+#evidence-workspace td { vertical-align: middle; }
+#evidence-workspace td input[type="text"],
+#evidence-workspace td select { min-width: 126px; }
+#evidence-workspace td .button { margin-top: 8px; }
+.compact-grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+@media (max-width: 800px) {
+  .evidence-issue { grid-template-columns: 1fr; }
+  .evidence-session { align-items: flex-start; flex-direction: column; }
+}
