@@ -685,6 +685,17 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(final_after["status"], "RECORDED")
         self.assertEqual(final_after["mark"], 47)
 
+        student_notifications = self.service.student_notifications(self.student["id"])
+        self.assertTrue(any(item["event_type"] == "SENATE_APPROVED" for item in student_notifications))
+        student_audit = self.service.batch_audit(self.student["id"], batch_id)
+        self.assertEqual(student_audit["senate_decisions"][0]["decision"], "APPROVED")
+        self.assertNotIn("reason", student_audit["senate_decisions"][0])
+        staff_audit = self.service.batch_audit(senate_id, batch_id)
+        self.assertEqual(
+            staff_audit["senate_decisions"][0]["reason"],
+            "Approved by the University Senate.",
+        )
+
         conn = self.db.connect()
         try:
             decisions = conn.execute(
@@ -740,6 +751,12 @@ class MarkTrailTests(unittest.TestCase):
         )
         self.assertEqual(student["status"], "SENATE_DEFERRED")
         self.assertIsNone(student["mark"])
+        notifications = self.service.student_notifications(self.student["id"])
+        deferred_notice = next(
+            item for item in notifications
+            if item["event_type"] == "SENATE_DEFERRED"
+        )
+        self.assertNotIn("Reconcile two moderation discrepancies", deferred_notice["body"])
         with self.assertRaisesRegex(AppError, "Senate approval is required"):
             self.service.publish_portal_batch(self.portal_operator["id"], batch_id)
 
