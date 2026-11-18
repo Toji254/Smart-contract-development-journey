@@ -658,7 +658,7 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in senate_queue], [batch_id])
         self.assertEqual(self.service.portal_batches(self.portal_operator["id"]), [])
 
-        with self.assertRaisesRegex(AppError, "Senate approval is required"):
+        with self.assertRaisesRegex(AppError, "Senate approval for the current marks revision is required"):
             self.service.publish_portal_batch(self.portal_operator["id"], batch_id)
 
         with self.assertRaisesRegex(AppError, "permission"):
@@ -780,7 +780,7 @@ class MarkTrailTests(unittest.TestCase):
             if item["event_type"] == "SENATE_DEFERRED"
         )
         self.assertNotIn("Reconcile two moderation discrepancies", deferred_notice["body"])
-        with self.assertRaisesRegex(AppError, "Senate approval is required"):
+        with self.assertRaisesRegex(AppError, "Senate approval for the current marks revision is required"):
             self.service.publish_portal_batch(self.portal_operator["id"], batch_id)
 
         approved = self.service.decide_senate_batch(
