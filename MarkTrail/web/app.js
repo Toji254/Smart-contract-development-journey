@@ -351,11 +351,13 @@ async function loadStudent() {
           ? '<span class="badge muted">Not entered</span>'
           : badge(item.mark_entry_status);
         const result = badge(item.result_status);
-        const lecturerCard = ["FINAL_EXAM", "SPECIAL_EXAM"].includes(item.session_type)
-          ? (item.lecturer_card_signed
-            ? badge("success", "Lecturer signed")
-            : '<span class="badge warning">Awaiting lecturer signature</span>')
-          : '<span class="muted">Not required</span>';
+        const lecturerCard = !item.session_id
+          ? '<span class="muted">No exam session recorded</span>'
+          : ["FINAL_EXAM", "SPECIAL_EXAM"].includes(item.session_type)
+            ? (item.lecturer_card_signed
+              ? badge("success", "Lecturer signed")
+              : '<span class="badge warning">Awaiting lecturer signature</span>')
+            : '<span class="muted">Not required</span>';
         const session = item.evidence_available
           ? '<p class="muted">' + esc(item.exam_at || "Exam time not recorded") +
             (item.venue ? " · " + esc(item.venue) : "") + '</p>'
@@ -1221,9 +1223,11 @@ function renderEvidenceSession() {
       ? '<span class="muted">Not required</span>'
       : cardSignoff
         ? badge("success", "Signed") + '<small>' + esc(cardSignoff.signed_by_name || "Lecturer") + " · " + esc(cardSignoff.signed_at) + "</small>"
-        : state.user.role === "lecturer"
+        : state.user.role === "lecturer" && registerClosed
           ? '<button type="button" class="button secondary" data-sign-exam-card="' + esc(candidate.student_id) + '">Confirm physical card signed</button>'
-          : '<span class="badge warning">Awaiting lecturer</span>';
+          : state.user.role === "lecturer"
+            ? '<span class="muted">Available after the register closes</span>'
+            : '<span class="badge warning">Awaiting lecturer</span>';
     const markLabel = candidate.mark && candidate.mark.candidate_status === "RECORDED"
       ? "Mark entered"
       : "No mark entry";
@@ -1265,6 +1269,7 @@ function renderEvidenceSession() {
         : "Attendance register closed";
       if (event.metadata) {
         subject = [
+          (event.metadata.session_type || "").replaceAll("_", " "),
           event.metadata.venue,
           event.metadata.candidate_count ? event.metadata.candidate_count + " candidates" : ""
         ].filter(Boolean).join(" · ");
@@ -1366,7 +1371,7 @@ function renderEvidenceSession() {
   root.innerHTML =
     '<div class="card"><div class="section-head compact"><div><p class="eyebrow">SESSION OVERVIEW</p><h2>' +
     esc(session.course + " · " + session.assessment) + "</h2><p class=\"muted\">" +
-    esc(session.exam_at + " · " + session.venue) + "</p></div>" + badge(session.status) + "</div>" +
+    esc(session.session_type.replaceAll("_", " ") + " · " + session.exam_at + " · " + session.venue) + "</p></div>" + badge(session.status) + "</div>" +
     '<div class="evidence-metrics">' +
     '<div><strong>' + esc(summary.candidates) + '</strong><span>Candidates</span></div>' +
     '<div><strong>' + esc(summary.attendance_recorded) + '</strong><span>Attendance captured</span></div>' +
