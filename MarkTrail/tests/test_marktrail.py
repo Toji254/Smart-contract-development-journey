@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
