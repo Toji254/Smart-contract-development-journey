@@ -2418,6 +2418,8 @@ class AppService:
             "assessment",
             "status",
             "pipeline_stage",
+            "release_policy",
+            "senate_status",
             "revision",
             "student_count",
             "submitted_at",
@@ -2445,6 +2447,22 @@ class AppService:
                     stage["completed_by"],
                 ]
             )
+
+        if report["senate_decisions"]:
+            rows.extend([
+                [],
+                ["Senate decision #", "Revision", "Decision", "Meeting / minutes reference", "Decision time", "Recorded by", "Reason"],
+            ])
+            for decision in report["senate_decisions"]:
+                rows.append([
+                    decision["decision_number"],
+                    decision["revision"],
+                    decision["decision"],
+                    decision["meeting_reference"],
+                    decision["created_at"],
+                    decision.get("actor_name", ""),
+                    decision.get("reason", ""),
+                ])
 
         rows.extend([[], ["Event time", "Actor", "Action", "Details"]])
         for event in report["events"]:
