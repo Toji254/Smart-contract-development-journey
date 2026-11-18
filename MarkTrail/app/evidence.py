@@ -1069,6 +1069,100 @@ class AssessmentEvidenceService:
         finally:
             conn.close()
 
+    def student_progress(self, user_id: int) -> list[dict[str, Any]]:
+        """Return only the signed-in student's own exam evidence and safe progress states."""
+        self.app.require_role(user_id, {"student"})
+        conn = self.db.connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT
+                    a.id AS assessment_id,
+                    a.name AS assessment,
+                    a.max_mark,
+                    c.code AS course_code,
+                    c.title AS course_title,
+                    x.session_id,
+                    x.exam_at,
+                    x.venue,
+                    x.session_status,
+                    x.session_created_at,
+                    x.attendance_status,
+                    x.attendance_recorded_at,
+                    x.signature_present,
+                    x.script_status,
+                    x.script_received_at,
+                    x.script_marked_at,
+                    COALESCE(m.candidate_status, 'NOT_ENTERED') AS mark_entry_status,
+                    COALESCE(m.published_status, 'MISSING') AS published_status,
+                    COALESCE(b.pipeline_stage, 'NOT_SUBMITTED') AS pipeline_stage
+                FROM enrollments e
+                JOIN courses c ON c.id = e.course_id
+                JOIN assessments a ON a.course_id = c.id
+                LEFT JOIN (
+                    SELECT
+                        candidate.student_id,
+                        session.assessment_id,
+                        session.id AS session_id,
+                        session.exam_at,
+                        session.venue,
+                        session.status AS session_status,
+                        session.created_at AS session_created_at,
+                        attendance.attendance_status,
+                        attendance.recorded_at AS attendance_recorded_at,
+                        attendance.signature_present,
+                        script.status AS script_status,
+                        script.received_at AS script_received_at,
+                        script.marked_at AS script_marked_at
+                    FROM exam_session_candidates candidate
+                    JOIN exam_sessions session ON session.id = candidate.session_id
+                    LEFT JOIN exam_attendance attendance
+                      ON attendance.session_id = candidate.session_id
+                     AND attendance.student_id = candidate.student_id
+                    LEFT JOIN exam_scripts script
+                      ON script.session_id = candidate.session_id
+                     AND script.student_id = candidate.student_id
+                ) x ON x.student_id = e.student_id AND x.assessment_id = a.id
+                LEFT JOIN assessment_marks m
+                  ON m.assessment_id = a.id AND m.student_id = e.student_id
+                LEFT JOIN batches b ON b.id = m.batch_id
+                WHERE e.student_id = ?
+                ORDER BY c.code, a.created_at, x.exam_at
+                """,
+                (user_id,),
+            ).fetchall()
+            result = []
+            for row in rows:
+                result.append({
+                    "assessment_id": row["assessment_id"],
+                    "assessment": row["assessment"],
+                    "course": row["course_code"] + " · " + row["course_title"],
+                    "max_mark": row["max_mark"],
+                    "session_id": row["session_id"],
+                    "exam_at": row["exam_at"],
+                    "venue": row["venue"],
+                    "session_status": row["session_status"],
+                    "attendance_status": row["attendance_status"],
+                    "attendance_recorded_at": row["attendance_recorded_at"],
+                    "signature_recorded": (
+                        bool(row["signature_present"])
+                        if row["signature_present"] is not None else None
+                    ),
+                    "script_status": row["script_status"],
+                    "script_received_at": row["script_received_at"],
+                    "script_marked_at": row["script_marked_at"],
+                    "mark_entry_status": row["mark_entry_status"],
+                    "result_status": (
+                        row["published_status"]
+                        if row["pipeline_stage"] == "PUBLISHED"
+                        else row["pipeline_stage"]
+                    ),
+                    "evidence_available": row["session_id"] is not None,
+                })
+            return result
+        finally:
+            conn.close()
+
     def staff_options(self, user_id: int) -> list[dict[str, Any]]:
         self._require_staff(user_id)
         conn = self.db.connect()
