@@ -719,6 +719,7 @@ class AssessmentEvidenceService:
                         "reason": note,
                     },
                 )
+        self._sync_session_cases(user_id, session_id)
         return {"saved": len(prepared), "recorded_at": now}
 
     def close_session(self, user_id: int, session_id: str) -> dict[str, Any]:
@@ -766,6 +767,7 @@ class AssessmentEvidenceService:
                 conn, "EXAM_SESSION", session_id, user_id, "EXAM_SESSION_CLOSED",
                 {"assessment_id": session["assessment_id"]},
             )
+        self._sync_session_cases(user_id, session_id)
         return {"session_id": session_id, "status": "CLOSED"}
 
     def receive_script(
@@ -839,6 +841,7 @@ class AssessmentEvidenceService:
                 "EXAM_SCRIPT_RECEIVED",
                 {"session_id": session_id, "assessment_id": session["assessment_id"], "script_ref": script_ref.strip()},
             )
+        self._sync_session_cases(user_id, session_id)
         return {"script_id": script_id, "status": initial_status, "received_at": now, "unidentified": student_id is None}
 
     def link_unidentified_script(self, user_id: int, script_id: str, student_id: int, reason: str) -> dict[str, Any]:
@@ -884,6 +887,7 @@ class AssessmentEvidenceService:
                 conn, "EXAM_SCRIPT", script_id, user_id, "EXAM_SCRIPT_IDENTITY_LINKED",
                 {"assessment_id": script["assessment_id"], "student_id": student_id, "reason": reason},
             )
+        self._sync_session_cases(user_id, script["session_id"])
         return {"script_id": script_id, "student_id": student_id, "status": "RECEIVED"}
 
     def request_script_handoff(
@@ -959,6 +963,7 @@ class AssessmentEvidenceService:
                 "A script has been assigned to you for an examination. Review and accept custody in MarkTrail.",
                 now,
             )
+        self._sync_session_cases(user_id, script["session_id"])
         return {"script_id": script_id, "status": "HANDOFF_PENDING", "recipient_id": recipient_id}
 
     def accept_script_handoff(self, user_id: int, script_id: str) -> dict[str, Any]:
@@ -993,6 +998,7 @@ class AssessmentEvidenceService:
                 conn, "EXAM_SCRIPT", script_id, user_id, "EXAM_SCRIPT_HANDOFF_ACCEPTED",
                 {"previous_custodian": int(script["current_custodian"])},
             )
+        self._sync_session_cases(user_id, script["session_id"])
         return {"script_id": script_id, "status": "ASSIGNED", "custodian": actor["full_name"]}
 
     def mark_script(self, user_id: int, script_id: str, note: str = "") -> dict[str, Any]:
@@ -1046,6 +1052,7 @@ class AssessmentEvidenceService:
                 conn, "EXAM_SCRIPT", script_id, user_id, "EXAM_SCRIPT_MARKED",
                 {"assessment_id": script["assessment_id"]},
             )
+        self._sync_session_cases(user_id, script["session_id"])
         return {"script_id": script_id, "status": "MARKED", "marked_at": now}
 
     def sign_exam_cards(
@@ -1150,6 +1157,7 @@ class AssessmentEvidenceService:
                         "note": note,
                     },
                 )
+        self._sync_session_cases(user_id, session_id)
         return {"signed": len(prepared), "signed_at": now}
 
     def _exceptions_for(
@@ -1442,8 +1450,8 @@ class AssessmentEvidenceService:
                 SELECT id, subject_key, category, student_id, status,
                        assigned_role, assigned_user_id
                 FROM evidence_cases
-                WHERE session_id AND status = 'OPEN'
-                """.replace("WHERE session_id AND", "WHERE session_id ="),
+                WHERE session_id = ? AND status = 'OPEN'
+                """,
                 (session_id,),
             ).fetchall()
             cleared_role_row = conn.execute(
