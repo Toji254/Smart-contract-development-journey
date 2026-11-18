@@ -1134,8 +1134,11 @@ class AppService:
         try:
             batch = conn.execute(
                 """
-                SELECT status, pipeline_stage, revision, marks_hash
-                FROM batches WHERE id = ?
+                SELECT b.status, b.pipeline_stage, b.revision, b.marks_hash,
+                       b.senate_status, a.release_policy
+                FROM batches b
+                JOIN assessments a ON a.id = b.assessment_id
+                WHERE b.id = ?
                 """,
                 (batch_id,),
             ).fetchone()
@@ -1145,6 +1148,10 @@ class AppService:
             raise AppError("Batch not found.", 404)
         if batch["status"] != "VERIFIED" or batch["pipeline_stage"] != "PORTAL_IMPORT":
             raise AppError("This batch is not ready for portal publication.")
+        if batch["release_policy"] == "UNCLASSIFIED":
+            raise AppError("Publication blocked: an administrator must classify this assessment's release policy.", 409)
+        if batch["release_policy"] == "SENATE" and batch["senate_status"] != "APPROVED":
+            raise AppError("Publication blocked: Senate approval is required before final results can be released.", 409)
 
         integrity = self._chain_integrity(batch_id)
         if not integrity.get("match"):
@@ -1158,9 +1165,12 @@ class AppService:
         with self.db.transaction() as conn:
             current = conn.execute(
                 """
-                SELECT status, pipeline_stage, revision, marks_hash,
-                       commitment_salt, student_count
-                FROM batches WHERE id = ?
+                SELECT b.status, b.pipeline_stage, b.revision, b.marks_hash,
+                       b.commitment_salt, b.student_count, b.senate_status,
+                       a.release_policy
+                FROM batches b
+                JOIN assessments a ON a.id = b.assessment_id
+                WHERE b.id = ?
                 """,
                 (batch_id,),
             ).fetchone()
@@ -1168,6 +1178,13 @@ class AppService:
                 not current
                 or current["status"] != "VERIFIED"
                 or current["pipeline_stage"] != "PORTAL_IMPORT"
+                or current["senate_status"] != batch["senate_status"]
+                or current["release_policy"] != batch["release_policy"]
+                or (
+                    current["release_policy"] == "SENATE"
+                    and current["senate_status"] != "APPROVED"
+                )
+                or current["release_policy"] == "UNCLASSIFIED"
                 or current["revision"] != batch["revision"]
                 or current["marks_hash"] != batch["marks_hash"]
             ):
