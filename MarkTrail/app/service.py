@@ -374,9 +374,27 @@ class AppService:
                     "SELECT COUNT(*) AS n FROM batches WHERE pipeline_stage = 'EXAM_OFFICE'"
                 ).fetchone()
                 counts = {"pending_processing": int(row["n"] or 0)}
+            elif user["role"] == "senate_office":
+                row = conn.execute(
+                    """
+                    SELECT COUNT(*) AS n FROM batches
+                    WHERE pipeline_stage = 'PORTAL_IMPORT'
+                      AND senate_status IN ('PENDING','DEFERRED')
+                    """
+                ).fetchone()
+                counts = {"pending_senate": int(row["n"] or 0)}
             elif user["role"] == "portal_operator":
                 row = conn.execute(
-                    "SELECT COUNT(*) AS n FROM batches WHERE pipeline_stage = 'PORTAL_IMPORT'"
+                    """
+                    SELECT COUNT(*) AS n
+                    FROM batches b
+                    JOIN assessments a ON a.id = b.assessment_id
+                    WHERE b.pipeline_stage = 'PORTAL_IMPORT'
+                      AND (
+                        a.release_policy = 'DIRECT'
+                        OR (a.release_policy = 'SENATE' AND b.senate_status = 'APPROVED')
+                      )
+                    """
                 ).fetchone()
                 counts = {"pending_import": int(row["n"] or 0)}
             else:
@@ -2160,7 +2178,7 @@ class AppService:
             user_id,
             {
                 "student", "lecturer", "reviewer", "exam_office",
-                "portal_operator", "admin",
+                "senate_office", "portal_operator", "admin",
             },
         )
         conn = self.db.connect()
