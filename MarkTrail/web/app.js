@@ -1177,6 +1177,7 @@ function renderEvidenceSessions() {
     (session.id === state.evidenceSelectedSession ? " active" : "") +
     '" data-evidence-open-session="' + esc(session.id) + '">' +
     '<span><strong>' + esc(session.venue) + '</strong><small>' +
+    esc((session.session_type || "UNCLASSIFIED").replaceAll("_", " ")) + " · " +
     esc(session.exam_at) + " · " + esc(session.candidate_count) + " candidates</small></span>" +
     badge(session.status) + "</button>"
   ).join("");
