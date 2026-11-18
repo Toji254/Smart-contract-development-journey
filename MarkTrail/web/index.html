@@ -425,6 +425,17 @@
                 <select id="evidence-assessment" name="assessment_id" required></select>
               </label>
               <label>
+                Assessment type
+                <select id="evidence-session-type" name="session_type" required>
+                  <option value="">Choose assessment type</option>
+                  <option value="CAT">CAT</option>
+                  <option value="COURSEWORK">Coursework</option>
+                  <option value="PRACTICAL">Practical / laboratory</option>
+                  <option value="FINAL_EXAM">Final examination</option>
+                  <option value="SPECIAL_EXAM">Special / deferred examination</option>
+                </select>
+              </label>
+              <label>
                 Examination date and time
                 <input id="evidence-exam-at" name="exam_at" type="datetime-local" required>
               </label>
@@ -436,7 +447,7 @@
                 <button class="button primary" type="submit">Create locked candidate register</button>
               </div>
             </form>
-            <p class="muted">MarkTrail snapshots the approved course roster when the session is created. Later enrolment changes do not silently rewrite this exam's candidate list.</p>
+            <p class="muted">MarkTrail snapshots the approved course roster when the session is created. Final and special examinations also require the lecturer in charge to confirm each physical exam-card signature after the register is closed. CAT and coursework sessions do not use that sign-off step.</p>
           </div>
 
           <div class="card">
