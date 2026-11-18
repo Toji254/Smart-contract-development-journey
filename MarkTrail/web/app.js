@@ -1267,7 +1267,10 @@ function renderEvidenceSession() {
       title = labels[event.event_type] || title;
       subject = [event.script_ref, event.registration_number, event.candidate_name].filter(Boolean).join(" · ");
       if (event.event_type === "HANDOFF_REQUESTED" && event.recipient_name) {
-        subject += " · awaiting " + event.recipient_name;
+        subject += " · handed to " + event.recipient_name + " (awaiting acceptance)";
+      }
+      if (event.event_type === "HANDOFF_ACCEPTED" && event.recipient_name) {
+        subject += " · custody transferred from " + event.recipient_name;
       }
       note = event.note || "";
     }
@@ -1300,7 +1303,11 @@ function renderEvidenceSession() {
         const pendingCustodian = Number(script.pending_custodian);
         let actions = "";
         if (script.status === "HANDOFF_PENDING" && pendingCustodian === Number(state.user.id)) {
-          actions = '<button type="button" class="button primary" data-accept-script="' + esc(script.id) + '">Accept custody</button>';
+          actions = '<p class="muted">This script is awaiting your acceptance.</p><button type="button" class="button primary" data-accept-script="' + esc(script.id) + '">Accept custody</button>';
+        } else if (script.status === "HANDOFF_PENDING" && currentCustodian === Number(state.user.id)) {
+          actions = '<p class="muted">Handover requested. Waiting for ' + esc(script.pending_custodian_name || "the assigned recipient") + ' to accept custody.</p>';
+        } else if (script.status === "HANDOFF_PENDING") {
+          actions = '<p class="muted">Script custody handover is awaiting recipient acceptance.</p>';
         } else if (script.status !== "MARKED" && currentCustodian === Number(state.user.id)) {
           actions =
             '<div class="form-grid compact-grid"><label>Hand over to<select data-handoff-recipient="' + esc(script.id) + '">' +
@@ -1309,7 +1316,7 @@ function renderEvidenceSession() {
             '<div class="actions"><button type="button" class="button secondary" data-handoff-script="' + esc(script.id) + '">Request handover</button>' +
             '<button type="button" class="button primary" data-mark-script="' + esc(script.id) + '">Marking complete</button></div>';
         } else {
-          actions = '<p class="muted">Custody: staff account #' + esc(currentCustodian) + '</p>';
+          actions = '<p class="muted">Current custodian: ' + esc(script.current_custodian_name || "Assigned staff member") + '</p>';
         }
         return '<div class="script-card"><div class="issue-top"><div><strong>' + esc(script.script_ref) +
           '</strong><div class="muted">' + esc(candidate.registration_number || "") + " · " + esc(candidate.full_name) +
