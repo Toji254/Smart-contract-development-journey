@@ -413,10 +413,12 @@ class AppService:
                     a.name AS assessment,
                     a.max_mark,
                     a.submission_deadline,
+                    a.release_policy,
                     c.code,
                     c.title,
                     COALESCE(b.status, 'NOT_SUBMITTED') AS batch_status,
                     COALESCE(b.pipeline_stage, 'NOT_SUBMITTED') AS pipeline_stage,
+                    COALESCE(b.senate_status, 'NOT_REQUIRED') AS senate_status,
                     am.published_mark,
                     COALESCE(am.published_status, 'MISSING') AS published_status,
                     b.id AS batch_id
@@ -434,27 +436,32 @@ class AppService:
             result = []
             for row in rows:
                 pipeline_stage = row["pipeline_stage"]
+                if (
+                    pipeline_stage == "PORTAL_IMPORT"
+                    and row["release_policy"] == "SENATE"
+                    and row["senate_status"] in {"PENDING", "DEFERRED"}
+                ):
+                    pipeline_stage = "SENATE_APPROVAL"
                 deadline = row["submission_deadline"]
                 overdue = bool(
                     deadline
                     and now > deadline
                     and pipeline_stage == "NOT_SUBMITTED"
                 )
-                status = (
-                    row["published_status"]
-                    if (
-                        pipeline_stage == "PUBLISHED"
-                        or row["published_mark"] is not None
-                    )
-                    else (
-                        "OVERDUE" if overdue
-                        else (
-                            "NOT_SUBMITTED"
-                            if pipeline_stage == "NOT_SUBMITTED"
-                            else "AWAITING_PUBLICATION"
-                        )
-                    )
-                )
+                if pipeline_stage == "PUBLISHED" or row["published_mark"] is not None:
+                    status = row["published_status"]
+                elif row["release_policy"] == "UNCLASSIFIED" and row["batch_id"]:
+                    status = "RELEASE_POLICY_UNCLASSIFIED"
+                elif row["senate_status"] == "PENDING":
+                    status = "AWAITING_SENATE_APPROVAL"
+                elif row["senate_status"] == "DEFERRED":
+                    status = "SENATE_DEFERRED"
+                elif overdue:
+                    status = "OVERDUE"
+                elif pipeline_stage == "NOT_SUBMITTED":
+                    status = "NOT_SUBMITTED"
+                else:
+                    status = "AWAITING_PUBLICATION"
                 result.append({
                     "assessment_id": row["assessment_id"],
                     "assessment": row["assessment"],
@@ -465,6 +472,8 @@ class AppService:
                     "mark": row["published_mark"],
                     "status": status,
                     "batch_id": row["batch_id"],
+                    "release_policy": row["release_policy"],
+                    "senate_status": row["senate_status"],
                     "pipeline_stage": pipeline_stage,
                     "submission_deadline": deadline,
                     "overdue": overdue,
@@ -485,10 +494,12 @@ class AppService:
                     a.name AS assessment,
                     a.max_mark,
                     a.submission_deadline,
+                    a.release_policy,
                     c.code,
                     c.title,
                     COALESCE(b.status, 'NOT_SUBMITTED') AS batch_status,
                     COALESCE(b.pipeline_stage, 'NOT_SUBMITTED') AS pipeline_stage,
+                    COALESCE(b.senate_status, 'NOT_REQUIRED') AS senate_status,
                     am.published_mark,
                     COALESCE(am.published_status, 'MISSING') AS published_status,
                     b.id AS batch_id
@@ -508,7 +519,7 @@ class AppService:
             pipeline = None
             if row["batch_id"]:
                 batch = conn.execute(
-                    "SELECT id, status, pipeline_stage, submitted_at, verified_at FROM batches WHERE id = ?",
+                    "SELECT id, status, pipeline_stage, senate_status, submitted_at, verified_at FROM batches WHERE id = ?",
                     (row["batch_id"],),
                 ).fetchone()
                 pipeline = self._pipeline_summary(conn, batch)
@@ -550,7 +561,15 @@ class AppService:
                 "mark": row["published_mark"],
                 "published_status": row["published_status"],
                 "batch_id": row["batch_id"],
-                "pipeline_stage": row["pipeline_stage"],
+                "release_policy": row["release_policy"],
+                "senate_status": row["senate_status"],
+                "pipeline_stage": (
+                    "SENATE_APPROVAL"
+                    if row["pipeline_stage"] == "PORTAL_IMPORT"
+                    and row["release_policy"] == "SENATE"
+                    and row["senate_status"] in {"PENDING", "DEFERRED"}
+                    else row["pipeline_stage"]
+                ),
                 "pipeline": pipeline,
                 "mark_history": [dict(h) for h in mark_history],
                 "open_report": dict(open_report) if open_report else None,
