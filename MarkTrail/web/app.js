@@ -1355,7 +1355,9 @@ function renderEvidenceSession() {
       : '<p class="muted">Record an explicit decision for each candidate. A PRESENT decision without a signature stays PRESENT and raises a signature exception; it is never converted to ABSENT.</p>') +
     (session.status === "OPEN" ? '<div class="actions"><button type="button" class="button secondary" id="close-evidence-session">Close attendance register</button></div>' : "") +
     "</div>" +
-    '<div class="card"><div class="section-head compact"><div><p class="eyebrow">CANDIDATE REGISTER</p><h2>Attendance and checks</h2></div></div>' +
+    '<div class="card"><div class="section-head compact"><div><p class="eyebrow">CANDIDATE REGISTER</p><h2>Attendance and checks</h2></div>' +
+    (!locked ? '<button type="button" class="button primary" id="save-all-attendance">Save all decisions</button>' : '') +
+    '</div><div class="muted">Review every candidate before saving. The bulk action validates the full register and saves it as one transaction.</div>' +
     '<div class="table-wrap"><table><thead><tr><th>Candidate</th><th>Attendance decision</th><th>Signature</th><th>Exam card</th><th>Student ID</th><th>Script</th><th>Marks</th><th>Incident note / action</th></tr></thead><tbody>' +
     (rosterRows || '<tr><td colspan="8">No candidates in the locked roster.</td></tr>') +
     "</tbody></table></div></div>" +
@@ -1373,6 +1375,66 @@ function renderEvidenceSession() {
     '<p class="muted">History entries are append-only. Corrections appear as new events rather than overwriting what happened previously.</p></div>' +
     '<div class="card"><div class="section-head compact"><div><p class="eyebrow">RECONCILIATION</p><h2>Exceptions to investigate</h2></div></div>' +
     issues + '</div>';
+
+  const saveAllButton = $("#save-all-attendance");
+  if (saveAllButton) saveAllButton.addEventListener("click", async () => {
+    const rows = Array.from(root.querySelectorAll("tr[data-evidence-candidate]"));
+    const items = [];
+    const problems = [];
+
+    for (const row of rows) {
+      const status = row.querySelector("[data-attendance-status]").value;
+      const candidate = candidates.find((item) => String(item.student_id) === row.dataset.evidenceCandidate);
+      const note = row.querySelector("[data-attendance-note]").value.trim();
+      if (!status) {
+        problems.push((candidate?.registration_number || "Candidate") + ": choose an attendance decision.");
+        continue;
+      }
+      if (["ABSENT", "EXCUSED", "CONTESTED"].includes(status) && note.length < 8) {
+        problems.push((candidate?.registration_number || "Candidate") + ": add a reason for " + status.toLowerCase() + ".");
+        continue;
+      }
+      if (registerClosed && note.length < 8) {
+        problems.push((candidate?.registration_number || "Candidate") + ": closed-register corrections need a reason.");
+        continue;
+      }
+      items.push({
+        student_id: Number(row.dataset.evidenceCandidate),
+        attendance_status: status,
+        signature_present: row.querySelector("[data-signature]").checked,
+        exam_card_seen: row.querySelector("[data-exam-card]").checked,
+        student_id_seen: row.querySelector("[data-student-id]").checked,
+        note
+      });
+    }
+
+    if (problems.length) {
+      toast(problems.slice(0, 3).join(" "), "error");
+      if (problems.length > 3) toast((problems.length - 3) + " more candidate(s) need attention.", "error");
+      return;
+    }
+    if (!items.length) {
+      toast("There are no attendance decisions to save.", "error");
+      return;
+    }
+    if (!confirm("Save attendance evidence for all " + items.length + " candidates in one transaction?")) return;
+
+    saveAllButton.disabled = true;
+    saveAllButton.textContent = "Saving register…";
+    try {
+      const result = await api("/api/evidence/sessions/" + encodeURIComponent(session.id) + "/attendance", {
+        method: "POST",
+        body: JSON.stringify({ items })
+      });
+      toast("Saved " + result.saved + " attendance decisions.");
+      await loadEvidenceSession(session.id);
+    } catch (error) {
+      toast(error.message, "error");
+    } finally {
+      saveAllButton.disabled = false;
+      saveAllButton.textContent = "Save all decisions";
+    }
+  });
 
   root.querySelectorAll("[data-save-attendance]").forEach((button) => {
     button.addEventListener("click", async () => {
