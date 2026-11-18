@@ -80,7 +80,7 @@ Remaining work in this gate:
 - Multi-marker/team-teaching assignments and explicit marking handovers.
 - Script loss/damage/illegible identifier incident handling and controlled recovery.
 - Candidate identity resolution with dual approval for high-risk matches.
-- Bulk attendance capture/import for approved paper-register transcription, including row-level validation and operator attribution.
+- Bulk attendance import from approved paper-register transcription files, including row-level provenance and operator attribution; current bulk save is for manual workspace capture.
 - Offline capture queue with conflict detection and safe synchronisation.
 - Student-facing appeals and evidence-submission workflow, without exposing staff-only notes or personal data of other candidates.
 
@@ -248,16 +248,20 @@ Success metrics:
 Implemented in this branch as an initial vertical slice:
 - Assessment evidence service and idempotent table creation.
 - Candidate snapshot at session creation.
+- Explicit assessment/session classification: CAT, coursework, practical, final examination and special/deferred examination; legacy sessions migrate as UNCLASSIFIED rather than being guessed.
 - Attendance status, signature, exam-card and student-ID evidence.
+- Atomic bulk attendance capture with full payload validation and rollback on any invalid candidate; closed registers require individual reviewer/admin corrections with written reasons.
 - Register closure requiring an explicit attendance decision for every candidate.
-- Controlled reviewer/admin corrections after closure with a written reason and audit event.
-- Script receipt references, including quarantine for unidentified scripts.
-- Script custody handover request and recipient acceptance.
+- Script receipt references, including quarantine for unidentified scripts and reviewer/exam-office candidate matching.
+- Script custody handover request and recipient acceptance, with readable named custodians.
 - Marking-completion tracking separate from numeric marks.
-- Deterministic exceptions for several attendance/script/mark-entry mismatches.
-- Authenticated evidence API.
-- Staff evidence workspace and responsive layout.
-- Dedicated regression tests for the key exception paths.
+- Lecturer-in-charge physical exam-card sign-off for final/special examinations, after register closure and only when presence, signature, card check and linked script receipt reconcile; CATs do not require this gate.
+- Append-only session, attendance, script-custody and physical exam-card sign-off event histories.
+- Deterministic exceptions for attendance/signature conflicts, missing scripts, missing sign-offs, custody gaps and mark-entry mismatches.
+- Authenticated evidence API and student-scoped read-only progress API.
+- Staff evidence workspace with activity timeline, bulk attendance and card-signoff controls; student exam-progress tab with privacy-safe status.
+- Legacy SQLite migration for unidentified scripts, identity-link events and session type, preserving existing records.
+- Dedicated regression tests for permissions, privacy, atomic updates, legacy migration and difficult exam-day scenarios.
 
 Not yet implemented or independently verified:
 - Student-facing appeals, evidence-upload and case-progress improvements beyond the current read-only exam-progress view.
@@ -271,7 +275,7 @@ Not yet implemented or independently verified:
 - Expanded blockchain event anchoring and production-grade signing custody.
 - Institutional SSO, DPIA, independent security review, production hosting, backups and disaster recovery.
 - Karatina's current internal process validation and pilot approval.
-- CI verification for the newest custodian-name and pending-handover UI changes, plus browser usability testing on the current branch build.
+- CI verification for the newest exam-card sign-off and compatibility-migration commits, plus browser usability testing on the current branch build.
 
 ## Engineering rules
 
