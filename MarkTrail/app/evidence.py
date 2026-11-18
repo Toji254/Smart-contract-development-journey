@@ -2081,6 +2081,151 @@ class AssessmentEvidenceService:
         finally:
             conn.close()
 
+    def student_report_evidence_issue(
+        self,
+        user_id: int,
+        session_id: str,
+        category: str,
+        description: str,
+    ) -> dict[str, Any]:
+        self.app.require_role(user_id, {"student"})
+        allowed_categories = {
+            "ATTENDANCE",
+            "SIGNATURE",
+            "SCRIPT_SUBMISSION",
+            "OTHER",
+        }
+        category = str(category or "").upper()
+        description = str(description or "").strip()
+        if category not in allowed_categories:
+            raise AppError("Choose an attendance, signature, script-submission or other evidence issue.")
+        if len(description) < 10 or len(description) > 1000:
+            raise AppError("Describe the issue in 10–1,000 characters.")
+
+        session = self._session_row(session_id)
+        now = utc_now()
+        with self.db.transaction() as conn:
+            candidate = conn.execute(
+                """
+                SELECT 1 FROM exam_session_candidates
+                WHERE session_id = ? AND student_id = ?
+                """,
+                (session_id, user_id),
+            ).fetchone()
+            enrolment = conn.execute(
+                """
+                SELECT 1 FROM enrollments
+                WHERE student_id = ? AND course_id = ?
+                """,
+                (user_id, session["course_id"]),
+            ).fetchone()
+            if not candidate or not enrolment:
+                raise AppError("You can only report an examination session linked to your own registered unit.", 403)
+
+            issue_code = "STUDENT_REPORTED_" + category
+            subject_key = f"student:{user_id}"
+            existing = conn.execute(
+                """
+                SELECT id, status FROM evidence_cases
+                WHERE session_id = ? AND subject_key = ? AND category = ?
+                """,
+                (session_id, subject_key, issue_code),
+            ).fetchone()
+            assigned_role, assigned_user_id = self._case_assignment(session, issue_code, conn)
+            if not assigned_user_id:
+                raise AppError("No active reviewer is configured to receive student evidence reports. Contact the department office.", 503)
+
+            if not existing:
+                case_id = "case-" + uuid.uuid4().hex
+                conn.execute(
+                    """
+                    INSERT INTO evidence_cases
+                    (id, session_id, assessment_id, student_id, script_id,
+                     subject_key, category, severity, status, assigned_role,
+                     assigned_user_id, opened_at, updated_at, last_detected_at)
+                    VALUES (?, ?, ?, ?, NULL, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        case_id,
+                        session_id,
+                        session["assessment_id"],
+                        user_id,
+                        subject_key,
+                        issue_code,
+                        "high" if category in {"ATTENDANCE", "SIGNATURE", "SCRIPT_SUBMISSION"} else "medium",
+                        assigned_role,
+                        assigned_user_id,
+                        now,
+                        now,
+                        now,
+                    ),
+                )
+                event_type = "OPENED"
+            else:
+                case_id = existing["id"]
+                if existing["status"] in {"RESOLVED", "DISMISSED"}:
+                    conn.execute(
+                        """
+                        UPDATE evidence_cases
+                        SET status = 'OPEN', assigned_role = ?, assigned_user_id = ?,
+                            updated_at = ?, last_detected_at = ?, resolved_at = NULL,
+                            resolved_by = NULL, resolution_note = ''
+                        WHERE id = ?
+                        """,
+                        (assigned_role, assigned_user_id, now, now, case_id),
+                    )
+                    event_type = "REOPENED"
+                else:
+                    conn.execute(
+                        """
+                        UPDATE evidence_cases
+                        SET status = 'OPEN', assigned_role = ?, assigned_user_id = ?,
+                            updated_at = ?, last_detected_at = ?, evidence_cleared_at = NULL
+                        WHERE id = ?
+                        """,
+                        (assigned_role, assigned_user_id, now, now, case_id),
+                    )
+                    event_type = "UPDATED"
+
+            self._append_case_event(
+                conn,
+                case_id,
+                event_type,
+                user_id,
+                description,
+                {
+                    "category": issue_code,
+                    "source": "STUDENT_REPORT",
+                    "assessment_id": session["assessment_id"],
+                },
+                now,
+            )
+            self.app._audit(
+                conn,
+                "EVIDENCE_CASE",
+                case_id,
+                user_id,
+                "STUDENT_EVIDENCE_REPORT_" + event_type,
+                {"session_id": session_id, "assessment_id": session["assessment_id"], "category": issue_code},
+            )
+            self.app._notify(
+                conn,
+                user_id,
+                "EVIDENCE_CASE_OPENED",
+                "Your examination evidence report was received",
+                "Your report has been sent for staff review. It does not change or create an academic mark.",
+                now,
+            )
+            self.app._notify(
+                conn,
+                assigned_user_id,
+                "EVIDENCE_CASE_ASSIGNED",
+                "Student examination evidence report assigned",
+                f"A student reported {category.lower().replace('_', ' ')} evidence issue for {session['course_code']} · {session['assessment_name']}. Review the case in MarkTrail.",
+                now,
+            )
+        return {"case_id": case_id, "status": "OPEN", "category": issue_code}
+
     def staff_options(self, user_id: int) -> list[dict[str, Any]]:
         self._require_staff(user_id)
         conn = self.db.connect()
