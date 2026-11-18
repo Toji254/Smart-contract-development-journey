@@ -1066,6 +1066,9 @@ async function loadAudit(batchId) {
             BATCH_AMENDED: "Marks updated",
             BATCH_VERIFIED: "Department approved",
             EXAM_OFFICE_PROCESSED: "Exam office processed",
+            SENATE_APPROVAL_REQUESTED: "Sent to Senate for approval",
+            SENATE_APPROVED: "Senate approved result",
+            SENATE_DEFERRED: "Senate deferred result",
             PORTAL_IMPORTED: "Marks published",
             MARKS_PUBLISHED: "Marks made available",
             REPORT_RESOLVED: "Missing-mark report resolved",
@@ -1116,6 +1119,17 @@ async function loadAudit(batchId) {
                 "</small></div>"
             )
             .join("");
+    const senateDecisions = (data.senate_decisions || []).map((decision) =>
+      '<div class="timeline-item"><strong>' +
+      esc(decision.decision + " · Decision " + decision.decision_number + " · Batch revision " + decision.revision) +
+      '</strong><span>' +
+      esc(decision.meeting_reference) +
+      (decision.actor_name ? " · recorded by " + esc(decision.actor_name) : "") +
+      '</span><small>' + esc(formatDateTime(decision.created_at)) +
+      (decision.reason ? " · " + esc(decision.reason) : "") +
+      '</small></div>'
+    ).join("");
+
     const pipeline = data.pipeline.stages
       .map((stage) =>
         '<div class="timeline-item"><strong>' +
@@ -1152,7 +1166,11 @@ async function loadAudit(batchId) {
           "</strong> · waiting " +
           esc(formatDuration(data.pipeline.waiting_seconds)) +
           (data.pipeline.waiting_since ? " since " + esc(data.pipeline.waiting_since) : "")) +
-      '</p></div><div class="card"><p class="eyebrow">HANDOFFS</p><div class="timeline">' +
+      '</p></div>' +
+      (senateDecisions
+        ? '<div class="card"><p class="eyebrow">SENATE DECISIONS</p><div class="timeline">' + senateDecisions + '</div></div>'
+        : "") +
+      '<div class="card"><p class="eyebrow">HANDOFFS</p><div class="timeline">' +
       (pipeline || '<p class="muted">No handoff events recorded yet.</p>') +
       '</div></div>' +
       '<div class="card"><p class="eyebrow">MARKS CHANGES</p><div class="timeline">' +
