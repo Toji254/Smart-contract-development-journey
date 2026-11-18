@@ -420,6 +420,24 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                 {"batches": self.service.portal_batches(user_id)}
             )
 
+        if method == "GET" and path == "/api/senate/batches":
+            return self._send_json(
+                {"batches": self.service.senate_batches(user_id)}
+            )
+
+        match = re.fullmatch(r"/api/senate/batches/(0x[a-fA-F0-9]{64})/decision", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.service.decide_senate_batch(
+                    user_id,
+                    match.group(1),
+                    str(body.get("decision", "")),
+                    str(body.get("meeting_reference", "")),
+                    str(body.get("reason", "")),
+                )
+            )
+
         match = re.fullmatch(r"/api/portal/batches/(0x[a-fA-F0-9]{64})/publish", path)
         if method == "POST" and match:
             return self._send_json(
@@ -452,6 +470,21 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
 
         if method == "GET" and path == "/api/admin/courses":
             return self._send_json({"courses": self.service.admin_courses(user_id)})
+
+        if method == "GET" and path == "/api/admin/assessments":
+            return self._send_json({"assessments": self.service.admin_assessments(user_id)})
+
+        match = re.fullmatch(r"/api/admin/assessments/([^/]+)/release-policy", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.service.admin_update_assessment_release_policy(
+                    user_id,
+                    match.group(1),
+                    str(body.get("release_policy", "")),
+                    str(body.get("reason", "")),
+                )
+            )
 
         if method == "POST" and path == "/api/admin/users":
             body = self._body()
@@ -534,6 +567,7 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     str(body.get("name", "")),
                     max_mark,
                     str(body.get("submission_deadline", "")) or None,
+                    str(body.get("release_policy", "DIRECT")),
                 ),
                 201,
             )
