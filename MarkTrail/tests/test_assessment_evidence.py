@@ -513,6 +513,35 @@ class AssessmentEvidenceTests(unittest.TestCase):
             conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 """
+                CREATE TABLE exam_sessions_legacy (
+                    id TEXT PRIMARY KEY,
+                    assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+                    exam_at TEXT NOT NULL,
+                    venue TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (status IN ('OPEN','CLOSED')),
+                    candidate_count INTEGER NOT NULL,
+                    created_by INTEGER NOT NULL REFERENCES users(id),
+                    created_at TEXT NOT NULL,
+                    closed_by INTEGER REFERENCES users(id),
+                    closed_at TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO exam_sessions_legacy
+                (id, assessment_id, exam_at, venue, status, candidate_count,
+                 created_by, created_at, closed_by, closed_at)
+                SELECT id, assessment_id, exam_at, venue, status, candidate_count,
+                       created_by, created_at, closed_by, closed_at
+                FROM exam_sessions
+                """
+            )
+            conn.execute("DROP TABLE exam_sessions")
+            conn.execute("ALTER TABLE exam_sessions_legacy RENAME TO exam_sessions")
+
+            conn.execute(
+                """
                 CREATE TABLE exam_scripts_legacy (
                     id TEXT PRIMARY KEY,
                     session_id TEXT NOT NULL,
@@ -583,6 +612,7 @@ class AssessmentEvidenceTests(unittest.TestCase):
         upgraded = AssessmentEvidenceService(self.db, self.app)
         detail_before = upgraded.session_detail(self.users["lecturer"], session_id)
         self.assertEqual(detail_before["summary"]["scripts_received"], 1)
+        self.assertEqual(detail_before["session"]["session_type"], "UNCLASSIFIED")
         self.assertEqual(
             sum(1 for event in detail_before["activity"] if event["event_type"] == "RECEIVED"),
             1,
