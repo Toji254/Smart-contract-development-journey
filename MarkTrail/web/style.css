@@ -642,3 +642,50 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* ── Evidence case ownership and review ─────────────────────── */
+.evidence-case {
+  display: grid;
+  gap: 10px;
+  border-left: 3px solid var(--warning);
+}
+.evidence-case .case-category {
+  margin: 0;
+  font-weight: 750;
+}
+.evidence-case .case-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.evidence-case textarea {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+}
+.student-cases {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.student-cases > strong {
+  font-size: .84rem;
+}
+.student-case-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+}
+.student-case-status small {
+  grid-column: 1 / -1;
+  color: var(--ink-muted);
+  font-size: .72rem;
+}
