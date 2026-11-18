@@ -73,7 +73,7 @@ class AssessmentEvidenceService:
                 CREATE TABLE IF NOT EXISTS exam_scripts (
                     id TEXT PRIMARY KEY,
                     session_id TEXT NOT NULL,
-                    student_id INTEGER NOT NULL,
+                    student_id INTEGER,
                     script_ref TEXT NOT NULL,
                     status TEXT NOT NULL CHECK (
                         status IN ('RECEIVED','HANDOFF_PENDING','ASSIGNED','MARKED','FLAGGED')
@@ -234,8 +234,7 @@ class AssessmentEvidenceService:
                 SELECT u.id, u.reg_number, u.full_name
                 FROM enrollments e
                 JOIN users u ON u.id = e.student_id
-                WHERE e.course_id = ? AND u.role = 'student' AND u.active = 1
-                  AND (u.access_until IS NULL OR date(u.access_until) >= date('now'))
+                WHERE e.course_id = ? AND u.role = 'student'
                 ORDER BY COALESCE(u.reg_number, u.username)
                 """,
                 (assessment["course_id"],),
@@ -403,7 +402,7 @@ class AssessmentEvidenceService:
         self,
         user_id: int,
         session_id: str,
-        student_id: int,
+        student_id: int | None,
         script_ref: str,
         note: str = "",
     ) -> dict[str, Any]:
@@ -412,27 +411,32 @@ class AssessmentEvidenceService:
             raise AppError("Enter a unique script reference of at most 80 characters.")
         if len(note) > 1000:
             raise AppError("Script notes must be 1,000 characters or fewer.")
+        if student_id is None and not note.strip():
+            raise AppError("An unidentified script needs an incident note explaining why it could not be matched.")
         with self.db.transaction() as conn:
-            candidate = conn.execute(
-                """
-                SELECT 1 FROM exam_session_candidates
-                WHERE session_id = ? AND student_id = ?
-                """,
-                (session_id, student_id),
-            ).fetchone()
-            if not candidate:
-                raise AppError("This student is not in the examination roster.", 404)
+            candidate = None
+            if student_id is not None:
+                candidate = conn.execute(
+                    """
+                    SELECT 1 FROM exam_session_candidates
+                    WHERE session_id = ? AND student_id = ?
+                    """,
+                    (session_id, student_id),
+                ).fetchone()
+                if not candidate:
+                    raise AppError("This student is not in the examination roster.", 404)
             script_id = "script-" + uuid.uuid4().hex
             now = utc_now()
+            initial_status = "RECEIVED" if student_id is not None else "FLAGGED"
             try:
                 conn.execute(
                     """
                     INSERT INTO exam_scripts
                     (id, session_id, student_id, script_ref, status, current_custodian,
                      notes, received_by, received_at)
-                    VALUES (?, ?, ?, ?, 'RECEIVED', ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (script_id, session_id, student_id, script_ref.strip(), user_id, note.strip(), user_id, now),
+                    (script_id, session_id, student_id, script_ref.strip(), initial_status, user_id, note.strip(), user_id, now),
                 )
             except Exception as exc:
                 if "UNIQUE" in str(exc).upper():
@@ -446,6 +450,15 @@ class AssessmentEvidenceService:
                 """,
                 (script_id, user_id, note.strip(), now),
             )
+            if student_id is None:
+                conn.execute(
+                    """
+                    INSERT INTO exam_script_events
+                    (script_id, event_type, actor_id, note, created_at)
+                    VALUES (?, 'FLAGGED', ?, ?, ?)
+                    """,
+                    (script_id, user_id, "Script received without a verified candidate match.", now),
+                )
             self.app._audit(
                 conn,
                 "EXAM_SCRIPT",
@@ -454,7 +467,52 @@ class AssessmentEvidenceService:
                 "EXAM_SCRIPT_RECEIVED",
                 {"session_id": session_id, "assessment_id": session["assessment_id"], "script_ref": script_ref.strip()},
             )
-        return {"script_id": script_id, "status": "RECEIVED", "received_at": now}
+        return {"script_id": script_id, "status": initial_status, "received_at": now, "unidentified": student_id is None}
+
+    def link_unidentified_script(self, user_id: int, script_id: str, student_id: int, reason: str) -> dict[str, Any]:
+        actor = self.app.require_role(user_id, {"reviewer", "exam_office", "admin"})
+        reason = reason.strip()
+        if len(reason) < 8 or len(reason) > 1000:
+            raise AppError("Provide an evidence-based identity-matching reason (8–1,000 characters).")
+        with self.db.transaction() as conn:
+            script = conn.execute(
+                """SELECT s.*, x.assessment_id, c.lecturer_id
+                   FROM exam_scripts s JOIN exam_sessions x ON x.id = s.session_id
+                   JOIN assessments a ON a.id = x.assessment_id
+                   JOIN courses c ON c.id = a.course_id WHERE s.id = ?""",
+                (script_id,),
+            ).fetchone()
+            if not script:
+                raise AppError("Script not found.", 404)
+            if script["student_id"] is not None:
+                raise AppError("This script is already linked to a candidate.", 409)
+            candidate = conn.execute(
+                "SELECT 1 FROM exam_session_candidates WHERE session_id = ? AND student_id = ?",
+                (script["session_id"], student_id),
+            ).fetchone()
+            if not candidate:
+                raise AppError("The selected candidate is not in this session's locked roster.", 404)
+            existing = conn.execute(
+                "SELECT 1 FROM exam_scripts WHERE session_id = ? AND student_id = ?",
+                (script["session_id"], student_id),
+            ).fetchone()
+            if existing:
+                raise AppError("A different script is already linked to this candidate.", 409)
+            conn.execute(
+                "UPDATE exam_scripts SET student_id = ?, status = 'RECEIVED', notes = ? WHERE id = ?",
+                (student_id, reason, script_id),
+            )
+            conn.execute(
+                """INSERT INTO exam_script_events
+                   (script_id, event_type, actor_id, note, created_at)
+                   VALUES (?, 'FLAGGED', ?, ?, ?)""",
+                (script_id, user_id, "Identity linked after review: " + reason, utc_now()),
+            )
+            self.app._audit(
+                conn, "EXAM_SCRIPT", script_id, user_id, "EXAM_SCRIPT_IDENTITY_LINKED",
+                {"assessment_id": script["assessment_id"], "student_id": student_id, "reason": reason},
+            )
+        return {"script_id": script_id, "student_id": student_id, "status": "RECEIVED"}
 
     def request_script_handoff(
         self,
@@ -587,6 +645,8 @@ class AssessmentEvidenceService:
             actor = self.app.user(user_id)
             if actor["role"] == "lecturer" and int(script["lecturer_id"] or 0) != user_id:
                 raise AppError("You do not manage this script.", 403)
+            if script["student_id"] is None:
+                raise AppError("Resolve the script's candidate identity before recording marking completion.", 409)
             if int(script["current_custodian"]) != user_id:
                 raise AppError("Only the current script custodian can record marking completion.", 403)
             if script["status"] == "HANDOFF_PENDING":
@@ -736,6 +796,22 @@ class AssessmentEvidenceService:
                     })
                 candidates.append(candidate)
 
+            orphan_rows = conn.execute(
+                """SELECT id, script_ref, status, current_custodian, received_at, notes
+                   FROM exam_scripts WHERE session_id = ? AND student_id IS NULL
+                   ORDER BY received_at""",
+                (session_id,),
+            ).fetchall()
+            unidentified_scripts = [dict(row) for row in orphan_rows]
+            for orphan in unidentified_scripts:
+                exceptions.append({
+                    "student_id": None,
+                    "registration_number": None,
+                    "full_name": "Unidentified script",
+                    "script_ref": orphan["script_ref"],
+                    "code": "SCRIPT_UNIDENTIFIED",
+                    "severity": "high",
+                })
             total = len(candidates)
             attendance_count = sum(1 for c in candidates if c["attendance"] is not None)
             script_count = sum(1 for c in candidates if c["script"] is not None)
@@ -760,6 +836,7 @@ class AssessmentEvidenceService:
                     "exceptions": len(exceptions),
                 },
                 "candidates": candidates,
+                "unidentified_scripts": unidentified_scripts,
                 "exceptions": exceptions,
             }
         finally:
