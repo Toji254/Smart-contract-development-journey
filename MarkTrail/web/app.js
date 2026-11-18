@@ -1145,7 +1145,9 @@ function renderEvidenceSession() {
   }
   const session = data.session;
   const summary = data.summary;
-  const locked = session.status === "CLOSED";
+  const registerClosed = session.status === "CLOSED";
+  const canCorrectClosedRegister = registerClosed && ["reviewer", "admin"].includes(state.user.role);
+  const locked = registerClosed && !canCorrectClosedRegister;
   const candidates = data.candidates || [];
   const candidateOptions = candidates.map((candidate) =>
     '<option value="' + esc(candidate.student_id) + '">' +
@@ -1245,9 +1247,12 @@ function renderEvidenceSession() {
     '<div><strong>' + esc(summary.scripts_received) + '</strong><span>Scripts received</span></div>' +
     '<div><strong>' + esc(summary.scripts_marked) + '</strong><span>Scripts marked</span></div>' +
     '<div><strong>' + esc(summary.exceptions) + '</strong><span>Exceptions</span></div></div>' +
-    (locked ? '<p class="muted">Attendance register is closed. Historical records remain visible.</p>' :
-      '<p class="muted">Record an explicit decision for each candidate. A PRESENT decision without a signature stays PRESENT and raises a signature exception; it is never converted to ABSENT.</p>') +
-    (locked ? "" : '<div class="actions"><button type="button" class="button secondary" id="close-evidence-session">Close attendance register</button></div>') +
+    (registerClosed
+      ? (canCorrectClosedRegister
+        ? '<p class="muted">This register is closed. You may make a controlled correction as a reviewer or administrator; every change requires a reason and creates an audit event.</p>'
+        : '<p class="muted">Attendance register is closed. Historical records remain visible.</p>')
+      : '<p class="muted">Record an explicit decision for each candidate. A PRESENT decision without a signature stays PRESENT and raises a signature exception; it is never converted to ABSENT.</p>') +
+    (session.status === "OPEN" ? '<div class="actions"><button type="button" class="button secondary" id="close-evidence-session">Close attendance register</button></div>' : "") +
     "</div>" +
     '<div class="card"><div class="section-head compact"><div><p class="eyebrow">CANDIDATE REGISTER</p><h2>Attendance and checks</h2></div></div>' +
     '<div class="table-wrap"><table><thead><tr><th>Candidate</th><th>Attendance decision</th><th>Signature</th><th>Exam card</th><th>Student ID</th><th>Script</th><th>Marks</th><th>Incident note / action</th></tr></thead><tbody>' +
