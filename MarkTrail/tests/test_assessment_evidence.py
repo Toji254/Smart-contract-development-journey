@@ -230,7 +230,7 @@ class AssessmentEvidenceTests(unittest.TestCase):
                 self.users["reviewer"], session_id,
                 [{"student_id": present["student_id"]}],
             )
-        with self.assertRaisesRegex(AppError, "only for candidates recorded PRESENT"):
+        with self.assertRaisesRegex(AppError, "(?i)only be signed for candidates recorded PRESENT"):
             self.evidence.sign_exam_cards(
                 self.users["lecturer"], session_id,
                 [{"student_id": absent["student_id"]}],
@@ -287,7 +287,7 @@ class AssessmentEvidenceTests(unittest.TestCase):
             "LECTURER_EXAM_CARD_SIGNOFF_PENDING",
             {issue["code"] for issue in detail["exceptions"]},
         )
-        with self.assertRaisesRegex(AppError, "only for final or special examination"):
+        with self.assertRaisesRegex(AppError, "(?i)only to final or special examination"):
             self.evidence.sign_exam_cards(
                 self.users["lecturer"], session_id,
                 [{"student_id": detail["candidates"][0]["student_id"]}],
