@@ -158,6 +158,21 @@ class DatabaseMigrationTests(unittest.TestCase):
                     """,
                     (office_salt, office_hash, now),
                 )
+                senate_salt, senate_hash = hash_password("senate-pass")
+                migrated.execute(
+                    """
+                    INSERT INTO users
+                    (username, full_name, role, password_salt, password_hash, created_at)
+                    VALUES ('senate', 'Senate User', 'senate_office', ?, ?, ?)
+                    """,
+                    (senate_salt, senate_hash, now),
+                )
+                old_assessment = migrated.execute(
+                    "SELECT release_policy FROM assessments WHERE id = 'assessment-1'"
+                ).fetchone()
+                old_batch = migrated.execute(
+                    "SELECT senate_status FROM batches WHERE id = 'batch-1'"
+                ).fetchone()
                 batch = migrated.execute(
                     "SELECT pipeline_stage FROM batches WHERE id = 'batch-1'"
                 ).fetchone()
@@ -189,6 +204,8 @@ class DatabaseMigrationTests(unittest.TestCase):
             self.assertEqual(report["status"], "OPEN")
             self.assertEqual(violations, [])
             self.assertIn("access_until", user_columns)
+            self.assertEqual(old_assessment["release_policy"], "UNCLASSIFIED")
+            self.assertEqual(old_batch["senate_status"], "NOT_REQUIRED")
             self.assertIn("commitment_salt", revision_columns)
             self.assertIn("canonical_marks", revision_columns)
 
