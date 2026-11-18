@@ -1572,7 +1572,32 @@ class AssessmentEvidenceService:
             else:
                 raise AppError("You do not have access to the evidence case queue.", 403)
             rows = conn.execute(base + where + " ORDER BY ec.updated_at DESC", params).fetchall()
-            return [dict(row) for row in rows]
+            result = []
+            for row in rows:
+                item = dict(row)
+                events = conn.execute(
+                    """
+                    SELECT e.event_type, e.note, e.metadata_json, e.created_at,
+                           actor.full_name AS actor_name
+                    FROM evidence_case_events e
+                    LEFT JOIN users actor ON actor.id = e.actor_id
+                    WHERE e.case_id = ?
+                    ORDER BY e.id
+                    """,
+                    (row["id"],),
+                ).fetchall()
+                item["events"] = [
+                    {
+                        "event_type": event["event_type"],
+                        "note": event["note"],
+                        "metadata": json.loads(event["metadata_json"] or "{}"),
+                        "created_at": event["created_at"],
+                        "actor_name": event["actor_name"],
+                    }
+                    for event in events
+                ]
+                result.append(item)
+            return result
         finally:
             conn.close()
 
