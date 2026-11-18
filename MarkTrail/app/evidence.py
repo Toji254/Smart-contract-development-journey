@@ -358,7 +358,7 @@ class AssessmentEvidenceService:
                     case_id TEXT NOT NULL REFERENCES evidence_cases(id) ON DELETE RESTRICT,
                     event_type TEXT NOT NULL CHECK (
                         event_type IN (
-                            'OPENED','UPDATED','EVIDENCE_CLEARED',
+                            'OPENED','UPDATED','EVIDENCE_CLEARED','REOPENED',
                             'ASSIGNED','RESOLVED','DISMISSED'
                         )
                     ),
@@ -1219,6 +1219,408 @@ class AssessmentEvidenceService:
 
         return issues
 
+    def _case_assignment(self, session, category: str, conn) -> tuple[str, int | None]:
+        lecturer_owned = {
+            "LECTURER_EXAM_CARD_SIGNOFF_PENDING",
+            "SCRIPT_NOT_RECEIVED",
+            "SCRIPT_NOT_MARKED",
+            "SCRIPT_HANDOFF_NOT_ACCEPTED",
+            "MARK_ENTRY_NOT_FOUND",
+            "MARK_WITHOUT_SCRIPT_RECEIPT",
+        }
+        exam_office_owned = {
+            "ATTENDANCE_NOT_RECORDED",
+            "ATTENDANCE_SIGNATURE_MISSING",
+            "EXAM_CARD_CHECK_NOT_RECORDED",
+            "STUDENT_ID_CHECK_NOT_RECORDED",
+        }
+        assigned_role = (
+            "lecturer" if category in lecturer_owned
+            else "exam_office" if category in exam_office_owned
+            else "reviewer"
+        )
+        if assigned_role == "lecturer":
+            assigned_user_id = int(session["lecturer_id"]) if session["lecturer_id"] else None
+        else:
+            row = conn.execute(
+                "SELECT id FROM users WHERE role = ? AND active = 1 ORDER BY id LIMIT 1",
+                (assigned_role,),
+            ).fetchone()
+            assigned_user_id = int(row["id"]) if row else None
+        return assigned_role, assigned_user_id
+
+    def _append_case_event(
+        self,
+        conn,
+        case_id: str,
+        event_type: str,
+        actor_id: int | None,
+        note: str,
+        metadata: dict[str, Any],
+        created_at: str,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO evidence_case_events
+            (case_id, event_type, actor_id, note, metadata_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                case_id,
+                event_type,
+                actor_id,
+                note,
+                json.dumps(metadata, sort_keys=True),
+                created_at,
+            ),
+        )
+
+    def _sync_session_cases(self, actor_id: int, session_id: str) -> dict[str, int]:
+        """Reconcile detected session exceptions into persistent, owned cases.
+
+        Clearing source evidence only moves a case to EVIDENCE_CLEARED. A human
+        reviewer/admin must still record a resolution or dismissal.
+        """
+        detail = self.session_detail(actor_id, session_id)
+        session = self._session_row(session_id)
+        now = utc_now()
+        active_keys: set[tuple[str, str]] = set()
+        opened = 0
+        cleared = 0
+        reopened = 0
+
+        with self.db.transaction() as conn:
+            for issue in detail["exceptions"]:
+                category = str(issue["code"])
+                student_id = int(issue["student_id"]) if issue.get("student_id") is not None else None
+                script_id = str(issue["script_id"]) if issue.get("script_id") else None
+                if student_id is not None:
+                    subject_key = f"student:{student_id}"
+                elif script_id:
+                    subject_key = f"script:{script_id}"
+                else:
+                    # Fail closed rather than merge unrelated unidentifiable evidence.
+                    subject_key = "unknown:" + uuid.uuid4().hex
+                active_keys.add((subject_key, category))
+                existing = conn.execute(
+                    """
+                    SELECT id, status, severity, assigned_role, assigned_user_id
+                    FROM evidence_cases
+                    WHERE session_id = ? AND subject_key = ? AND category = ?
+                    """,
+                    (session_id, subject_key, category),
+                ).fetchone()
+                assigned_role, assigned_user_id = self._case_assignment(session, category, conn)
+                if not existing:
+                    case_id = "case-" + uuid.uuid4().hex
+                    conn.execute(
+                        """
+                        INSERT INTO evidence_cases
+                        (id, session_id, assessment_id, student_id, script_id,
+                         subject_key, category, severity, status, assigned_role,
+                         assigned_user_id, opened_at, updated_at, last_detected_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            case_id,
+                            session_id,
+                            session["assessment_id"],
+                            student_id,
+                            script_id,
+                            subject_key,
+                            category,
+                            issue["severity"],
+                            assigned_role,
+                            assigned_user_id,
+                            now,
+                            now,
+                            now,
+                        ),
+                    )
+                    self._append_case_event(
+                        conn,
+                        case_id,
+                        "OPENED",
+                        actor_id,
+                        "Evidence exception detected.",
+                        {
+                            "category": category,
+                            "severity": issue["severity"],
+                            "registration_number": issue.get("registration_number"),
+                            "script_ref": issue.get("script_ref"),
+                            "assigned_role": assigned_role,
+                        },
+                        now,
+                    )
+                    self.app._audit(
+                        conn,
+                        "EVIDENCE_CASE",
+                        case_id,
+                        actor_id,
+                        "EVIDENCE_CASE_OPENED",
+                        {
+                            "session_id": session_id,
+                            "assessment_id": session["assessment_id"],
+                            "category": category,
+                            "severity": issue["severity"],
+                        },
+                    )
+                    if assigned_user_id is not None:
+                        self.app._notify(
+                            conn,
+                            assigned_user_id,
+                            "EVIDENCE_CASE_ASSIGNED",
+                            "Examination evidence case assigned",
+                            f"{category.replace('_', ' ').title()} requires review in MarkTrail.",
+                            now,
+                        )
+                    if student_id is not None:
+                        self.app._notify(
+                            conn,
+                            student_id,
+                            "EVIDENCE_CASE_OPENED",
+                            "Your examination record is being checked",
+                            "MarkTrail detected an examination-record discrepancy for this assessment. A case has been opened for staff review. No academic result has been changed.",
+                            now,
+                        )
+                    opened += 1
+                    continue
+
+                case_id = existing["id"]
+                if existing["status"] == "EVIDENCE_CLEARED":
+                    conn.execute(
+                        """
+                        UPDATE evidence_cases
+                        SET status = 'OPEN', severity = ?, assigned_role = ?,
+                            assigned_user_id = ?, updated_at = ?, last_detected_at = ?,
+                            evidence_cleared_at = NULL
+                        WHERE id = ?
+                        """,
+                        (
+                            issue["severity"], assigned_role, assigned_user_id,
+                            now, now, case_id,
+                        ),
+                    )
+                    self._append_case_event(
+                        conn,
+                        case_id,
+                        "REOPENED",
+                        actor_id,
+                        "The evidence exception appeared again after being cleared.",
+                        {"category": category, "severity": issue["severity"]},
+                        now,
+                    )
+                    reopened += 1
+                elif existing["status"] == "OPEN":
+                    conn.execute(
+                        """
+                        UPDATE evidence_cases
+                        SET severity = ?, assigned_role = ?, assigned_user_id = ?,
+                            updated_at = ?, last_detected_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            issue["severity"], assigned_role, assigned_user_id,
+                            now, now, case_id,
+                        ),
+                    )
+                # RESOLVED and DISMISSED are human terminal decisions. A later
+                # session sync must not silently reverse those decisions.
+                if existing["status"] == "EVIDENCE_CLEARED":
+                    if student_id is not None:
+                        self.app._notify(
+                            conn,
+                            student_id,
+                            "EVIDENCE_CASE_REOPENED",
+                            "Your examination record needs another check",
+                            "A previously cleared examination-record discrepancy has appeared again. Staff review has resumed.",
+                            now,
+                        )
+
+            cases = conn.execute(
+                """
+                SELECT id, subject_key, category, student_id, status,
+                       assigned_role, assigned_user_id
+                FROM evidence_cases
+                WHERE session_id AND status = 'OPEN'
+                """.replace("WHERE session_id AND", "WHERE session_id ="),
+                (session_id,),
+            ).fetchall()
+            cleared_role_row = conn.execute(
+                "SELECT id FROM users WHERE role = 'reviewer' AND active = 1 ORDER BY id LIMIT 1"
+            ).fetchone()
+            cleared_reviewer = int(cleared_role_row["id"]) if cleared_role_row else None
+            for case in cases:
+                key = (case["subject_key"], case["category"])
+                if key in active_keys:
+                    continue
+                conn.execute(
+                    """
+                    UPDATE evidence_cases
+                    SET status = 'EVIDENCE_CLEARED', assigned_role = 'reviewer',
+                        assigned_user_id = ?, evidence_cleared_at = ?,
+                        updated_at = ?
+                    WHERE id = ? AND status = 'OPEN'
+                    """,
+                    (cleared_reviewer, now, now, case["id"]),
+                )
+                self._append_case_event(
+                    conn,
+                    case["id"],
+                    "EVIDENCE_CLEARED",
+                    actor_id,
+                    "The source evidence no longer shows this exception; reviewer confirmation is required.",
+                    {"category": case["category"]},
+                    now,
+                )
+                if cleared_reviewer is not None:
+                    self.app._notify(
+                        conn,
+                        cleared_reviewer,
+                        "EVIDENCE_CASE_CLEARED",
+                        "Evidence case ready for review",
+                        f"{case['category'].replace('_', ' ').title()} has been cleared by new evidence. Confirm the case outcome.",
+                        now,
+                    )
+                if case["student_id"] is not None:
+                    self.app._notify(
+                        conn,
+                        int(case["student_id"]),
+                        "EVIDENCE_CASE_CLEARED",
+                        "New evidence has been recorded",
+                        "The discrepancy in your examination record is no longer detected. It is awaiting staff confirmation; this does not yet mean your academic result has changed.",
+                        now,
+                    )
+                cleared += 1
+
+        return {"opened": opened, "cleared": cleared, "reopened": reopened}
+
+    def list_evidence_cases(self, user_id: int) -> list[dict[str, Any]]:
+        actor = self.app.user(user_id)
+        role = actor["role"]
+        conn = self.db.connect()
+        try:
+            base = """
+                SELECT ec.id, ec.session_id, ec.assessment_id, ec.student_id,
+                       ec.script_id, ec.category, ec.severity, ec.status,
+                       ec.assigned_role, ec.assigned_user_id,
+                       ec.opened_at, ec.updated_at, ec.evidence_cleared_at,
+                       ec.resolution_note,
+                       a.name AS assessment, c.code AS course,
+                       c.title AS course_title, s.session_type, s.exam_at,
+                       candidate.reg_number_snapshot,
+                       candidate.full_name_snapshot,
+                       assigned.full_name AS assigned_user_name
+                FROM evidence_cases ec
+                JOIN assessments a ON a.id = ec.assessment_id
+                JOIN courses c ON c.id = a.course_id
+                JOIN exam_sessions s ON s.id = ec.session_id
+                LEFT JOIN exam_session_candidates candidate
+                  ON candidate.session_id = ec.session_id
+                 AND candidate.student_id = ec.student_id
+                LEFT JOIN users assigned ON assigned.id = ec.assigned_user_id
+            """
+            if role == "student":
+                rows = conn.execute(
+                    base + " WHERE ec.student_id = ? ORDER BY ec.updated_at DESC",
+                    (user_id,),
+                ).fetchall()
+                return [
+                    {
+                        "id": row["id"],
+                        "assessment_id": row["assessment_id"],
+                        "course": row["course"],
+                        "assessment": row["assessment"],
+                        "category": row["category"],
+                        "severity": row["severity"],
+                        "status": row["status"],
+                        "opened_at": row["opened_at"],
+                        "updated_at": row["updated_at"],
+                    }
+                    for row in rows
+                ]
+            if role == "admin":
+                where, params = "", ()
+            elif role == "reviewer":
+                where, params = " WHERE ec.assigned_role = 'reviewer'", ()
+            elif role == "exam_office":
+                where, params = " WHERE ec.assigned_role = 'exam_office'", ()
+            elif role == "lecturer":
+                where, params = (
+                    " WHERE ec.assigned_role = 'lecturer' AND ec.assigned_user_id = ?",
+                    (user_id,),
+                )
+            else:
+                raise AppError("You do not have access to the evidence case queue.", 403)
+            rows = conn.execute(base + where + " ORDER BY ec.updated_at DESC", params).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def decide_evidence_case(
+        self,
+        user_id: int,
+        case_id: str,
+        decision: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        self.app.require_role(user_id, {"reviewer", "admin"})
+        decision = str(decision or "").upper()
+        reason = str(reason or "").strip()
+        if decision not in {"RESOLVED", "DISMISSED"}:
+            raise AppError("Case decision must be RESOLVED or DISMISSED.")
+        if len(reason) < 8 or len(reason) > 1000:
+            raise AppError("Provide an 8–1,000 character reason for the case decision.")
+        now = utc_now()
+        with self.db.transaction() as conn:
+            case = conn.execute(
+                """
+                SELECT id, status, student_id, category, assessment_id, session_id
+                FROM evidence_cases WHERE id = ?
+                """,
+                (case_id,),
+            ).fetchone()
+            if not case:
+                raise AppError("Evidence case not found.", 404)
+            if case["status"] in {"RESOLVED", "DISMISSED"}:
+                raise AppError("This evidence case already has a terminal decision.", 409)
+            conn.execute(
+                """
+                UPDATE evidence_cases
+                SET status = ?, resolved_by = ?, resolved_at = ?,
+                    resolution_note = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (decision, user_id, now, reason, now, case_id),
+            )
+            self._append_case_event(
+                conn,
+                case_id,
+                decision,
+                user_id,
+                reason,
+                {"category": case["category"], "assessment_id": case["assessment_id"]},
+                now,
+            )
+            self.app._audit(
+                conn,
+                "EVIDENCE_CASE",
+                case_id,
+                user_id,
+                "EVIDENCE_CASE_" + decision,
+                {"category": case["category"], "reason": reason},
+            )
+            if case["student_id"] is not None:
+                self.app._notify(
+                    conn,
+                    int(case["student_id"]),
+                    "EVIDENCE_CASE_" + decision,
+                    "Your examination evidence case was updated",
+                    "Staff have completed a review of the examination evidence case. Contact your department if you need clarification.",
+                    now,
+                )
+        return {"case_id": case_id, "status": decision, "decided_at": now}
+
     def session_detail(self, user_id: int, session_id: str) -> dict[str, Any]:
         _actor, session = self._authorize_session(user_id, session_id)
         conn = self.db.connect()
@@ -1335,6 +1737,7 @@ class AssessmentEvidenceService:
                     "registration_number": None,
                     "full_name": "Unidentified script",
                     "script_ref": orphan["script_ref"],
+                    "script_id": orphan["id"],
                     "code": "SCRIPT_UNIDENTIFIED",
                     "severity": "high",
                 })
