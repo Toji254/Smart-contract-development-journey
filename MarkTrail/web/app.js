@@ -1187,8 +1187,56 @@ function renderEvidenceSession() {
       (locked ? " disabled" : "") + ">Save</button></td></tr>";
   }).join("");
 
+  const activity = (data.activity || []).slice().reverse().map((event) => {
+    let title = event.event_type.replaceAll("_", " ").toLowerCase();
+    let subject = "";
+    let note = "";
+
+    if (event.category === "SESSION") {
+      title = event.event_type === "SESSION_CREATED"
+        ? "Examination session created"
+        : "Attendance register closed";
+      if (event.metadata) {
+        subject = [
+          event.metadata.venue,
+          event.metadata.candidate_count ? event.metadata.candidate_count + " candidates" : ""
+        ].filter(Boolean).join(" · ");
+      }
+    } else if (event.category === "ATTENDANCE") {
+      const next = event.new_state?.attendance_status || "updated";
+      const previous = event.old_state?.attendance_status;
+      title = event.event_type === "CORRECTED" ? "Attendance corrected" : "Attendance recorded";
+      subject = (event.registration_number || "Candidate") + " · " + event.candidate_name +
+        " · " + (previous ? previous + " → " : "") + next;
+      note = event.reason || "";
+    } else if (event.category === "SCRIPT") {
+      const linked = event.event_type === "FLAGGED" && (event.note || "").startsWith("Identity linked after review:");
+      const labels = {
+        RECEIVED: "Script received",
+        HANDOFF_REQUESTED: "Script handover requested",
+        HANDOFF_ACCEPTED: "Script custody accepted",
+        MARKED: "Marking completion recorded",
+        FLAGGED: linked ? "Script identity linked after review" : "Script flagged for review"
+      };
+      title = labels[event.event_type] || title;
+      subject = [event.script_ref, event.registration_number, event.candidate_name].filter(Boolean).join(" · ");
+      if (event.event_type === "HANDOFF_REQUESTED" && event.recipient_name) {
+        subject += " · awaiting " + event.recipient_name;
+      }
+      note = event.note || "";
+    }
+
+    return '<article class="activity-item">' +
+      '<div class="activity-copy"><strong>' + esc(title) + '</strong>' +
+      (subject ? '<span>' + esc(subject) + '</span>' : '') +
+      (note ? '<p>' + esc(note) + '</p>' : '') +
+      '<small>' + esc(event.actor_name || "Unknown staff") + ' · ' +
+      esc((event.actor_role || "staff").replaceAll("_", " ")) + ' · ' +
+      esc(event.created_at) + '</small></div></article>';
+  }).join("");
+
   const issues = (data.exceptions || []).length
-    ? '<div class="evidence-issues">' + data.exceptions.map((issue) =>
+    ? '<div class="evidence-issues">'; + data.exceptions.map((issue) =>
         '<div class="evidence-issue"><span>' + esc(issue.registration_number || issue.script_ref || "Unmatched record") +
         " · " + esc(issue.full_name || "") + "</span>" +
         "<strong>" + esc(evidenceIssueLabel(issue.code)) + "</strong>" +
@@ -1267,6 +1315,9 @@ function renderEvidenceSession() {
     '<p class="muted">Use an institution-approved reference or packet identifier. Do not type marks or sensitive personal details into this reference.</p></div>' +
     '<div class="card"><div class="section-head compact"><div><p class="eyebrow">SCRIPT CUSTODY</p><h2>Received scripts and handovers</h2></div></div>' +
     scriptCards + orphanCards + "</div>" +
+    '<div class="card"><div class="section-head compact"><div><p class="eyebrow">ACTIVITY HISTORY</p><h2>Evidence chronology</h2></div></div>' +
+    (activity ? '<div class="activity-list">' + activity + '</div>' : '<p class="muted">No evidence activity has been recorded yet.</p>') +
+    '<p class="muted">History entries are append-only. Corrections appear as new events rather than overwriting what happened previously.</p></div>' +
     '<div class="card"><div class="section-head compact"><div><p class="eyebrow">RECONCILIATION</p><h2>Exceptions to investigate</h2></div></div>' +
     issues + '</div>';
 
