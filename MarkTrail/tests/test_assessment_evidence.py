@@ -662,9 +662,18 @@ class AssessmentEvidenceTests(unittest.TestCase):
                 own_student, session_id, "ATTENDANCE", "Too short"
             )
 
+        outside_student = self.app.admin_create_user(
+            self.users["admin"],
+            "outside_exam_student",
+            "Student Outside Exam Roster",
+            "student",
+            "outside-pass-123",
+            "OUT/EXAM/001",
+            "2027-12-31",
+        )["id"]
         with self.assertRaisesRegex(AppError, "own registered unit"):
             self.evidence.student_report_evidence_issue(
-                999999, session_id, "ATTENDANCE",
+                outside_student, session_id, "ATTENDANCE",
                 "I attended the examination but my attendance is not displayed.",
             )
 
