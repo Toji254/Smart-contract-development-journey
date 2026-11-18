@@ -3215,12 +3215,12 @@ class AppService:
         name: str,
         max_mark: float,
         submission_deadline: str | None = None,
-        release_policy: str = "DIRECT",
+        release_policy: str | None = None,
     ) -> dict:
         self.require_role(user_id, {"admin"})
-        release_policy = str(release_policy or "DIRECT").upper()
+        release_policy = str(release_policy or "").upper()
         if release_policy not in {"DIRECT", "SENATE"}:
-            raise AppError("Release policy must be DIRECT or SENATE.")
+            raise AppError("Choose an explicit release policy: DIRECT or SENATE.")
         if not name.strip():
             raise AppError("Assessment name is required.")
         if max_mark <= 0:
