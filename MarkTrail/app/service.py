@@ -847,7 +847,8 @@ class AppService:
         try:
             rows = conn.execute(
                 """
-                SELECT b.id, b.status, b.pipeline_stage, b.student_count, b.revision,
+                SELECT b.id, b.status, b.pipeline_stage, b.senate_status,
+                       b.student_count, b.revision, a.release_policy,
                        b.submitted_at, a.name AS assessment, c.code AS course,
                        u.full_name AS lecturer_name
                 FROM batches b
@@ -868,7 +869,8 @@ class AppService:
         try:
             rows = conn.execute(
                 """
-                SELECT b.id, b.status, b.pipeline_stage, b.student_count, b.revision,
+                SELECT b.id, b.status, b.pipeline_stage, b.senate_status,
+                       b.student_count, b.revision, a.release_policy,
                        b.submitted_at, a.name AS assessment, c.code AS course,
                        u.full_name AS lecturer_name
                 FROM batches b
@@ -876,6 +878,10 @@ class AppService:
                 JOIN courses c ON c.id = a.course_id
                 JOIN users u ON u.id = b.submitted_by
                 WHERE b.pipeline_stage = 'PORTAL_IMPORT'
+                  AND (
+                    a.release_policy = 'DIRECT'
+                    OR (a.release_policy = 'SENATE' AND b.senate_status = 'APPROVED')
+                  )
                 ORDER BY b.verified_at, b.submitted_at
                 """
             ).fetchall()
@@ -918,14 +924,208 @@ class AppService:
         return {"batch_id": batch_id, "pipeline_stage": to_stage}
 
     def process_exam_office_batch(self, user_id: int, batch_id: str) -> dict:
-        return self._advance_handoff(
-            user_id,
-            batch_id,
-            "exam_office",
-            "EXAM_OFFICE",
-            "PORTAL_IMPORT",
-            "EXAM_OFFICE_PROCESSED",
-        )
+        self.require_role(user_id, {"exam_office"})
+        now = utc_now()
+        with self.db.transaction() as conn:
+            batch = conn.execute(
+                """
+                SELECT b.status, b.pipeline_stage, a.release_policy
+                FROM batches b
+                JOIN assessments a ON a.id = b.assessment_id
+                WHERE b.id = ?
+                """,
+                (batch_id,),
+            ).fetchone()
+            if not batch:
+                raise AppError("Batch not found.", 404)
+            if batch["status"] != "VERIFIED" or batch["pipeline_stage"] != "EXAM_OFFICE":
+                raise AppError("This batch is not ready for exam-office processing.", 409)
+            if batch["release_policy"] == "UNCLASSIFIED":
+                raise AppError(
+                    "Publication policy is unclassified. An administrator must classify this assessment as DIRECT or SENATE before processing.",
+                    409,
+                )
+
+            if batch["release_policy"] == "SENATE":
+                conn.execute(
+                    """
+                    UPDATE batches
+                    SET pipeline_stage = 'PORTAL_IMPORT', senate_status = 'PENDING'
+                    WHERE id = ?
+                    """,
+                    (batch_id,),
+                )
+                self._audit(
+                    conn,
+                    "BATCH",
+                    batch_id,
+                    user_id,
+                    "SENATE_APPROVAL_REQUESTED",
+                    {
+                        "from_stage": "EXAM_OFFICE",
+                        "to_stage": "SENATE_APPROVAL",
+                        "release_policy": "SENATE",
+                    },
+                )
+                next_stage = "SENATE_APPROVAL"
+                senate_status = "PENDING"
+            else:
+                conn.execute(
+                    """
+                    UPDATE batches
+                    SET pipeline_stage = 'PORTAL_IMPORT', senate_status = 'NOT_REQUIRED'
+                    WHERE id = ?
+                    """,
+                    (batch_id,),
+                )
+                self._audit(
+                    conn,
+                    "BATCH",
+                    batch_id,
+                    user_id,
+                    "EXAM_OFFICE_PROCESSED",
+                    {
+                        "from_stage": "EXAM_OFFICE",
+                        "to_stage": "PORTAL_IMPORT",
+                        "release_policy": "DIRECT",
+                    },
+                )
+                next_stage = "PORTAL_IMPORT"
+                senate_status = "NOT_REQUIRED"
+        return {
+            "batch_id": batch_id,
+            "pipeline_stage": next_stage,
+            "senate_status": senate_status,
+        }
+
+    def senate_batches(self, user_id: int) -> list[dict]:
+        self.require_role(user_id, {"senate_office"})
+        conn = self.db.connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT b.id, b.status, b.pipeline_stage, b.senate_status,
+                       b.student_count, b.revision, b.submitted_at,
+                       a.name AS assessment, a.release_policy,
+                       c.code AS course, c.title AS course_title,
+                       lecturer.full_name AS lecturer_name,
+                       (
+                           SELECT COUNT(*) FROM senate_decisions d
+                           WHERE d.batch_id = b.id
+                       ) AS decision_count
+                FROM batches b
+                JOIN assessments a ON a.id = b.assessment_id
+                JOIN courses c ON c.id = a.course_id
+                JOIN users lecturer ON lecturer.id = b.submitted_by
+                WHERE b.pipeline_stage = 'PORTAL_IMPORT'
+                  AND b.senate_status IN ('PENDING','DEFERRED')
+                  AND a.release_policy = 'SENATE'
+                ORDER BY b.verified_at, b.submitted_at
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def decide_senate_batch(
+        self,
+        user_id: int,
+        batch_id: str,
+        decision: str,
+        meeting_reference: str,
+        reason: str = "",
+    ) -> dict:
+        self.require_role(user_id, {"senate_office"})
+        decision = str(decision or "").upper()
+        meeting_reference = str(meeting_reference or "").strip()
+        reason = str(reason or "").strip()
+        if decision not in {"APPROVED", "DEFERRED"}:
+            raise AppError("Senate decision must be APPROVED or DEFERRED.")
+        if len(meeting_reference) < 4 or len(meeting_reference) > 120:
+            raise AppError("Provide the Senate meeting or minute reference (4–120 characters).")
+        if decision == "DEFERRED" and len(reason) < 8:
+            raise AppError("A deferred Senate decision requires an 8-character reason.")
+        if len(reason) > 1000:
+            raise AppError("Senate decision reason must be 1,000 characters or fewer.")
+
+        now = utc_now()
+        with self.db.transaction() as conn:
+            batch = conn.execute(
+                """
+                SELECT b.status, b.pipeline_stage, b.senate_status,
+                       a.release_policy, b.submitted_by, a.name AS assessment,
+                       c.code AS course
+                FROM batches b
+                JOIN assessments a ON a.id = b.assessment_id
+                JOIN courses c ON c.id = a.course_id
+                WHERE b.id = ?
+                """,
+                (batch_id,),
+            ).fetchone()
+            if not batch:
+                raise AppError("Batch not found.", 404)
+            if (
+                batch["status"] != "VERIFIED"
+                or batch["pipeline_stage"] != "PORTAL_IMPORT"
+                or batch["release_policy"] != "SENATE"
+                or batch["senate_status"] not in {"PENDING", "DEFERRED"}
+            ):
+                raise AppError("This batch is not awaiting a Senate decision.", 409)
+
+            next_number = int(
+                conn.execute(
+                    "SELECT COALESCE(MAX(decision_number), 0) + 1 AS n FROM senate_decisions WHERE batch_id = ?",
+                    (batch_id,),
+                ).fetchone()["n"]
+            )
+            conn.execute(
+                """
+                INSERT INTO senate_decisions
+                (batch_id, decision_number, decision, meeting_reference, reason, actor_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (batch_id, next_number, decision, meeting_reference, reason, user_id, now),
+            )
+            conn.execute(
+                "UPDATE batches SET senate_status = ? WHERE id = ?",
+                (decision, batch_id),
+            )
+            self._audit(
+                conn,
+                "BATCH",
+                batch_id,
+                user_id,
+                "SENATE_APPROVED" if decision == "APPROVED" else "SENATE_DEFERRED",
+                {
+                    "decision": decision,
+                    "decision_number": next_number,
+                    "meeting_reference": meeting_reference,
+                    "reason": reason,
+                },
+            )
+            if decision == "APPROVED":
+                self._notify(
+                    conn,
+                    int(batch["submitted_by"]),
+                    "SENATE_APPROVED",
+                    "Senate approved the result batch",
+                    f"{batch['course']} · {batch['assessment']} is approved and may proceed to portal import.",
+                    now,
+                )
+            else:
+                self._notify(
+                    conn,
+                    int(batch["submitted_by"]),
+                    "SENATE_DEFERRED",
+                    "Senate deferred the result batch",
+                    reason,
+                    now,
+                )
+        return {
+            "batch_id": batch_id,
+            "senate_status": decision,
+            "decision_number": next_number,
+        }
 
     def publish_portal_batch(self, user_id: int, batch_id: str) -> dict:
         self.require_role(user_id, {"portal_operator"})
