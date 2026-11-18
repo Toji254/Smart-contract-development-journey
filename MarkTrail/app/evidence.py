@@ -98,7 +98,7 @@ class AssessmentEvidenceService:
                     event_type TEXT NOT NULL CHECK (
                         event_type IN (
                             'RECEIVED','HANDOFF_REQUESTED','HANDOFF_ACCEPTED',
-                            'MARKED','FLAGGED'
+                            'MARKED','FLAGGED','IDENTITY_LINKED'
                         )
                     ),
                     actor_id INTEGER NOT NULL REFERENCES users(id),
@@ -389,8 +389,6 @@ class AssessmentEvidenceService:
             identity = item.get("student_id_seen", False)
             if not all(isinstance(value, bool) for value in (signature, card, identity)):
                 raise AppError("Signature, exam-card and student-ID checks must be true/false values.")
-            if status != "PRESENT" and signature:
-                raise AppError("Only a PRESENT candidate can have a recorded attendance signature.")
             note = str(item.get("note", "")).strip()
             if len(note) > 1000:
                 raise AppError("Attendance notes must be 1,000 characters or fewer.")
@@ -635,7 +633,7 @@ class AssessmentEvidenceService:
             conn.execute(
                 """INSERT INTO exam_script_events
                    (script_id, event_type, actor_id, note, created_at)
-                   VALUES (?, 'FLAGGED', ?, ?, ?)""",
+                   VALUES (?, 'IDENTITY_LINKED', ?, ?, ?)""",
                 (script_id, user_id, "Identity linked after review: " + reason, utc_now()),
             )
             self.app._audit(
@@ -819,6 +817,8 @@ class AssessmentEvidenceService:
             state = attendance["attendance_status"]
             if state == "CONTESTED":
                 issues.append({"code": "ATTENDANCE_DISPUTED", "severity": "high"})
+            if state == "ABSENT" and attendance["signature_present"]:
+                issues.append({"code": "ATTENDANCE_SIGNATURE_STATUS_CONFLICT", "severity": "high"})
             if state == "PRESENT" and not attendance["signature_present"]:
                 issues.append({"code": "ATTENDANCE_SIGNATURE_MISSING", "severity": "medium"})
             if state == "PRESENT" and not attendance["exam_card_seen"]:
