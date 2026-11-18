@@ -575,6 +575,208 @@ class MarkTrailTests(unittest.TestCase):
                 """
             )
 
+    def _create_senate_release_batch(self, assessment_name="Final Exam Senate Test"):
+        assessment = self.service.admin_create_assessment(
+            self.admin["id"],
+            "course-csc201",
+            assessment_name,
+            60,
+            None,
+            "SENATE",
+        )
+        assessment_id = assessment["id"]
+        self.service.submit_batch(
+            self.lecturer["id"],
+            assessment_id,
+            "registration_number,mark\nSCT/001/2025,47\nSCT/002/2025,41\n",
+        )
+        conn = self.db.connect()
+        try:
+            batch = conn.execute(
+                "SELECT id FROM batches WHERE assessment_id = ?",
+                (assessment_id,),
+            ).fetchone()
+            senate = conn.execute(
+                "SELECT id FROM users WHERE username = 'senate_office'"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.service.verify_batch(self.reviewer["id"], batch["id"])
+        return assessment_id, batch["id"], senate["id"]
+
+    def test_senate_final_results_are_hidden_until_approval(self):
+        assessment_id, batch_id, senate_id = self._create_senate_release_batch()
+
+        processed = self.service.process_exam_office_batch(
+            self.exam_office["id"], batch_id
+        )
+        self.assertEqual(processed["pipeline_stage"], "SENATE_APPROVAL")
+        self.assertEqual(processed["senate_status"], "PENDING")
+
+        pipeline = self.service.batch_pipeline(senate_id, batch_id)
+        self.assertEqual(pipeline["current_stage"], "SENATE_APPROVAL")
+        self.assertEqual(pipeline["current_owner"], "University Senate")
+
+        student_marks = self.service.student_marks(self.student["id"])
+        final = next(row for row in student_marks if row["assessment_id"] == assessment_id)
+        self.assertEqual(final["status"], "AWAITING_SENATE_APPROVAL")
+        self.assertEqual(final["pipeline_stage"], "SENATE_APPROVAL")
+        self.assertIsNone(final["mark"])
+
+        senate_queue = self.service.senate_batches(senate_id)
+        self.assertEqual([row["id"] for row in senate_queue], [batch_id])
+        self.assertEqual(self.service.portal_batches(self.portal_operator["id"]), [])
+
+        with self.assertRaisesRegex(AppError, "Senate approval is required"):
+            self.service.publish_portal_batch(self.portal_operator["id"], batch_id)
+
+        with self.assertRaisesRegex(AppError, "permission"):
+            self.service.senate_batches(self.portal_operator["id"])
+
+        decision = self.service.decide_senate_batch(
+            senate_id,
+            batch_id,
+            "APPROVED",
+            "SENATE-2026-MIN-014",
+            "Approved by the University Senate.",
+        )
+        self.assertEqual(decision["senate_status"], "APPROVED")
+        self.assertEqual(len(self.service.portal_batches(self.portal_operator["id"])), 1)
+
+        published = self.service.publish_portal_batch(
+            self.portal_operator["id"], batch_id
+        )
+        self.assertEqual(published["pipeline_stage"], "PUBLISHED")
+        final_after = next(
+            row for row in self.service.student_marks(self.student["id"])
+            if row["assessment_id"] == assessment_id
+        )
+        self.assertEqual(final_after["status"], "RECORDED")
+        self.assertEqual(final_after["mark"], 47)
+
+        conn = self.db.connect()
+        try:
+            decisions = conn.execute(
+                "SELECT decision, meeting_reference FROM senate_decisions WHERE batch_id = ?",
+                (batch_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(decisions[0]["decision"], "APPROVED")
+        self.assertEqual(decisions[0]["meeting_reference"], "SENATE-2026-MIN-014")
+
+    def test_senate_deferral_keeps_result_blocked_until_a_later_approval(self):
+        assessment_id, batch_id, senate_id = self._create_senate_release_batch(
+            "Deferred Final Exam"
+        )
+        self.service.process_exam_office_batch(self.exam_office["id"], batch_id)
+
+        with self.assertRaisesRegex(AppError, "meeting or minute reference"):
+            self.service.decide_senate_batch(
+                senate_id, batch_id, "DEFERRED", "x", "Missing moderation documents."
+            )
+        with self.assertRaisesRegex(AppError, "requires an 8-character reason"):
+            self.service.decide_senate_batch(
+                senate_id, batch_id, "DEFERRED", "SENATE-2026-MIN-015", "Fix"
+            )
+
+        deferred = self.service.decide_senate_batch(
+            senate_id,
+            batch_id,
+            "DEFERRED",
+            "SENATE-2026-MIN-015",
+            "Reconcile two moderation discrepancies before approval.",
+        )
+        self.assertEqual(deferred["senate_status"], "DEFERRED")
+        self.assertEqual(self.service.senate_batches(senate_id)[0]["senate_status"], "DEFERRED")
+        self.assertEqual(self.service.portal_batches(self.portal_operator["id"]), [])
+        student = next(
+            row for row in self.service.student_marks(self.student["id"])
+            if row["assessment_id"] == assessment_id
+        )
+        self.assertEqual(student["status"], "SENATE_DEFERRED")
+        self.assertIsNone(student["mark"])
+        with self.assertRaisesRegex(AppError, "Senate approval is required"):
+            self.service.publish_portal_batch(self.portal_operator["id"], batch_id)
+
+        approved = self.service.decide_senate_batch(
+            senate_id,
+            batch_id,
+            "APPROVED",
+            "SENATE-2026-MIN-018",
+            "The prior deferral issues have been resolved.",
+        )
+        self.assertEqual(approved["senate_status"], "APPROVED")
+        self.service.publish_portal_batch(self.portal_operator["id"], batch_id)
+
+        conn = self.db.connect()
+        try:
+            decisions = conn.execute(
+                "SELECT decision, decision_number FROM senate_decisions WHERE batch_id = ? ORDER BY decision_number",
+                (batch_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(
+            [(row["decision"], row["decision_number"]) for row in decisions],
+            [("DEFERRED", 1), ("APPROVED", 2)],
+        )
+
+    def test_unclassified_legacy_assessment_is_blocked_until_admin_sets_policy(self):
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO assessments (id, course_id, name, max_mark, created_at)
+                VALUES ('assessment-legacy-policy', 'course-csc201', 'Legacy Final', 60, ?)
+                """,
+                (utc_now(),),
+            )
+        self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-legacy-policy",
+            "registration_number,mark\nSCT/001/2025,46\nSCT/002/2025,40\n",
+        )
+        conn = self.db.connect()
+        try:
+            batch_id = conn.execute(
+                "SELECT id FROM batches WHERE assessment_id = 'assessment-legacy-policy'"
+            ).fetchone()["id"]
+            release_policy = conn.execute(
+                "SELECT release_policy FROM assessments WHERE id = 'assessment-legacy-policy'"
+            ).fetchone()["release_policy"]
+        finally:
+            conn.close()
+        self.assertEqual(release_policy, "UNCLASSIFIED")
+        self.service.verify_batch(self.reviewer["id"], batch_id)
+        with self.assertRaisesRegex(AppError, "unclassified"):
+            self.service.process_exam_office_batch(self.exam_office["id"], batch_id)
+
+        with self.assertRaisesRegex(AppError, "8"):
+            self.service.admin_update_assessment_release_policy(
+                self.admin["id"], "assessment-legacy-policy", "SENATE", "Fix"
+            )
+        updated = self.service.admin_update_assessment_release_policy(
+            self.admin["id"],
+            "assessment-legacy-policy",
+            "SENATE",
+            "Verified against the approved final examination policy.",
+        )
+        self.assertEqual(updated["release_policy"], "SENATE")
+
+        senate_id = int(self.db.connect().execute(
+            "SELECT id FROM users WHERE username = 'senate_office'"
+        ).fetchone()["id"])
+        self.service.process_exam_office_batch(self.exam_office["id"], batch_id)
+        self.service.decide_senate_batch(
+            senate_id,
+            batch_id,
+            "APPROVED",
+            "SENATE-2026-MIN-020",
+            "Legacy assessment policy reviewed and approved.",
+        )
+        self.service.publish_portal_batch(self.portal_operator["id"], batch_id)
+
     def test_lecturer_batch_preview_detects_missing_students(self):
         preview = self.service.preview_batch(
             self.lecturer["id"],
