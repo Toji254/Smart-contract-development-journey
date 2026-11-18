@@ -374,6 +374,8 @@ class AssessmentEvidenceService:
         prepared = []
         seen: set[int] = set()
         for item in items:
+            if not isinstance(item, dict):
+                raise AppError("Each attendance record must be an object with a candidate ID and decision.")
             try:
                 student_id = int(item.get("student_id"))
             except (TypeError, ValueError) as exc:
@@ -389,7 +391,7 @@ class AssessmentEvidenceService:
             identity = item.get("student_id_seen", False)
             if not all(isinstance(value, bool) for value in (signature, card, identity)):
                 raise AppError("Signature, exam-card and student-ID checks must be true/false values.")
-            note = str(item.get("note", "")).strip()
+            note = str(item.get("note") or "").strip()
             if len(note) > 1000:
                 raise AppError("Attendance notes must be 1,000 characters or fewer.")
             if status in {"ABSENT", "EXCUSED", "CONTESTED"} and len(note) < 8:
