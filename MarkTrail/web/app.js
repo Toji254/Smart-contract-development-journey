@@ -730,7 +730,8 @@ async function loadSenate() {
           ? "Senate approval recorded. The result is now eligible for portal import."
           : "Senate deferral recorded. The result remains unpublished.");
         await loadSenate();
-        await loadDashboard();
+        const dashboard = await api("/api/dashboard");
+        renderStats(dashboard);
       } catch (error) {
         toast(error.message, "error");
         button.disabled = false;
@@ -877,10 +878,12 @@ async function loadAdmin() {
       state.adminAssessments.map((item) => {
         const locked = item.pipeline_stage === "PUBLISHED" ||
           ["PENDING", "DEFERRED", "APPROVED"].includes(item.senate_status);
-        const options = ["DIRECT", "SENATE"].map((policy) =>
-          '<option value="' + policy + '"' + (item.release_policy === policy ? " selected" : "") + ">" +
-          (policy === "DIRECT" ? "Direct release" : "Senate approval") + "</option>"
-        ).join("");
+        const options =
+          '<option value="" disabled' + (item.release_policy === "UNCLASSIFIED" ? " selected" : "") + '>Choose release policy</option>' +
+          ["DIRECT", "SENATE"].map((policy) =>
+            '<option value="' + policy + '"' + (item.release_policy === policy ? " selected" : "") + ">" +
+            (policy === "DIRECT" ? "Direct release" : "Senate approval") + "</option>"
+          ).join("");
         return '<tr><td><strong>' + esc(item.course_code + " · " + item.name) +
           '</strong><small class="muted">' + esc(item.course_title) + '</small></td>' +
           "<td>" + badge(item.release_policy) + "</td>" +
