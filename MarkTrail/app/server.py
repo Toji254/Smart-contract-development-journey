@@ -196,6 +196,21 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/api/evidence/staff":
             return self._send_json({"staff": self.evidence.staff_options(user_id)})
 
+        if method == "GET" and path == "/api/evidence/cases":
+            return self._send_json({"cases": self.evidence.list_evidence_cases(user_id)})
+
+        match = re.fullmatch(r"/api/evidence/cases/([^/]+)/decision", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.evidence.decide_evidence_case(
+                    user_id,
+                    match.group(1),
+                    str(body.get("decision", "")),
+                    str(body.get("reason", "")),
+                )
+            )
+
         if method == "POST" and path == "/api/evidence/sessions":
             body = self._body()
             return self._send_json(
