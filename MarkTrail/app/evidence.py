@@ -942,6 +942,102 @@ class AssessmentEvidenceService:
                     "code": "SCRIPT_UNIDENTIFIED",
                     "severity": "high",
                 })
+            session_activity = conn.execute(
+                """
+                SELECT e.id, e.event_type, e.metadata_json, e.created_at,
+                       u.full_name AS actor_name, u.role AS actor_role
+                FROM exam_session_events e
+                JOIN users u ON u.id = e.actor_id
+                WHERE e.session_id = ?
+                """,
+                (session_id,),
+            ).fetchall()
+            attendance_activity = conn.execute(
+                """
+                SELECT e.id, e.event_type, e.old_state_json, e.new_state_json,
+                       e.reason, e.created_at, u.full_name AS actor_name,
+                       u.role AS actor_role, c.reg_number_snapshot,
+                       c.full_name_snapshot
+                FROM exam_attendance_events e
+                JOIN users u ON u.id = e.actor_id
+                JOIN exam_session_candidates c
+                  ON c.session_id = e.session_id AND c.student_id = e.student_id
+                WHERE e.session_id = ?
+                """,
+                (session_id,),
+            ).fetchall()
+            script_activity = conn.execute(
+                """
+                SELECT e.id, e.event_type, e.note, e.created_at,
+                       e.recipient_id, actor.full_name AS actor_name,
+                       actor.role AS actor_role,
+                       recipient.full_name AS recipient_name,
+                       s.script_ref, c.reg_number_snapshot,
+                       c.full_name_snapshot
+                FROM exam_script_events e
+                JOIN exam_scripts s ON s.id = e.script_id
+                JOIN users actor ON actor.id = e.actor_id
+                LEFT JOIN users recipient ON recipient.id = e.recipient_id
+                LEFT JOIN exam_session_candidates c
+                  ON c.session_id = s.session_id AND c.student_id = s.student_id
+                WHERE s.session_id = ?
+                """,
+                (session_id,),
+            ).fetchall()
+
+            activity = []
+            for row in session_activity:
+                try:
+                    metadata = json.loads(row["metadata_json"] or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    metadata = {}
+                activity.append({
+                    "id": f"session-{row['id']}",
+                    "category": "SESSION",
+                    "event_type": row["event_type"],
+                    "actor_name": row["actor_name"],
+                    "actor_role": row["actor_role"],
+                    "metadata": metadata,
+                    "created_at": row["created_at"],
+                })
+            for row in attendance_activity:
+                try:
+                    old_state = json.loads(row["old_state_json"]) if row["old_state_json"] else None
+                except (TypeError, json.JSONDecodeError):
+                    old_state = None
+                try:
+                    new_state = json.loads(row["new_state_json"] or "{}")
+                except (TypeError, json.JSONDecodeError):
+                    new_state = {}
+                activity.append({
+                    "id": f"attendance-{row['id']}",
+                    "category": "ATTENDANCE",
+                    "event_type": row["event_type"],
+                    "actor_name": row["actor_name"],
+                    "actor_role": row["actor_role"],
+                    "registration_number": row["reg_number_snapshot"],
+                    "candidate_name": row["full_name_snapshot"],
+                    "old_state": old_state,
+                    "new_state": new_state,
+                    "reason": row["reason"],
+                    "created_at": row["created_at"],
+                })
+            for row in script_activity:
+                activity.append({
+                    "id": f"script-{row['id']}",
+                    "category": "SCRIPT",
+                    "event_type": row["event_type"],
+                    "actor_name": row["actor_name"],
+                    "actor_role": row["actor_role"],
+                    "recipient_name": row["recipient_name"],
+                    "script_ref": row["script_ref"],
+                    "registration_number": row["reg_number_snapshot"],
+                    "candidate_name": row["full_name_snapshot"] or "Unidentified candidate",
+                    "note": row["note"],
+                    "created_at": row["created_at"],
+                })
+            activity.sort(key=lambda item: (item["created_at"], item["id"]))
+
             total = len(candidates)
             attendance_count = sum(1 for c in candidates if c["attendance"] is not None)
             script_count = sum(1 for c in candidates if c["script"] is not None)
@@ -968,6 +1064,7 @@ class AssessmentEvidenceService:
                 "candidates": candidates,
                 "unidentified_scripts": unidentified_scripts,
                 "exceptions": exceptions,
+                "activity": activity,
             }
         finally:
             conn.close()
