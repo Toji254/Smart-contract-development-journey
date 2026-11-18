@@ -535,8 +535,8 @@ class MarkTrailTests(unittest.TestCase):
             )
             conn.execute(
                 """
-                INSERT INTO assessments (id, course_id, name, max_mark, created_at)
-                VALUES ('assessment-other', 'course-other', 'Exam', 20, ?)
+                INSERT INTO assessments (id, course_id, name, max_mark, release_policy, created_at)
+                VALUES ('assessment-other', 'course-other', 'Exam', 20, 'DIRECT', ?)
                 """,
                 ("2026-10-08T00:00:00+00:00",),
             )
@@ -569,8 +569,8 @@ class MarkTrailTests(unittest.TestCase):
         with self.db.transaction() as conn:
             conn.execute(
                 """
-                INSERT INTO assessments (id, course_id, name, max_mark, created_at)
-                VALUES ('assessment-cat3', 'course-csc201', 'CAT 3', 20,
+                INSERT INTO assessments (id, course_id, name, max_mark, release_policy, created_at)
+                VALUES ('assessment-cat3', 'course-csc201', 'CAT 3', 20, 'DIRECT',
                         '2026-10-08T00:00:00+00:00')
                 """
             )
@@ -1312,8 +1312,8 @@ class PortalChainReconcileTests(unittest.TestCase):
         with db.transaction() as conn:
             conn.execute(
                 """
-                INSERT INTO assessments (id, course_id, name, max_mark, created_at)
-                VALUES ('assessment-chain-test', 'course-csc201', 'Chain Test', 20,
+                INSERT INTO assessments (id, course_id, name, max_mark, release_policy, created_at)
+                VALUES ('assessment-chain-test', 'course-csc201', 'Chain Test', 20, 'DIRECT',
                         '2026-10-08T00:00:00+00:00')
                 """
             )
