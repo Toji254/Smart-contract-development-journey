@@ -67,10 +67,12 @@ Current implementation slice:
 - Script receipts with unique session reference.
 - Script custody handover request and explicit receiver acceptance.
 - Marking-completion event, without placing mark values in the custody event.
-- Unidentified script quarantine and reviewer/exam-office identity-link action.
-- Deterministic reconciliation exceptions for missing attendance, missing signature, missing card/ID check, absent/script conflict, present/no-script, unaccepted custody, unmarked script and marked/no-mark-entry.
+- Unidentified script quarantine and reviewer/exam-office identity-link action with a distinct IDENTITY_LINKED event.
+- Deterministic reconciliation exceptions for missing attendance, missing signature, missing card/ID check, signed-but-recorded-absent conflict, absent/script conflict, present/no-script, unaccepted custody, unmarked script and marked/no-mark-entry.
 - Closed attendance register; reviewer/admin correction requires a written reason and leaves an audit event.
-- Role-scoped API and staff workspace.
+- Append-only session, attendance and script-custody chronology, including the previous and receiving staff members for custody handovers.
+- Student-scoped read-only exam-progress API and portal view; it returns only the student's own evidence and omits staff-only notes, script references and custodian identities.
+- Role-scoped API and responsive staff/student workspaces.
 
 Remaining work in this gate:
 - Attachments/scans of approved source records with encrypted object storage and a hash linked to the evidence event.
@@ -80,7 +82,7 @@ Remaining work in this gate:
 - Candidate identity resolution with dual approval for high-risk matches.
 - Bulk attendance capture/import for approved paper-register transcription, including row-level validation and operator attribution.
 - Offline capture queue with conflict detection and safe synchronisation.
-- Student-facing limited evidence progress, without exposing staff-only notes or personal data of other candidates.
+- Student-facing appeals and evidence-submission workflow, without exposing staff-only notes or personal data of other candidates.
 
 Exit criteria:
 - Every candidate has an explicit attendance decision before a register can be closed.
@@ -258,7 +260,7 @@ Implemented in this branch as an initial vertical slice:
 - Dedicated regression tests for the key exception paths.
 
 Not yet implemented or independently verified:
-- Student-facing evidence timeline and appeals improvements.
+- Student-facing appeals, evidence-upload and case-progress improvements beyond the current read-only exam-progress view.
 - Evidence document attachments, scan/OCR, bulk register import and offline sync.
 - Team-teaching assignment and multi-marker support.
 - Unit component types/weighting and full result calculation.
@@ -269,7 +271,7 @@ Not yet implemented or independently verified:
 - Expanded blockchain event anchoring and production-grade signing custody.
 - Institutional SSO, DPIA, independent security review, production hosting, backups and disaster recovery.
 - Karatina's current internal process validation and pilot approval.
-- Automated test execution and browser usability test for this implementation commit.
+- CI verification for the newest custodian-name and pending-handover UI changes, plus browser usability testing on the current branch build.
 
 ## Engineering rules
 
