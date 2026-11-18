@@ -608,3 +608,37 @@ footer {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+
+/* ── Senate release workflow ───────────────────────────────── */
+.senate-batch {
+  display: grid;
+  gap: 14px;
+}
+.senate-decision-fields {
+  align-items: start;
+}
+.senate-decision-fields textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+.release-policy-form {
+  display: grid;
+  gap: 8px;
+  min-width: 210px;
+}
+.release-policy-form select,
+.release-policy-form input,
+.senate-decision-fields input,
+.senate-decision-fields textarea {
+  width: 100%;
+}
+.release-policy-form small {
+  color: var(--ink-muted);
+  line-height: 1.4;
+}
+@media (max-width: 800px) {
+  .senate-decision-fields {
+    grid-template-columns: 1fr;
+  }
+}
