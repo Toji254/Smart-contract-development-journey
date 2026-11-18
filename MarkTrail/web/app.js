@@ -1282,7 +1282,7 @@ function renderEvidenceSession() {
   }).join("");
 
   const issues = (data.exceptions || []).length
-    ? '<div class="evidence-issues">'; + data.exceptions.map((issue) =>
+    ? '<div class="evidence-issues">' + data.exceptions.map((issue) =>
         '<div class="evidence-issue"><span>' + esc(issue.registration_number || issue.script_ref || "Unmatched record") +
         " · " + esc(issue.full_name || "") + "</span>" +
         "<strong>" + esc(evidenceIssueLabel(issue.code)) + "</strong>" +
