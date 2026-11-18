@@ -70,9 +70,10 @@ Current implementation slice:
 - Unidentified script quarantine and reviewer/exam-office identity-link action with a distinct IDENTITY_LINKED event.
 - Deterministic reconciliation exceptions for missing attendance, missing signature, missing card/ID check, signed-but-recorded-absent conflict, absent/script conflict, present/no-script, unaccepted custody, unmarked script and marked/no-mark-entry.
 - Persistent evidence cases automatically opened from detected exceptions and keyed by session plus candidate/script plus category.
-- Case ownership routed to the course lecturer, exam office or reviewer; staff queues are role-scoped and students can see only their own safe case status.
+- Case ownership routed to the course lecturer, exam office or reviewer; staff queues are role-scoped and show the named owner plus append-only action history.
 - Evidence corrections move a case to EVIDENCE_CLEARED, not automatically resolved; a reviewer/admin must explicitly resolve or dismiss with a reason.
-- Student and assigned-staff notifications for case opening, evidence clearing and final decisions.
+- A previously cleared and resolved/dismissed exception reopens if the same discrepancy reappears; the prior decision remains in case history.
+- Student and assigned-staff notifications for case opening, evidence clearing, reopening and final decisions.
 - Append-only session, attendance, script-custody and evidence-case chronology, including correction reasons and ownership events.
 - Closed attendance register; reviewer/admin correction requires a written reason and leaves an audit event.
 - Student-scoped read-only exam-progress and case-status API/view; it omits staff-only notes, script references, assignments and decision rationale.
@@ -264,9 +265,11 @@ Implemented in this branch as an initial vertical slice:
 - Append-only session, attendance, script-custody and physical exam-card sign-off event histories.
 - Deterministic exceptions for attendance/signature conflicts, missing scripts, missing sign-offs, custody gaps and mark-entry mismatches.
 - Authenticated evidence API and student-scoped read-only progress API.
-- Staff evidence workspace with activity timeline, bulk attendance and card-signoff controls; student exam-progress tab with privacy-safe status.
+- Staff evidence workspace with activity timeline, atomic bulk attendance, card-signoff controls and role-scoped persistent evidence case queue.
+- Student exam-progress tab with privacy-safe case status and neutral notifications; staff receive assigned-case notifications.
+- Case state transitions OPEN → EVIDENCE_CLEARED → RESOLVED/DISMISSED, with REOPENED events for recurring exceptions and immutable action history.
 - Legacy SQLite migration for unidentified scripts, identity-link events and session type, preserving existing records.
-- Dedicated regression tests for permissions, privacy, atomic updates, legacy migration and difficult exam-day scenarios.
+- Dedicated regression tests for permissions, privacy, atomic updates, legacy migration, case ownership, human resolution and case reopening.
 
 Not yet implemented or independently verified:
 - Student-facing appeals, evidence-upload and case-progress improvements beyond the current read-only exam-progress view.
