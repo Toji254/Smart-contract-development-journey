@@ -580,6 +580,7 @@ class Database:
             student_id = add_user("student", "Jane Doe", "student", "student123", "SCT/001/2025")
             add_user("student2", "Brian Otieno", "student", "student123", "SCT/002/2025")
             add_user("exam_office", "Academic Office", "exam_office", "office123")
+            add_user("senate_office", "University Senate Secretariat", "senate_office", "senate123")
             add_user("portal_operator", "Portal Operator", "portal_operator", "portal123")
 
             course_id = "course-csc201"
@@ -600,19 +601,20 @@ class Database:
             )
 
             assessments = [
-                ("assessment-cat1", "CAT 1", 20),
-                ("assessment-cat2", "CAT 2", 20),
-                ("assessment-exam", "Final Exam", 60),
-                ("assessment-demo-upload", "CAT 3 (Ready to upload)", 20),
+                ("assessment-cat1", "CAT 1", 20, "DIRECT"),
+                ("assessment-cat2", "CAT 2", 20, "DIRECT"),
+                ("assessment-exam", "Final Exam", 60, "SENATE"),
+                ("assessment-demo-upload", "CAT 3 (Ready to upload)", 20, "DIRECT"),
             ]
 
-            for assessment_id, name, max_mark in assessments:
+            for assessment_id, name, max_mark, release_policy in assessments:
                 conn.execute(
                     """
-                    INSERT INTO assessments (id, course_id, name, max_mark, created_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO assessments
+                    (id, course_id, name, max_mark, release_policy, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (assessment_id, course_id, name, max_mark, utc_now()),
+                    (assessment_id, course_id, name, max_mark, release_policy, utc_now()),
                 )
 
             self._seed_verified_batch(
@@ -685,13 +687,21 @@ class Database:
         ).hexdigest()
 
         now = utc_now()
+        assessment_policy = conn.execute(
+            "SELECT release_policy FROM assessments WHERE id = ?",
+            (assessment_id,),
+        ).fetchone()["release_policy"]
+        senate_status = "APPROVED" if assessment_policy == "SENATE" else "NOT_REQUIRED"
+        senate_actor = conn.execute(
+            "SELECT id FROM users WHERE role = 'senate_office' ORDER BY id LIMIT 1"
+        ).fetchone()
         conn.execute(
             """
             INSERT INTO batches
             (id, assessment_id, submitted_by, status, student_count, marks_hash,
              commitment_salt, revision, chain_state, submitted_at, verified_by,
-             verified_at, pipeline_stage)
-            VALUES (?, ?, ?, 'VERIFIED', ?, ?, ?, 1, 'LOCAL_ONLY', ?, ?, ?, 'PUBLISHED')
+             verified_at, pipeline_stage, senate_status)
+            VALUES (?, ?, ?, 'VERIFIED', ?, ?, ?, 1, 'LOCAL_ONLY', ?, ?, ?, 'PUBLISHED', ?)
             """,
             (
                 batch_id,
@@ -703,8 +713,21 @@ class Database:
                 now,
                 lecturer_id,
                 now,
+                senate_status,
             ),
         )
+        if senate_status == "APPROVED":
+            if not senate_actor:
+                raise RuntimeError("Demo Senate account is required for Senate-gated seed assessments.")
+            conn.execute(
+                """
+                INSERT INTO senate_decisions
+                (batch_id, decision_number, decision, meeting_reference, reason, actor_id, created_at)
+                VALUES (?, 1, 'APPROVED', 'DEMO-SENATE-MEETING-001',
+                        'Synthetic demo approval for a pre-published sample result.', ?, ?)
+                """,
+                (batch_id, int(senate_actor["id"]), now),
+            )
 
         reason_hash = "0x" + hashlib.sha256(reason.encode("utf-8")).hexdigest()
         conn.execute(
@@ -734,7 +757,7 @@ class Database:
             for row in conn.execute(
                 """
                 SELECT id, username FROM users
-                WHERE username IN ('reviewer', 'exam_office', 'portal_operator')
+                WHERE username IN ('reviewer', 'exam_office', 'senate_office', 'portal_operator')
                 """
             ).fetchall()
         }
@@ -743,11 +766,15 @@ class Database:
             (stage_actors.get("reviewer", lecturer_id), "BATCH_VERIFIED", {"published": False}),
         ]
         if "exam_office" in stage_actors and "portal_operator" in stage_actors:
-            seed_events.extend(
-                [
-                    (stage_actors["exam_office"], "EXAM_OFFICE_PROCESSED", {}),
-                    (stage_actors["portal_operator"], "PORTAL_IMPORTED", {"published": True}),
-                ]
+            seed_events.append((stage_actors["exam_office"], "EXAM_OFFICE_PROCESSED", {}))
+            if senate_status == "APPROVED" and "senate_office" in stage_actors:
+                seed_events.append((
+                    stage_actors["senate_office"],
+                    "SENATE_APPROVED",
+                    {"meeting_reference": "DEMO-SENATE-MEETING-001"},
+                ))
+            seed_events.append(
+                (stage_actors["portal_operator"], "PORTAL_IMPORTED", {"published": True})
             )
         for actor_id, action, metadata in seed_events:
             conn.execute(
