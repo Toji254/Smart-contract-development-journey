@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from .auth import clear_session_cookie, current_user, login, session_cookie, SESSION_COOKIE
 from .chain import ChainClient
 from .db import Database
+from .evidence import AssessmentEvidenceService
 from .service import AppError, AppService
 
 
@@ -64,6 +65,10 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
     @property
     def service(self) -> AppService:
         return self.server.service  # type: ignore[attr-defined]
+
+    @property
+    def evidence(self) -> AssessmentEvidenceService:
+        return self.server.evidence  # type: ignore[attr-defined]
 
     def _send_json(self, payload, status: int = 200, extra_headers: dict | None = None):
         body = json.dumps(payload, default=str).encode("utf-8")
@@ -184,6 +189,101 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
 
         if method == "GET" and path == "/api/dashboard":
             return self._send_json(self.service.dashboard(user_id))
+
+        if method == "GET" and path == "/api/evidence/assessments":
+            return self._send_json({"assessments": self.evidence.list_assessments(user_id)})
+
+        if method == "POST" and path == "/api/evidence/sessions":
+            body = self._body()
+            return self._send_json(
+                self.evidence.create_session(
+                    user_id,
+                    str(body.get("assessment_id", "")),
+                    str(body.get("exam_at", "")),
+                    str(body.get("venue", "")),
+                ),
+                201,
+            )
+
+        if method == "GET" and path == "/api/evidence/assessments":
+            return self._send_json({"assessments": self.evidence.list_assessments(user_id)})
+
+        match = re.fullmatch(r"/api/evidence/assessments/([^/]+)", path)
+        if method == "GET" and match:
+            return self._send_json(self.evidence.assessment_detail(user_id, match.group(1)))
+
+        match = re.fullmatch(r"/api/evidence/sessions/([^/]+)", path)
+        if method == "GET" and match:
+            return self._send_json(self.evidence.session_detail(user_id, match.group(1)))
+
+        match = re.fullmatch(r"/api/evidence/sessions/([^/]+)/attendance", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.evidence.record_attendance(
+                    user_id, match.group(1), body.get("items", [])
+                )
+            )
+
+        match = re.fullmatch(r"/api/evidence/sessions/([^/]+)/close", path)
+        if method == "POST" and match:
+            return self._send_json(self.evidence.close_session(user_id, match.group(1)))
+
+        match = re.fullmatch(r"/api/evidence/sessions/([^/]+)/scripts", path)
+        if method == "POST" and match:
+            body = self._body()
+            raw_student_id = body.get("student_id")
+            try:
+                student_id = int(raw_student_id) if raw_student_id not in (None, "") else None
+            except (TypeError, ValueError) as exc:
+                raise AppError("student_id must be a numeric candidate ID or empty for an unidentified script.") from exc
+            return self._send_json(
+                self.evidence.receive_script(
+                    user_id,
+                    match.group(1),
+                    student_id,
+                    str(body.get("script_ref", "")),
+                    str(body.get("note", "")),
+                ),
+                201,
+            )
+
+        match = re.fullmatch(r"/api/evidence/scripts/([^/]+)/handoff", path)
+        if method == "POST" and match:
+            body = self._body()
+            try:
+                recipient_id = int(body.get("recipient_id"))
+            except (TypeError, ValueError) as exc:
+                raise AppError("recipient_id must be a valid staff account ID.") from exc
+            return self._send_json(
+                self.evidence.request_script_handoff(
+                    user_id, match.group(1), recipient_id, str(body.get("note", ""))
+                )
+            )
+
+        match = re.fullmatch(r"/api/evidence/scripts/([^/]+)/accept", path)
+        if method == "POST" and match:
+            return self._send_json(self.evidence.accept_script_handoff(user_id, match.group(1)))
+
+        match = re.fullmatch(r"/api/evidence/scripts/([^/]+)/mark", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.evidence.mark_script(user_id, match.group(1), str(body.get("note", "")))
+            )
+
+        match = re.fullmatch(r"/api/evidence/scripts/([^/]+)/link", path)
+        if method == "POST" and match:
+            body = self._body()
+            try:
+                student_id = int(body.get("student_id"))
+            except (TypeError, ValueError) as exc:
+                raise AppError("student_id must be a valid candidate ID.") from exc
+            return self._send_json(
+                self.evidence.link_unidentified_script(
+                    user_id, match.group(1), student_id, str(body.get("reason", ""))
+                )
+            )
 
         if method == "GET" and path == "/api/status":
             return self._send_json({"chain": ChainClient().status()})
@@ -506,6 +606,7 @@ class MarkTrailServer(ThreadingHTTPServer):
         super().__init__(address, MarkTrailHandler)
         self.db = db
         self.service = service
+        self.evidence = AssessmentEvidenceService(db, service)
 
 
 def run(host: str | None = None, port: int | None = None):
