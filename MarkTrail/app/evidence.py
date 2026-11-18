@@ -1514,6 +1514,7 @@ class AssessmentEvidenceService:
                        ec.assigned_role, ec.assigned_user_id,
                        ec.opened_at, ec.updated_at, ec.evidence_cleared_at,
                        ec.resolution_note,
+                       scripts.script_ref,
                        a.name AS assessment, c.code AS course,
                        c.title AS course_title, s.session_type, s.exam_at,
                        candidate.reg_number_snapshot,
@@ -1527,6 +1528,7 @@ class AssessmentEvidenceService:
                   ON candidate.session_id = ec.session_id
                  AND candidate.student_id = ec.student_id
                 LEFT JOIN users assigned ON assigned.id = ec.assigned_user_id
+                LEFT JOIN exam_scripts scripts ON scripts.id = ec.script_id
             """
             if role == "student":
                 rows = conn.execute(
