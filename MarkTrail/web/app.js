@@ -351,6 +351,11 @@ async function loadStudent() {
           ? '<span class="badge muted">Not entered</span>'
           : badge(item.mark_entry_status);
         const result = badge(item.result_status);
+        const lecturerCard = ["FINAL_EXAM", "SPECIAL_EXAM"].includes(item.session_type)
+          ? (item.lecturer_card_signed
+            ? badge("success", "Lecturer signed")
+            : '<span class="badge warning">Awaiting lecturer signature</span>')
+          : '<span class="muted">Not required</span>';
         const session = item.evidence_available
           ? '<p class="muted">' + esc(item.exam_at || "Exam time not recorded") +
             (item.venue ? " · " + esc(item.venue) : "") + '</p>'
@@ -363,6 +368,7 @@ async function loadStudent() {
           '<div><span>Attendance</span>' + attendance + '</div>' +
           '<div><span>Signature on register</span><strong>' + esc(signature) + '</strong></div>' +
           '<div><span>Script receipt</span>' + script + '</div>' +
+          '<div><span>Lecturer exam-card signature</span>' + lecturerCard + '</div>' +
           '<div><span>Marks entry</span>' + markEntry + '</div>' +
           '<div><span>Result stage</span>' + result + '</div>' +
           '</div></article>';
@@ -1080,7 +1086,10 @@ function evidenceIssueLabel(code) {
   const labels = {
     ATTENDANCE_NOT_RECORDED: "Attendance decision not recorded",
     ATTENDANCE_DISPUTED: "Attendance is disputed",
+    ATTENDANCE_SIGNATURE_STATUS_CONFLICT: "Signed register conflicts with absent status",
     ATTENDANCE_SIGNATURE_MISSING: "Present, but signature is missing",
+    LECTURER_EXAM_CARD_SIGNOFF_PENDING: "Lecturer has not signed the physical exam card",
+    EXAM_CARD_SIGNOFF_EVIDENCE_CONFLICT: "Exam-card sign-off conflicts with examination evidence",
     EXAM_CARD_CHECK_NOT_RECORDED: "Exam-card check not recorded",
     STUDENT_ID_CHECK_NOT_RECORDED: "Student-ID check not recorded",
     SCRIPT_NOT_RECEIVED: "Candidate recorded present; no script receipt",
@@ -1194,6 +1203,7 @@ function renderEvidenceSession() {
   const registerClosed = session.status === "CLOSED";
   const canCorrectClosedRegister = registerClosed && ["reviewer", "admin"].includes(state.user.role);
   const locked = registerClosed && !canCorrectClosedRegister;
+  const requiresExamCardSignoff = ["FINAL_EXAM", "SPECIAL_EXAM"].includes(session.session_type);
   const candidates = data.candidates || [];
   const candidateOptions = candidates.map((candidate) =>
     '<option value="' + esc(candidate.student_id) + '">' +
@@ -1205,6 +1215,14 @@ function renderEvidenceSession() {
     const attendance = candidate.attendance || {};
     const recordedStatus = attendance.attendance_status || "";
     const script = candidate.script;
+    const cardSignoff = candidate.card_signoff;
+    const cardSignoffCell = !requiresExamCardSignoff
+      ? '<span class="muted">Not required</span>'
+      : cardSignoff
+        ? badge("success", "Signed") + '<small>' + esc(cardSignoff.signed_by_name || "Lecturer") + " · " + esc(cardSignoff.signed_at) + "</small>"
+        : state.user.role === "lecturer"
+          ? '<button type="button" class="button secondary" data-sign-exam-card="' + esc(candidate.student_id) + '">Confirm physical card signed</button>'
+          : '<span class="badge warning">Awaiting lecturer</span>';
     const markLabel = candidate.mark && candidate.mark.candidate_status === "RECORDED"
       ? "Mark entered"
       : "No mark entry";
@@ -1225,6 +1243,7 @@ function renderEvidenceSession() {
       '<td><label class="check-inline"><input type="checkbox" data-student-id ' +
       (attendance.student_id_seen ? "checked" : "") + (locked ? " disabled" : "") +
       "> ID</label></td>" +
+      "<td>" + cardSignoffCell + "</td>" +
       "<td>" + (script ? badge(script.status) + '<small>' + esc(script.script_ref) + "</small>" : '<span class="muted">No receipt</span>') + "</td>" +
       "<td>" + esc(markLabel) + "</td>" +
       '<td><input type="text" data-attendance-note maxlength="1000" placeholder="' +
@@ -1256,6 +1275,10 @@ function renderEvidenceSession() {
       subject = (event.registration_number || "Candidate") + " · " + event.candidate_name +
         " · " + (previous ? previous + " → " : "") + next;
       note = event.reason || "";
+    } else if (event.category === "EXAM_CARD") {
+      title = "Lecturer signed the physical exam card";
+      subject = (event.registration_number || "Candidate") + " · " + event.candidate_name;
+      note = event.note || "";
     } else if (event.category === "SCRIPT") {
       const labels = {
         RECEIVED: "Script received",
@@ -1348,6 +1371,7 @@ function renderEvidenceSession() {
     '<div><strong>' + esc(summary.attendance_recorded) + '</strong><span>Attendance captured</span></div>' +
     '<div><strong>' + esc(summary.scripts_received) + '</strong><span>Scripts received</span></div>' +
     '<div><strong>' + esc(summary.scripts_marked) + '</strong><span>Scripts marked</span></div>' +
+    (requiresExamCardSignoff ? '<div><strong>' + esc(summary.exam_cards_signed) + '</strong><span>Exam cards signed</span></div>' : '') +
     '<div><strong>' + esc(summary.exceptions) + '</strong><span>Exceptions</span></div></div>' +
     (registerClosed
       ? (canCorrectClosedRegister
@@ -1359,8 +1383,8 @@ function renderEvidenceSession() {
     '<div class="card"><div class="section-head compact"><div><p class="eyebrow">CANDIDATE REGISTER</p><h2>Attendance and checks</h2></div>' +
     (!registerClosed ? '<button type="button" class="button primary" id="save-all-attendance">Save all decisions</button>' : '') +
     '</div><div class="muted">Review every candidate before saving. The bulk action validates the full register and saves it as one transaction.</div>' +
-    '<div class="table-wrap"><table><thead><tr><th>Candidate</th><th>Attendance decision</th><th>Signature</th><th>Exam card</th><th>Student ID</th><th>Script</th><th>Marks</th><th>Incident note / action</th></tr></thead><tbody>' +
-    (rosterRows || '<tr><td colspan="8">No candidates in the locked roster.</td></tr>') +
+    '<div class="table-wrap"><table><thead><tr><th>Candidate</th><th>Attendance decision</th><th>Signature</th><th>Exam card check</th><th>Student ID</th><th>Lecturer card sign-off</th><th>Script</th><th>Marks</th><th>Incident note / action</th></tr></thead><tbody>' +
+    (rosterRows || '<tr><td colspan="9">No candidates in the locked roster.</td></tr>') +
     "</tbody></table></div></div>" +
     '<div class="card"><div class="section-head compact"><div><p class="eyebrow">SCRIPT INTAKE</p><h2>Record a collected script</h2></div></div>' +
     '<form id="evidence-script-form" class="form-grid">' +
@@ -1435,6 +1459,37 @@ function renderEvidenceSession() {
       saveAllButton.disabled = false;
       saveAllButton.textContent = "Save all decisions";
     }
+  });
+
+  root.querySelectorAll("[data-sign-exam-card]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const candidate = candidates.find((item) => String(item.student_id) === button.dataset.signExamCard);
+      if (!candidate) return;
+      const confirmed = confirm(
+        "Confirm that you have physically signed " +
+        candidate.full_name +
+        "'s exam card for " + session.course + " · " + session.assessment +
+        ". Only confirm after signing the physical card."
+      );
+      if (!confirmed) return;
+      button.disabled = true;
+      try {
+        await api("/api/evidence/sessions/" + encodeURIComponent(session.id) + "/exam-card-signoffs", {
+          method: "POST",
+          body: JSON.stringify({
+            items: [{
+              student_id: Number(candidate.student_id),
+              note: "Lecturer confirmed the physical exam-card signature for this unit examination."
+            }]
+          })
+        });
+        toast("Physical exam-card sign-off recorded.");
+        await loadEvidenceSession(session.id);
+      } catch (error) {
+        toast(error.message, "error");
+        button.disabled = false;
+      }
+    });
   });
 
   root.querySelectorAll("[data-save-attendance]").forEach((button) => {
@@ -1596,7 +1651,12 @@ $("#evidence-assessment").addEventListener("change", async (event) => {
 $("#evidence-session-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const examAt = $("#evidence-exam-at").value;
+  const sessionType = $("#evidence-session-type").value;
   const date = new Date(examAt);
+  if (!sessionType) {
+    toast("Choose whether this is a CAT, coursework, practical, final or special examination.", "error");
+    return;
+  }
   if (!examAt || Number.isNaN(date.getTime())) {
     toast("Choose a valid examination date and time.", "error");
     return;
@@ -1607,11 +1667,13 @@ $("#evidence-session-form").addEventListener("submit", async (event) => {
       body: JSON.stringify({
         assessment_id: $("#evidence-assessment").value,
         exam_at: date.toISOString(),
-        venue: $("#evidence-venue").value.trim()
+        venue: $("#evidence-venue").value.trim(),
+        session_type: sessionType
       })
     });
     state.evidenceSelectedSession = result.session_id;
     $("#evidence-venue").value = "";
+    $("#evidence-session-type").value = "";
     toast("Examination session created with " + result.candidate_count + " candidates.");
     await loadEvidenceAssessment(state.evidenceSelectedAssessment);
     await loadEvidenceSession(result.session_id);
