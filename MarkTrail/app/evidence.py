@@ -1446,6 +1446,7 @@ class AssessmentEvidenceService:
                     x.session_id,
                     x.exam_at,
                     x.venue,
+                    x.session_type,
                     x.session_status,
                     x.session_created_at,
                     x.attendance_status,
@@ -1454,6 +1455,8 @@ class AssessmentEvidenceService:
                     x.script_status,
                     x.script_received_at,
                     x.script_marked_at,
+                    x.card_signed_by,
+                    x.card_signed_at,
                     COALESCE(m.candidate_status, 'NOT_ENTERED') AS mark_entry_status,
                     COALESCE(m.published_status, 'MISSING') AS published_status,
                     COALESCE(b.pipeline_stage, 'NOT_SUBMITTED') AS pipeline_stage
@@ -1467,6 +1470,7 @@ class AssessmentEvidenceService:
                         session.id AS session_id,
                         session.exam_at,
                         session.venue,
+                        session.session_type,
                         session.status AS session_status,
                         session.created_at AS session_created_at,
                         attendance.attendance_status,
@@ -1474,7 +1478,9 @@ class AssessmentEvidenceService:
                         attendance.signature_present,
                         script.status AS script_status,
                         script.received_at AS script_received_at,
-                        script.marked_at AS script_marked_at
+                        script.marked_at AS script_marked_at,
+                        card_signoff.signed_by AS card_signed_by,
+                        card_signoff.signed_at AS card_signed_at
                     FROM exam_session_candidates candidate
                     JOIN exam_sessions session ON session.id = candidate.session_id
                     LEFT JOIN exam_attendance attendance
@@ -1483,6 +1489,9 @@ class AssessmentEvidenceService:
                     LEFT JOIN exam_scripts script
                       ON script.session_id = candidate.session_id
                      AND script.student_id = candidate.student_id
+                    LEFT JOIN exam_card_signoffs card_signoff
+                      ON card_signoff.session_id = candidate.session_id
+                     AND card_signoff.student_id = candidate.student_id
                 ) x ON x.student_id = e.student_id AND x.assessment_id = a.id
                 LEFT JOIN assessment_marks m
                   ON m.assessment_id = a.id AND m.student_id = e.student_id
@@ -1502,6 +1511,7 @@ class AssessmentEvidenceService:
                     "session_id": row["session_id"],
                     "exam_at": row["exam_at"],
                     "venue": row["venue"],
+                    "session_type": row["session_type"],
                     "session_status": row["session_status"],
                     "attendance_status": row["attendance_status"],
                     "attendance_recorded_at": row["attendance_recorded_at"],
@@ -1512,6 +1522,8 @@ class AssessmentEvidenceService:
                     "script_status": row["script_status"],
                     "script_received_at": row["script_received_at"],
                     "script_marked_at": row["script_marked_at"],
+                    "lecturer_card_signed": bool(row["card_signed_by"]) if row["card_signed_by"] is not None else None,
+                    "lecturer_card_signed_at": row["card_signed_at"],
                     "mark_entry_status": row["mark_entry_status"],
                     "result_status": (
                         row["published_status"]
