@@ -281,9 +281,10 @@ class AssessmentEvidenceService:
         session_id: str,
         items: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        _actor, session = self._authorize_session(user_id, session_id)
-        if session["status"] != "OPEN":
-            raise AppError("Attendance is locked because this examination session is closed.", 409)
+        actor, session = self._authorize_session(user_id, session_id)
+        correction_mode = session["status"] == "CLOSED"
+        if correction_mode and actor["role"] not in {"reviewer", "admin"}:
+            raise AppError("Only a reviewer or administrator can correct attendance after register closure.", 403)
         if not isinstance(items, list) or not items or len(items) > 5000:
             raise AppError("Provide between 1 and 5,000 attendance records.")
         allowed = ATTENDANCE_STATES
@@ -310,6 +311,8 @@ class AssessmentEvidenceService:
             note = str(item.get("note", "")).strip()
             if len(note) > 1000:
                 raise AppError("Attendance notes must be 1,000 characters or fewer.")
+            if correction_mode and len(note) < 8:
+                raise AppError("Closed-register corrections require an 8-character reason.")
             prepared.append((student_id, status, int(signature), int(card), int(identity), note))
 
         now = utc_now()
@@ -353,7 +356,7 @@ class AssessmentEvidenceService:
                     "EXAM_ATTENDANCE",
                     f"{session_id}:{student_id}",
                     user_id,
-                    "EXAM_ATTENDANCE_RECORDED" if previous is None else "EXAM_ATTENDANCE_CORRECTED",
+                    "EXAM_ATTENDANCE_CORRECTED" if previous is not None or correction_mode else "EXAM_ATTENDANCE_RECORDED",
                     {
                         "assessment_id": session["assessment_id"],
                         "old_status": previous["attendance_status"] if previous else None,
@@ -368,6 +371,8 @@ class AssessmentEvidenceService:
 
     def close_session(self, user_id: int, session_id: str) -> dict[str, Any]:
         _actor, session = self._authorize_session(user_id, session_id)
+        if session["status"] != "OPEN":
+            raise AppError("This attendance register is already closed.", 409)
         with self.db.transaction() as conn:
             missing = conn.execute(
                 """
