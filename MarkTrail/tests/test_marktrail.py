@@ -699,7 +699,7 @@ class MarkTrailTests(unittest.TestCase):
         conn = self.db.connect()
         try:
             decisions = conn.execute(
-                "SELECT decision, meeting_reference FROM senate_decisions WHERE batch_id = ?",
+                "SELECT decision, meeting_reference, revision FROM senate_decisions WHERE batch_id = ?",
                 (batch_id,),
             ).fetchall()
         finally:
@@ -707,6 +707,7 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(len(decisions), 1)
         self.assertEqual(decisions[0]["decision"], "APPROVED")
         self.assertEqual(decisions[0]["meeting_reference"], "SENATE-2026-MIN-014")
+        self.assertEqual(decisions[0]["revision"], 1)
         with self.assertRaisesRegex(sqlite3.IntegrityError, "Senate decision history is append-only"):
             with self.db.transaction() as conn:
                 conn.execute(
@@ -719,6 +720,28 @@ class MarkTrailTests(unittest.TestCase):
                     "DELETE FROM senate_decisions WHERE batch_id = ?",
                     (batch_id,),
                 )
+
+    def test_senate_approval_does_not_carry_over_to_a_new_batch_revision(self):
+        _assessment_id, batch_id, senate_id = self._create_senate_release_batch(
+            "Final Exam Revision Change"
+        )
+        self.service.process_exam_office_batch(self.exam_office["id"], batch_id)
+        approval = self.service.decide_senate_batch(
+            senate_id,
+            batch_id,
+            "APPROVED",
+            "SENATE-2026-MIN-021",
+            "Approved original marks batch.",
+        )
+        self.assertEqual(approval["revision"], 1)
+
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE batches SET revision = 2 WHERE id = ?",
+                (batch_id,),
+            )
+        with self.assertRaisesRegex(AppError, "current marks revision"):
+            self.service.publish_portal_batch(self.portal_operator["id"], batch_id)
 
     def test_senate_deferral_keeps_result_blocked_until_a_later_approval(self):
         assessment_id, batch_id, senate_id = self._create_senate_release_batch(
