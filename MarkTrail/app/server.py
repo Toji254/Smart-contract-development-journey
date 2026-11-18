@@ -567,7 +567,7 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     str(body.get("name", "")),
                     max_mark,
                     str(body.get("submission_deadline", "")) or None,
-                    str(body.get("release_policy", "DIRECT")),
+                    str(body.get("release_policy", "")),
                 ),
                 201,
             )
