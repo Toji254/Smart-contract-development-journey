@@ -1978,6 +1978,15 @@ class AssessmentEvidenceService:
             ).fetchall()
             result = []
             for row in rows:
+                case_rows = conn.execute(
+                    """
+                    SELECT id, category, severity, status, opened_at, updated_at
+                    FROM evidence_cases
+                    WHERE assessment_id = ? AND student_id = ?
+                    ORDER BY updated_at DESC
+                    """,
+                    (row["assessment_id"], user_id),
+                ).fetchall()
                 result.append({
                     "assessment_id": row["assessment_id"],
                     "assessment": row["assessment"],
@@ -2020,6 +2029,17 @@ class AssessmentEvidenceService:
                         )
                     ),
                     "evidence_available": row["session_id"] is not None,
+                    "cases": [
+                        {
+                            "id": case["id"],
+                            "category": case["category"],
+                            "severity": case["severity"],
+                            "status": case["status"],
+                            "opened_at": case["opened_at"],
+                            "updated_at": case["updated_at"],
+                        }
+                        for case in case_rows
+                    ],
                 })
             return result
         finally:
