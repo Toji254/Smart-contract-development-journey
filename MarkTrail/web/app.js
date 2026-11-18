@@ -1227,7 +1227,8 @@ function renderEvidenceSession() {
       "> ID</label></td>" +
       "<td>" + (script ? badge(script.status) + '<small>' + esc(script.script_ref) + "</small>" : '<span class="muted">No receipt</span>') + "</td>" +
       "<td>" + esc(markLabel) + "</td>" +
-      '<td><input type="text" data-attendance-note maxlength="1000" placeholder="Optional incident note" value="' +
+      '<td><input type="text" data-attendance-note maxlength="1000" placeholder="' +
+      (registerClosed ? "Reason required for correction" : "Optional incident note") + '" value="' +
       esc(attendance.note || "") + '"' + (locked ? " disabled" : "") + ">" +
       '<button type="button" class="button secondary" data-save-attendance="' + esc(candidate.student_id) + '"' +
       (locked ? " disabled" : "") + ">Save</button></td></tr>";
@@ -1356,7 +1357,7 @@ function renderEvidenceSession() {
     (session.status === "OPEN" ? '<div class="actions"><button type="button" class="button secondary" id="close-evidence-session">Close attendance register</button></div>' : "") +
     "</div>" +
     '<div class="card"><div class="section-head compact"><div><p class="eyebrow">CANDIDATE REGISTER</p><h2>Attendance and checks</h2></div>' +
-    (!locked ? '<button type="button" class="button primary" id="save-all-attendance">Save all decisions</button>' : '') +
+    (!registerClosed ? '<button type="button" class="button primary" id="save-all-attendance">Save all decisions</button>' : '') +
     '</div><div class="muted">Review every candidate before saving. The bulk action validates the full register and saves it as one transaction.</div>' +
     '<div class="table-wrap"><table><thead><tr><th>Candidate</th><th>Attendance decision</th><th>Signature</th><th>Exam card</th><th>Student ID</th><th>Script</th><th>Marks</th><th>Incident note / action</th></tr></thead><tbody>' +
     (rosterRows || '<tr><td colspan="8">No candidates in the locked roster.</td></tr>') +
