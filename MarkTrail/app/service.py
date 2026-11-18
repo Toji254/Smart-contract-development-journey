@@ -1130,6 +1130,12 @@ class AppService:
                     f"{batch['course']} · {batch['assessment']} is approved and may proceed to portal import.",
                     now,
                 )
+                student_message = (
+                    f"{batch['course']} · {batch['assessment']} has received Senate approval. "
+                    "The result will appear after the approved portal publication step."
+                )
+                student_event = "SENATE_APPROVED"
+                student_title = "Your final result has passed Senate approval"
             else:
                 self._notify(
                     conn,
@@ -1137,6 +1143,26 @@ class AppService:
                     "SENATE_DEFERRED",
                     "Senate deferred the result batch",
                     reason,
+                    now,
+                )
+                student_message = (
+                    f"{batch['course']} · {batch['assessment']} has been deferred by Senate "
+                    "and has not been published. The university will provide an update after review."
+                )
+                student_event = "SENATE_DEFERRED"
+                student_title = "Your final result is awaiting further review"
+
+            affected_students = conn.execute(
+                "SELECT DISTINCT student_id FROM assessment_marks WHERE batch_id = ?",
+                (batch_id,),
+            ).fetchall()
+            for affected in affected_students:
+                self._notify(
+                    conn,
+                    int(affected["student_id"]),
+                    student_event,
+                    student_title,
+                    student_message,
                     now,
                 )
         return {
@@ -2228,6 +2254,25 @@ class AppService:
                 (batch_id,),
             ).fetchall()
 
+            senate_rows = conn.execute(
+                """
+                SELECT d.decision_number, d.decision, d.meeting_reference,
+                       d.reason, d.created_at, u.full_name AS actor_name
+                FROM senate_decisions d
+                JOIN users u ON u.id = d.actor_id
+                WHERE d.batch_id = ?
+                ORDER BY d.decision_number
+                """,
+                (batch_id,),
+            ).fetchall()
+            senate_decisions = []
+            for row in senate_rows:
+                decision = dict(row)
+                if user["role"] == "student":
+                    decision.pop("reason", None)
+                    decision.pop("actor_name", None)
+                senate_decisions.append(decision)
+
             revisions = conn.execute(
                 """
                 SELECT br.*, u.full_name AS actor_name
@@ -2304,6 +2349,7 @@ class AppService:
                 "batch": {key: batch[key] for key in safe_batch_fields},
                 "pipeline": self._pipeline_summary(conn, batch),
                 "events": event_data,
+                "senate_decisions": senate_decisions,
                 "revisions": revision_data,
                 "mark_history": history,
             }
