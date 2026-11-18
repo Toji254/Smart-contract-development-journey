@@ -1090,9 +1090,15 @@ class AssessmentEvidenceService:
                 )
         return {"signed": len(prepared), "signed_at": now}
 
-    def _exceptions_for(self, candidate: dict[str, Any], session_closed: bool) -> list[dict[str, str]]:
+    def _exceptions_for(
+        self,
+        candidate: dict[str, Any],
+        session_closed: bool,
+        session_type: str,
+    ) -> list[dict[str, str]]:
         attendance = candidate.get("attendance")
         script = candidate.get("script")
+        card_signoff = candidate.get("card_signoff")
         mark = candidate.get("mark")
         issues: list[dict[str, str]] = []
 
@@ -1113,8 +1119,25 @@ class AssessmentEvidenceService:
                 issues.append({"code": "STUDENT_ID_CHECK_NOT_RECORDED", "severity": "low"})
             if state == "PRESENT" and script is None:
                 issues.append({"code": "SCRIPT_NOT_RECEIVED", "severity": "high"})
+            if (
+                session_closed
+                and session_type in {"FINAL_EXAM", "SPECIAL_EXAM"}
+                and state == "PRESENT"
+                and card_signoff is None
+            ):
+                issues.append({"code": "LECTURER_EXAM_CARD_SIGNOFF_PENDING", "severity": "medium"})
             if state == "ABSENT" and script is not None:
                 issues.append({"code": "SCRIPT_RECEIVED_FOR_RECORDED_ABSENT", "severity": "high"})
+
+        if card_signoff is not None:
+            if (
+                attendance is None
+                or attendance["attendance_status"] != "PRESENT"
+                or not attendance["signature_present"]
+                or not attendance["exam_card_seen"]
+                or script is None
+            ):
+                issues.append({"code": "EXAM_CARD_SIGNOFF_EVIDENCE_CONFLICT", "severity": "high"})
 
         if script is not None:
             if attendance is None:
