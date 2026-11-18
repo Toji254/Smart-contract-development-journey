@@ -96,7 +96,7 @@ class AssessmentEvidenceTests(unittest.TestCase):
     def test_absent_or_excused_attendance_requires_a_reason(self):
         session_id = self.create_session()
         candidate = self.roster(session_id)[0]
-        with self.assertRaisesRegex(AppError, "ABSENT attendance decisions require"):
+        with self.assertRaisesRegex(AppError, "(?i)absent attendance decisions require"):
             self.evidence.record_attendance(self.users["lecturer"], session_id, [{
                 "student_id": candidate["student_id"],
                 "attendance_status": "ABSENT",
