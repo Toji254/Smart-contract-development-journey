@@ -1335,9 +1335,18 @@ function renderEvidenceCaseQueue() {
         const identity = item.registration_number
           ? esc(item.registration_number) + " · " + esc(item.full_name || "Candidate")
           : (item.script_ref ? "Script " + esc(item.script_ref) : "Candidate record");
-        const assignment = item.assigned_role
-          ? "Assigned to " + esc(item.assigned_role.replaceAll("_", " "))
-          : "";
+        const assignment = item.assigned_user_name
+          ? "Owned by " + esc(item.assigned_user_name) + " · " + esc((item.assigned_role || "").replaceAll("_", " "))
+          : item.assigned_role
+            ? "Queue: " + esc(item.assigned_role.replaceAll("_", " "))
+            : "Unassigned";
+        const caseHistory = (item.events || []).map((event) =>
+          '<div class="case-history-item"><strong>' +
+          esc(evidenceCaseLabel(event.event_type)) + '</strong><span>' +
+          esc(event.actor_name || "System") + " · " + esc(event.created_at) +
+          '</span>' + (event.note ? '<small>' + esc(event.note) + '</small>' : '') +
+          '</div>'
+        ).join("");
         const canDecide = ["reviewer", "admin"].includes(state.user.role) &&
           ["OPEN", "EVIDENCE_CLEARED"].includes(item.status);
         const decision = canDecide
@@ -1354,6 +1363,7 @@ function renderEvidenceCaseQueue() {
           (item.status === "EVIDENCE_CLEARED"
             ? '<p class="muted">The source evidence no longer shows this exception. A reviewer must confirm the case outcome.</p>'
             : "") +
+          (caseHistory ? '<div class="case-history"><strong>Case history</strong>' + caseHistory + '</div>' : '') +
           decision + '</article>';
       }).join("")
     : '<div class="card"><p class="muted">No evidence cases are currently assigned to this role or account.</p></div>';
