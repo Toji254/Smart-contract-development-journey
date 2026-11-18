@@ -435,8 +435,15 @@ class AssessmentEvidenceService:
         assessment_id: str,
         exam_at: str,
         venue: str,
+        session_type: str = "UNCLASSIFIED",
     ) -> dict[str, Any]:
         actor, assessment = self._authorize_assessment(user_id, assessment_id)
+        allowed_session_types = {
+            "CAT", "COURSEWORK", "PRACTICAL", "FINAL_EXAM", "SPECIAL_EXAM", "UNCLASSIFIED"
+        }
+        session_type = str(session_type or "UNCLASSIFIED").upper()
+        if session_type not in allowed_session_types:
+            raise AppError("Session type must be CAT, COURSEWORK, PRACTICAL, FINAL_EXAM or SPECIAL_EXAM.")
         if not exam_at.strip():
             raise AppError("Examination date and time are required.")
         try:
@@ -473,10 +480,12 @@ class AssessmentEvidenceService:
             conn.execute(
                 """
                 INSERT INTO exam_sessions
-                (id, assessment_id, exam_at, venue, status, candidate_count, created_by, created_at)
-                VALUES (?, ?, ?, ?, 'OPEN', ?, ?, ?)
+                (id, assessment_id, exam_at, venue, session_type, status,
+                 candidate_count, created_by, created_at)
+                VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)
                 """,
-                (session_id, assessment_id, normalized_exam_at, venue, len(candidates), user_id, now),
+                (session_id, assessment_id, normalized_exam_at, venue, session_type,
+                 len(candidates), user_id, now),
             )
             conn.executemany(
                 """
@@ -503,6 +512,7 @@ class AssessmentEvidenceService:
                         "candidate_count": len(candidates),
                         "venue": venue,
                         "exam_at": normalized_exam_at,
+                        "session_type": session_type,
                     }, sort_keys=True),
                     now,
                 ),
@@ -518,9 +528,15 @@ class AssessmentEvidenceService:
                     "candidate_count": len(candidates),
                     "venue": venue,
                     "exam_at": normalized_exam_at,
+                    "session_type": session_type,
                 },
             )
-        return {"session_id": session_id, "candidate_count": len(candidates), "status": "OPEN"}
+        return {
+            "session_id": session_id,
+            "candidate_count": len(candidates),
+            "session_type": session_type,
+            "status": "OPEN",
+        }
 
     def record_attendance(
         self,
@@ -969,6 +985,110 @@ class AssessmentEvidenceService:
                 {"assessment_id": script["assessment_id"]},
             )
         return {"script_id": script_id, "status": "MARKED", "marked_at": now}
+
+    def sign_exam_cards(
+        self,
+        user_id: int,
+        session_id: str,
+        items: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        actor, session = self._authorize_session(user_id, session_id)
+        if actor["role"] != "lecturer":
+            raise AppError("Only the lecturer in charge of this unit can confirm physical exam-card signatures.", 403)
+        if session["session_type"] not in {"FINAL_EXAM", "SPECIAL_EXAM"}:
+            raise AppError("Lecturer exam-card sign-off applies only to final or special examination sessions.", 409)
+        if session["status"] != "CLOSED":
+            raise AppError("Close the examination attendance register before signing exam cards.", 409)
+        if not isinstance(items, list) or not items or len(items) > 5000:
+            raise AppError("Provide between 1 and 5,000 exam-card sign-offs.")
+
+        prepared: list[tuple[int, str]] = []
+        seen: set[int] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                raise AppError("Each exam-card sign-off must identify one candidate.")
+            try:
+                student_id = int(item.get("student_id"))
+            except (TypeError, ValueError) as exc:
+                raise AppError("Each exam-card sign-off needs a valid candidate ID.") from exc
+            if student_id in seen:
+                raise AppError("The exam-card sign-off contains a duplicate candidate.")
+            seen.add(student_id)
+            note = str(item.get("note") or "").strip()
+            if len(note) > 1000:
+                raise AppError("Exam-card sign-off notes must be 1,000 characters or fewer.")
+            prepared.append((student_id, note))
+
+        now = utc_now()
+        with self.db.transaction() as conn:
+            for student_id, note in prepared:
+                candidate = conn.execute(
+                    """
+                    SELECT
+                        c.student_id,
+                        a.attendance_status,
+                        a.signature_present,
+                        a.exam_card_seen,
+                        s.id AS script_id
+                    FROM exam_session_candidates c
+                    LEFT JOIN exam_attendance a
+                      ON a.session_id = c.session_id AND a.student_id = c.student_id
+                    LEFT JOIN exam_scripts s
+                      ON s.session_id = c.session_id AND s.student_id = c.student_id
+                    WHERE c.session_id = ? AND c.student_id = ?
+                    """,
+                    (session_id, student_id),
+                ).fetchone()
+                if not candidate:
+                    raise AppError("One or more candidates are not in the locked examination roster.", 409)
+                if candidate["attendance_status"] != "PRESENT":
+                    raise AppError("Exam cards can only be signed for candidates recorded PRESENT.", 409)
+                if not candidate["signature_present"]:
+                    raise AppError("The candidate has no recorded attendance signature; resolve the attendance evidence first.", 409)
+                if not candidate["exam_card_seen"]:
+                    raise AppError("The invigilator has not recorded that this candidate's exam card was checked.", 409)
+                if not candidate["script_id"]:
+                    raise AppError("No candidate-linked script receipt exists; reconcile the script before signing the exam card.", 409)
+                existing = conn.execute(
+                    """
+                    SELECT 1 FROM exam_card_signoffs
+                    WHERE session_id = ? AND student_id = ?
+                    """,
+                    (session_id, student_id),
+                ).fetchone()
+                if existing:
+                    raise AppError("This candidate's exam card has already been signed for this unit and examination.", 409)
+
+                conn.execute(
+                    """
+                    INSERT INTO exam_card_signoffs
+                    (session_id, student_id, signed_by, signed_at, note)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (session_id, student_id, user_id, now, note),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO exam_card_signoff_events
+                    (session_id, student_id, actor_id, event_type, note, created_at)
+                    VALUES (?, ?, ?, 'PHYSICAL_CARD_SIGNED', ?, ?)
+                    """,
+                    (session_id, student_id, user_id, note, now),
+                )
+                self.app._audit(
+                    conn,
+                    "EXAM_CARD",
+                    f"{session_id}:{student_id}",
+                    user_id,
+                    "PHYSICAL_EXAM_CARD_SIGNED",
+                    {
+                        "assessment_id": session["assessment_id"],
+                        "session_id": session_id,
+                        "student_id": student_id,
+                        "note": note,
+                    },
+                )
+        return {"signed": len(prepared), "signed_at": now}
 
     def _exceptions_for(self, candidate: dict[str, Any], session_closed: bool) -> list[dict[str, str]]:
         attendance = candidate.get("attendance")
