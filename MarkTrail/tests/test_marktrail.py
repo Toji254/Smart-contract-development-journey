@@ -622,6 +622,9 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(final["status"], "AWAITING_SENATE_APPROVAL")
         self.assertEqual(final["pipeline_stage"], "SENATE_APPROVAL")
         self.assertIsNone(final["mark"])
+        detail = self.service.student_mark_detail(self.student["id"], assessment_id)
+        self.assertEqual(detail["pipeline_stage"], "SENATE_APPROVAL")
+        self.assertEqual(detail["pipeline"]["current_stage"], "SENATE_APPROVAL")
 
         senate_queue = self.service.senate_batches(senate_id)
         self.assertEqual([row["id"] for row in senate_queue], [batch_id])
@@ -665,6 +668,18 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(len(decisions), 1)
         self.assertEqual(decisions[0]["decision"], "APPROVED")
         self.assertEqual(decisions[0]["meeting_reference"], "SENATE-2026-MIN-014")
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "Senate decision history is append-only"):
+            with self.db.transaction() as conn:
+                conn.execute(
+                    "UPDATE senate_decisions SET reason = 'rewritten' WHERE batch_id = ?",
+                    (batch_id,),
+                )
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "Senate decision history is append-only"):
+            with self.db.transaction() as conn:
+                conn.execute(
+                    "DELETE FROM senate_decisions WHERE batch_id = ?",
+                    (batch_id,),
+                )
 
     def test_senate_deferral_keeps_result_blocked_until_a_later_approval(self):
         assessment_id, batch_id, senate_id = self._create_senate_release_batch(
