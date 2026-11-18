@@ -1148,6 +1148,10 @@ class AssessmentEvidenceService:
                        s.current_custodian, current_staff.full_name AS current_custodian_name,
                        s.pending_custodian, pending_staff.full_name AS pending_custodian_name,
                        s.received_at, s.marked_by, s.marked_at, s.notes AS script_note,
+                       cs.signed_by AS card_signed_by,
+                       card_signer.full_name AS card_signed_by_name,
+                       cs.signed_at AS card_signed_at,
+                       cs.note AS card_signoff_note,
                        m.candidate_mark, m.candidate_status
                 FROM exam_session_candidates c
                 LEFT JOIN exam_attendance a
@@ -1156,6 +1160,9 @@ class AssessmentEvidenceService:
                   ON s.session_id = c.session_id AND s.student_id = c.student_id
                 LEFT JOIN users current_staff ON current_staff.id = s.current_custodian
                 LEFT JOIN users pending_staff ON pending_staff.id = s.pending_custodian
+                LEFT JOIN exam_card_signoffs cs
+                  ON cs.session_id = c.session_id AND cs.student_id = c.student_id
+                LEFT JOIN users card_signer ON card_signer.id = cs.signed_by
                 LEFT JOIN assessment_marks m
                   ON m.assessment_id = ? AND m.student_id = c.student_id
                 WHERE c.session_id = ?
@@ -1199,15 +1206,28 @@ class AssessmentEvidenceService:
                         "candidate_mark": row["candidate_mark"],
                         "candidate_status": row["candidate_status"],
                     }
+                card_signoff = None
+                if row["card_signed_by"] is not None:
+                    card_signoff = {
+                        "signed_by": int(row["card_signed_by"]),
+                        "signed_by_name": row["card_signed_by_name"],
+                        "signed_at": row["card_signed_at"],
+                        "note": row["card_signoff_note"],
+                    }
                 candidate = {
                     "student_id": int(row["student_id"]),
                     "registration_number": row["reg_number_snapshot"],
                     "full_name": row["full_name_snapshot"],
                     "attendance": attendance,
                     "script": script,
+                    "card_signoff": card_signoff,
                     "mark": mark,
                 }
-                candidate["issues"] = self._exceptions_for(candidate, session["status"] == "CLOSED")
+                candidate["issues"] = self._exceptions_for(
+                    candidate,
+                    session["status"] == "CLOSED",
+                    session["session_type"],
+                )
                 for issue in candidate["issues"]:
                     exceptions.append({
                         "student_id": candidate["student_id"],
@@ -1250,6 +1270,19 @@ class AssessmentEvidenceService:
                        u.role AS actor_role, c.reg_number_snapshot,
                        c.full_name_snapshot
                 FROM exam_attendance_events e
+                JOIN users u ON u.id = e.actor_id
+                JOIN exam_session_candidates c
+                  ON c.session_id = e.session_id AND c.student_id = e.student_id
+                WHERE e.session_id = ?
+                """,
+                (session_id,),
+            ).fetchall()
+            card_activity = conn.execute(
+                """
+                SELECT e.id, e.event_type, e.note, e.created_at,
+                       u.full_name AS actor_name, u.role AS actor_role,
+                       c.reg_number_snapshot, c.full_name_snapshot
+                FROM exam_card_signoff_events e
                 JOIN users u ON u.id = e.actor_id
                 JOIN exam_session_candidates c
                   ON c.session_id = e.session_id AND c.student_id = e.student_id
@@ -1313,6 +1346,18 @@ class AssessmentEvidenceService:
                     "reason": row["reason"],
                     "created_at": row["created_at"],
                 })
+            for row in card_activity:
+                activity.append({
+                    "id": f"card-{row['id']}",
+                    "category": "EXAM_CARD",
+                    "event_type": row["event_type"],
+                    "actor_name": row["actor_name"],
+                    "actor_role": row["actor_role"],
+                    "registration_number": row["reg_number_snapshot"],
+                    "candidate_name": row["full_name_snapshot"],
+                    "note": row["note"],
+                    "created_at": row["created_at"],
+                })
             for row in script_activity:
                 activity.append({
                     "id": f"script-{row['id']}",
@@ -1341,6 +1386,7 @@ class AssessmentEvidenceService:
                     "course": session["course_code"] + " · " + session["course_title"],
                     "exam_at": session["exam_at"],
                     "venue": session["venue"],
+                    "session_type": session["session_type"],
                     "status": session["status"],
                     "candidate_count": int(session["candidate_count"]),
                     "created_at": session["created_at"],
@@ -1350,6 +1396,7 @@ class AssessmentEvidenceService:
                     "attendance_recorded": attendance_count,
                     "scripts_received": script_count,
                     "scripts_marked": marked_count,
+                    "exam_cards_signed": sum(1 for c in candidates if c["card_signoff"] is not None),
                     "exceptions": len(exceptions),
                 },
                 "candidates": candidates,
