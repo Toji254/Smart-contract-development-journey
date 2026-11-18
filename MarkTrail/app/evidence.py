@@ -26,9 +26,105 @@ class AssessmentEvidenceService:
         self.app = app
         self._ensure_schema()
 
+    def _migrate_legacy_schema(self, conn) -> None:
+        script_row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'exam_scripts'"
+        ).fetchone()
+        event_row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'exam_script_events'"
+        ).fetchone()
+
+        script_sql = (script_row["sql"] or "").upper() if script_row else ""
+        event_sql = (event_row["sql"] or "").upper() if event_row else ""
+        rebuild_scripts = bool(script_row and "STUDENT_ID INTEGER NOT NULL" in script_sql)
+        rebuild_events = bool(event_row and "IDENTITY_LINKED" not in event_sql)
+        if not rebuild_scripts and not rebuild_events:
+            return
+
+        # Toggle foreign-key enforcement outside the migration transaction. The
+        # child event table keeps referencing the stable exam_scripts table name.
+        conn.execute("PRAGMA foreign_keys = OFF")
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            if rebuild_scripts:
+                conn.execute(
+                    """
+                    CREATE TABLE exam_scripts_new (
+                        id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        student_id INTEGER,
+                        script_ref TEXT NOT NULL,
+                        status TEXT NOT NULL CHECK (
+                            status IN ('RECEIVED','HANDOFF_PENDING','ASSIGNED','MARKED','FLAGGED')
+                        ),
+                        current_custodian INTEGER NOT NULL REFERENCES users(id),
+                        pending_custodian INTEGER REFERENCES users(id),
+                        notes TEXT NOT NULL DEFAULT '',
+                        received_by INTEGER NOT NULL REFERENCES users(id),
+                        received_at TEXT NOT NULL,
+                        marked_by INTEGER REFERENCES users(id),
+                        marked_at TEXT,
+                        UNIQUE (session_id, student_id),
+                        UNIQUE (session_id, script_ref),
+                        FOREIGN KEY (session_id, student_id)
+                            REFERENCES exam_session_candidates(session_id, student_id)
+                            ON DELETE CASCADE
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO exam_scripts_new
+                    (id, session_id, student_id, script_ref, status, current_custodian,
+                     pending_custodian, notes, received_by, received_at, marked_by, marked_at)
+                    SELECT id, session_id, student_id, script_ref, status, current_custodian,
+                           pending_custodian, notes, received_by, received_at, marked_by, marked_at
+                    FROM exam_scripts
+                    """
+                )
+                conn.execute("DROP TABLE exam_scripts")
+                conn.execute("ALTER TABLE exam_scripts_new RENAME TO exam_scripts")
+
+            if rebuild_events:
+                conn.execute(
+                    """
+                    CREATE TABLE exam_script_events_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        script_id TEXT NOT NULL REFERENCES exam_scripts(id) ON DELETE CASCADE,
+                        event_type TEXT NOT NULL CHECK (
+                            event_type IN (
+                                'RECEIVED','HANDOFF_REQUESTED','HANDOFF_ACCEPTED',
+                                'MARKED','FLAGGED','IDENTITY_LINKED'
+                            )
+                        ),
+                        actor_id INTEGER NOT NULL REFERENCES users(id),
+                        recipient_id INTEGER REFERENCES users(id),
+                        note TEXT NOT NULL DEFAULT '',
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO exam_script_events_new
+                    (id, script_id, event_type, actor_id, recipient_id, note, created_at)
+                    SELECT id, script_id, event_type, actor_id, recipient_id, note, created_at
+                    FROM exam_script_events
+                    """
+                )
+                conn.execute("DROP TABLE exam_script_events")
+                conn.execute("ALTER TABLE exam_script_events_new RENAME TO exam_script_events")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON")
+
     def _ensure_schema(self) -> None:
         conn = self.db.connect()
         try:
+            self._migrate_legacy_schema(conn)
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS exam_sessions (
