@@ -118,6 +118,55 @@ class AssessmentEvidenceTests(unittest.TestCase):
                 "LATE-PACKET-01",
             )
 
+    def test_bulk_attendance_is_atomic_when_one_candidate_is_not_in_roster(self):
+        session_id = self.create_session()
+        candidates = self.roster(session_id)
+        with self.assertRaisesRegex(AppError, "not in the locked examination roster"):
+            self.evidence.record_attendance(self.users["lecturer"], session_id, [
+                {
+                    "student_id": candidates[0]["student_id"],
+                    "attendance_status": "PRESENT",
+                    "signature_present": True,
+                    "exam_card_seen": True,
+                    "student_id_seen": True,
+                    "note": "",
+                },
+                {
+                    "student_id": 999999,
+                    "attendance_status": "PRESENT",
+                    "signature_present": True,
+                    "exam_card_seen": True,
+                    "student_id_seen": True,
+                    "note": "",
+                },
+            ])
+        detail = self.evidence.session_detail(self.users["lecturer"], session_id)
+        first = next(
+            row for row in detail["candidates"]
+            if row["student_id"] == candidates[0]["student_id"]
+        )
+        self.assertIsNone(first["attendance"])
+        self.assertEqual(detail["activity"], [
+            event for event in detail["activity"]
+            if event["category"] == "SESSION"
+        ])
+
+    def test_bulk_attendance_rejects_duplicate_candidate_rows(self):
+        session_id = self.create_session()
+        candidate = self.roster(session_id)[0]
+        item = {
+            "student_id": candidate["student_id"],
+            "attendance_status": "PRESENT",
+            "signature_present": True,
+            "exam_card_seen": True,
+            "student_id_seen": True,
+            "note": "",
+        }
+        with self.assertRaisesRegex(AppError, "duplicate candidate"):
+            self.evidence.record_attendance(
+                self.users["lecturer"], session_id, [item, item]
+            )
+
     def test_register_cannot_close_until_every_candidate_has_a_decision(self):
         session_id = self.create_session()
         with self.assertRaisesRegex(AppError, "attendance decisions are not recorded"):
