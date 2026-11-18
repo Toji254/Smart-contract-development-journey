@@ -1070,7 +1070,7 @@ class AppService:
         with self.db.transaction() as conn:
             batch = conn.execute(
                 """
-                SELECT b.status, b.pipeline_stage, b.senate_status,
+                SELECT b.status, b.pipeline_stage, b.senate_status, b.revision,
                        a.release_policy, b.submitted_by, a.name AS assessment,
                        c.code AS course
                 FROM batches b
@@ -1099,10 +1099,19 @@ class AppService:
             conn.execute(
                 """
                 INSERT INTO senate_decisions
-                (batch_id, decision_number, decision, meeting_reference, reason, actor_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (batch_id, decision_number, revision, decision, meeting_reference, reason, actor_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (batch_id, next_number, decision, meeting_reference, reason, user_id, now),
+                (
+                    batch_id,
+                    next_number,
+                    int(batch["revision"]),
+                    decision,
+                    meeting_reference,
+                    reason,
+                    user_id,
+                    now,
+                ),
             )
             conn.execute(
                 "UPDATE batches SET senate_status = ? WHERE id = ?",
@@ -1117,6 +1126,7 @@ class AppService:
                 {
                     "decision": decision,
                     "decision_number": next_number,
+                    "revision": int(batch["revision"]),
                     "meeting_reference": meeting_reference,
                     "reason": reason,
                 },
@@ -1169,6 +1179,7 @@ class AppService:
             "batch_id": batch_id,
             "senate_status": decision,
             "decision_number": next_number,
+            "revision": int(batch["revision"]),
         }
 
     def publish_portal_batch(self, user_id: int, batch_id: str) -> dict:
@@ -1186,6 +1197,20 @@ class AppService:
                 """,
                 (batch_id,),
             ).fetchone()
+            latest_senate_decision = (
+                conn.execute(
+                    """
+                    SELECT decision, revision
+                    FROM senate_decisions
+                    WHERE batch_id = ?
+                    ORDER BY decision_number DESC
+                    LIMIT 1
+                    """,
+                    (batch_id,),
+                ).fetchone()
+                if batch and batch["release_policy"] == "SENATE"
+                else None
+            )
         finally:
             conn.close()
         if not batch:
@@ -1194,8 +1219,16 @@ class AppService:
             raise AppError("This batch is not ready for portal publication.")
         if batch["release_policy"] == "UNCLASSIFIED":
             raise AppError("Publication blocked: an administrator must classify this assessment's release policy.", 409)
-        if batch["release_policy"] == "SENATE" and batch["senate_status"] != "APPROVED":
-            raise AppError("Publication blocked: Senate approval is required before final results can be released.", 409)
+        if batch["release_policy"] == "SENATE" and (
+            batch["senate_status"] != "APPROVED"
+            or not latest_senate_decision
+            or latest_senate_decision["decision"] != "APPROVED"
+            or int(latest_senate_decision["revision"]) != int(batch["revision"])
+        ):
+            raise AppError(
+                "Publication blocked: Senate approval for the current marks revision is required.",
+                409,
+            )
 
         integrity = self._chain_integrity(batch_id)
         if not integrity.get("match"):
@@ -1218,6 +1251,20 @@ class AppService:
                 """,
                 (batch_id,),
             ).fetchone()
+            latest_senate_decision = (
+                conn.execute(
+                    """
+                    SELECT decision, revision
+                    FROM senate_decisions
+                    WHERE batch_id = ?
+                    ORDER BY decision_number DESC
+                    LIMIT 1
+                    """,
+                    (batch_id,),
+                ).fetchone()
+                if current and current["release_policy"] == "SENATE"
+                else None
+            )
             if (
                 not current
                 or current["status"] != "VERIFIED"
@@ -1226,7 +1273,12 @@ class AppService:
                 or current["release_policy"] != batch["release_policy"]
                 or (
                     current["release_policy"] == "SENATE"
-                    and current["senate_status"] != "APPROVED"
+                    and (
+                        current["senate_status"] != "APPROVED"
+                        or not latest_senate_decision
+                        or latest_senate_decision["decision"] != "APPROVED"
+                        or int(latest_senate_decision["revision"]) != int(current["revision"])
+                    )
                 )
                 or current["release_policy"] == "UNCLASSIFIED"
                 or current["revision"] != batch["revision"]
@@ -2256,7 +2308,7 @@ class AppService:
 
             senate_rows = conn.execute(
                 """
-                SELECT d.decision_number, d.decision, d.meeting_reference,
+                SELECT d.decision_number, d.revision, d.decision, d.meeting_reference,
                        d.reason, d.created_at, u.full_name AS actor_name
                 FROM senate_decisions d
                 JOIN users u ON u.id = d.actor_id
