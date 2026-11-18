@@ -689,3 +689,33 @@ footer {
   color: var(--ink-muted);
   font-size: .72rem;
 }
+
+
+.case-history {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+}
+.case-history > strong {
+  font-size: .8rem;
+}
+.case-history-item {
+  display: grid;
+  gap: 3px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+.case-history-item > strong {
+  font-size: .78rem;
+}
+.case-history-item > span,
+.case-history-item > small {
+  color: var(--ink-muted);
+  font-size: .73rem;
+}
+.case-history-item > small {
+  overflow-wrap: anywhere;
+}
