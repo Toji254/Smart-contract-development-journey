@@ -721,6 +721,62 @@ class AssessmentEvidenceTests(unittest.TestCase):
                 "Duplicate review.",
             )
 
+    def test_resolved_case_reopens_if_the_same_evidence_exception_reappears(self):
+        session_id = self.create_session()
+        candidates = self.record_complete_register(
+            session_id,
+            first_status="PRESENT",
+            first_signature=False,
+        )
+        student_id = candidates[0]["student_id"]
+        case = next(
+            item for item in self.evidence.list_evidence_cases(student_id)
+            if item["category"] == "ATTENDANCE_SIGNATURE_MISSING"
+        )
+
+        self.evidence.record_attendance(self.users["lecturer"], session_id, [{
+            "student_id": student_id,
+            "attendance_status": "PRESENT",
+            "signature_present": True,
+            "exam_card_seen": True,
+            "student_id_seen": True,
+            "note": "",
+        }])
+        self.evidence.decide_evidence_case(
+            self.users["reviewer"],
+            case["id"],
+            "RESOLVED",
+            "Verified the physical register and corrected the digital attendance evidence.",
+        )
+
+        self.evidence.record_attendance(self.users["lecturer"], session_id, [{
+            "student_id": student_id,
+            "attendance_status": "PRESENT",
+            "signature_present": False,
+            "exam_card_seen": True,
+            "student_id_seen": True,
+            "note": "",
+        }])
+
+        reopened = next(
+            item for item in self.evidence.list_evidence_cases(student_id)
+            if item["id"] == case["id"]
+        )
+        self.assertEqual(reopened["status"], "OPEN")
+        conn = self.db.connect()
+        try:
+            event_types = [
+                row["event_type"] for row in conn.execute(
+                    "SELECT event_type FROM evidence_case_events WHERE case_id = ? ORDER BY id",
+                    (case["id"],),
+                ).fetchall()
+            ]
+        finally:
+            conn.close()
+        self.assertIn("EVIDENCE_CLEARED", event_types)
+        self.assertIn("RESOLVED", event_types)
+        self.assertIn("REOPENED", event_types)
+
     def test_unidentified_script_opens_staff_case_without_exposing_student_identity(self):
         session_id = self.create_session()
         result = self.evidence.receive_script(
