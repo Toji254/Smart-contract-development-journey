@@ -69,9 +69,13 @@ Current implementation slice:
 - Marking-completion event, without placing mark values in the custody event.
 - Unidentified script quarantine and reviewer/exam-office identity-link action with a distinct IDENTITY_LINKED event.
 - Deterministic reconciliation exceptions for missing attendance, missing signature, missing card/ID check, signed-but-recorded-absent conflict, absent/script conflict, present/no-script, unaccepted custody, unmarked script and marked/no-mark-entry.
+- Persistent evidence cases automatically opened from detected exceptions and keyed by session plus candidate/script plus category.
+- Case ownership routed to the course lecturer, exam office or reviewer; staff queues are role-scoped and students can see only their own safe case status.
+- Evidence corrections move a case to EVIDENCE_CLEARED, not automatically resolved; a reviewer/admin must explicitly resolve or dismiss with a reason.
+- Student and assigned-staff notifications for case opening, evidence clearing and final decisions.
+- Append-only session, attendance, script-custody and evidence-case chronology, including correction reasons and ownership events.
 - Closed attendance register; reviewer/admin correction requires a written reason and leaves an audit event.
-- Append-only session, attendance and script-custody chronology, including the previous and receiving staff members for custody handovers.
-- Student-scoped read-only exam-progress API and portal view; it returns only the student's own evidence and omits staff-only notes, script references and custodian identities.
+- Student-scoped read-only exam-progress and case-status API/view; it omits staff-only notes, script references, assignments and decision rationale.
 - Role-scoped API and responsive staff/student workspaces.
 
 Remaining work in this gate:
@@ -82,7 +86,8 @@ Remaining work in this gate:
 - Candidate identity resolution with dual approval for high-risk matches.
 - Bulk attendance import from approved paper-register transcription files, including row-level provenance and operator attribution; current bulk save is for manual workspace capture.
 - Offline capture queue with conflict detection and safe synchronisation.
-- Student-facing appeals and evidence-submission workflow, without exposing staff-only notes or personal data of other candidates.
+- Student-facing appeals and evidence-submission workflow beyond the current read-only case status and neutral notifications, without exposing staff-only notes or personal data of other candidates.
+- Configurable case service-level deadlines, escalation rules and workload analytics; current ownership is role/user based but has no Karatina-approved SLA schedule.
 
 Exit criteria:
 - Every candidate has an explicit attendance decision before a register can be closed.
@@ -268,14 +273,14 @@ Not yet implemented or independently verified:
 - Evidence document attachments, scan/OCR, bulk register import and offline sync.
 - Team-teaching assignment and multi-marker support.
 - Unit component types/weighting and full result calculation.
-- Senate approval gate and official portal integration/reconciliation.
-- Complete missing-mark case ownership/SLA/escalation engine.
+- End-to-end automated integration with Karatina's official student portal; the app has a local portal-operator publication stage but no approved university portal adapter.
+- Configurable missing-mark case SLAs, escalation policy and institutional workload reporting beyond current role/user assignment and reviewer decisions.
 - Deterministic cross-system reconciliation across all workflow evidence.
 - AI copilot.
 - Expanded blockchain event anchoring and production-grade signing custody.
 - Institutional SSO, DPIA, independent security review, production hosting, backups and disaster recovery.
 - Karatina's current internal process validation and pilot approval.
-- CI verification for the newest exam-card sign-off and compatibility-migration commits, plus browser usability testing on the current branch build.
+- CI verification for the newest evidence-case UI and backend integration commits, plus browser usability testing on the current branch build.
 
 ## Engineering rules
 
