@@ -1278,6 +1278,15 @@ function renderEvidenceSession() {
         toast("Choose an attendance decision before saving.", "error");
         return;
       }
+      const attendanceNote = row.querySelector("[data-attendance-note]").value.trim();
+      if (["ABSENT", "EXCUSED", "CONTESTED"].includes(status) && attendanceNote.length < 8) {
+        toast("Add a short reason for an absent, excused or disputed attendance decision.", "error");
+        return;
+      }
+      if (registerClosed && attendanceNote.length < 8) {
+        toast("Closed-register corrections require an 8-character reason.", "error");
+        return;
+      }
       try {
         await api("/api/evidence/sessions/" + encodeURIComponent(session.id) + "/attendance", {
           method: "POST",
@@ -1287,7 +1296,7 @@ function renderEvidenceSession() {
             signature_present: row.querySelector("[data-signature]").checked,
             exam_card_seen: row.querySelector("[data-exam-card]").checked,
             student_id_seen: row.querySelector("[data-student-id]").checked,
-            note: row.querySelector("[data-attendance-note]").value
+            note: attendanceNote
           }] })
         });
         toast("Attendance evidence saved.");
@@ -1313,13 +1322,18 @@ function renderEvidenceSession() {
   $("#evidence-script-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const candidateValue = $("#evidence-script-student").value;
+    const scriptNote = $("#evidence-script-note").value.trim();
+    if ((!candidateValue || registerClosed) && scriptNote.length < 8) {
+      toast("Add an explanation for an unidentified or late-received script.", "error");
+      return;
+    }
     try {
       await api("/api/evidence/sessions/" + encodeURIComponent(session.id) + "/scripts", {
         method: "POST",
         body: JSON.stringify({
           student_id: candidateValue ? Number(candidateValue) : null,
           script_ref: $("#evidence-script-ref").value.trim(),
-          note: $("#evidence-script-note").value.trim()
+          note: scriptNote
         })
       });
       $("#evidence-script-ref").value = "";
