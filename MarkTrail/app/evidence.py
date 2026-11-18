@@ -36,9 +36,17 @@ class AssessmentEvidenceService:
 
         script_sql = (script_row["sql"] or "").upper() if script_row else ""
         event_sql = (event_row["sql"] or "").upper() if event_row else ""
+        session_exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'exam_sessions'"
+        ).fetchone()
+        session_columns = (
+            {row["name"] for row in conn.execute("PRAGMA table_info(exam_sessions)").fetchall()}
+            if session_exists else set()
+        )
+        add_session_type = bool(session_exists and "session_type" not in session_columns)
         rebuild_scripts = bool(script_row and "STUDENT_ID INTEGER NOT NULL" in script_sql)
         rebuild_events = bool(event_row and "IDENTITY_LINKED" not in event_sql)
-        if not rebuild_scripts and not rebuild_events:
+        if not rebuild_scripts and not rebuild_events and not add_session_type:
             return
 
         # Toggle foreign-key enforcement outside the migration transaction. The
@@ -46,6 +54,19 @@ class AssessmentEvidenceService:
         conn.execute("PRAGMA foreign_keys = OFF")
         try:
             conn.execute("BEGIN IMMEDIATE")
+            if add_session_type:
+                conn.execute(
+                    """
+                    ALTER TABLE exam_sessions
+                    ADD COLUMN session_type TEXT NOT NULL DEFAULT 'UNCLASSIFIED'
+                    CHECK (
+                        session_type IN (
+                            'CAT','COURSEWORK','PRACTICAL',
+                            'FINAL_EXAM','SPECIAL_EXAM','UNCLASSIFIED'
+                        )
+                    )
+                    """
+                )
             if rebuild_scripts:
                 conn.execute(
                     """
@@ -132,6 +153,12 @@ class AssessmentEvidenceService:
                     assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
                     exam_at TEXT NOT NULL,
                     venue TEXT NOT NULL,
+                    session_type TEXT NOT NULL DEFAULT 'UNCLASSIFIED' CHECK (
+                        session_type IN (
+                            'CAT','COURSEWORK','PRACTICAL',
+                            'FINAL_EXAM','SPECIAL_EXAM','UNCLASSIFIED'
+                        )
+                    ),
                     status TEXT NOT NULL CHECK (status IN ('OPEN','CLOSED')),
                     candidate_count INTEGER NOT NULL,
                     created_by INTEGER NOT NULL REFERENCES users(id),
@@ -164,6 +191,31 @@ class AssessmentEvidenceService:
                     FOREIGN KEY (session_id, student_id)
                         REFERENCES exam_session_candidates(session_id, student_id)
                         ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS exam_card_signoffs (
+                    session_id TEXT NOT NULL,
+                    student_id INTEGER NOT NULL,
+                    signed_by INTEGER NOT NULL REFERENCES users(id),
+                    signed_at TEXT NOT NULL,
+                    note TEXT NOT NULL DEFAULT '',
+                    PRIMARY KEY (session_id, student_id),
+                    FOREIGN KEY (session_id, student_id)
+                        REFERENCES exam_session_candidates(session_id, student_id)
+                        ON DELETE RESTRICT
+                );
+
+                CREATE TABLE IF NOT EXISTS exam_card_signoff_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    student_id INTEGER NOT NULL,
+                    actor_id INTEGER NOT NULL REFERENCES users(id),
+                    event_type TEXT NOT NULL CHECK (event_type IN ('PHYSICAL_CARD_SIGNED')),
+                    note TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id, student_id)
+                        REFERENCES exam_session_candidates(session_id, student_id)
+                        ON DELETE RESTRICT
                 );
 
                 CREATE TABLE IF NOT EXISTS exam_scripts (
@@ -227,6 +279,18 @@ class AssessmentEvidenceService:
                         ON DELETE RESTRICT
                 );
 
+                CREATE TRIGGER IF NOT EXISTS exam_card_signoff_events_no_update
+                BEFORE UPDATE ON exam_card_signoff_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'exam card sign-off history is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS exam_card_signoff_events_no_delete
+                BEFORE DELETE ON exam_card_signoff_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'exam card sign-off history is append-only');
+                END;
+
                 CREATE TRIGGER IF NOT EXISTS exam_session_events_no_update
                 BEFORE UPDATE ON exam_session_events
                 BEGIN
@@ -265,6 +329,10 @@ class AssessmentEvidenceService:
 
                 CREATE INDEX IF NOT EXISTS idx_exam_sessions_assessment
                     ON exam_sessions(assessment_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_exam_card_signoffs_session
+                    ON exam_card_signoffs(session_id, student_id);
+                CREATE INDEX IF NOT EXISTS idx_exam_card_signoff_events_session
+                    ON exam_card_signoff_events(session_id, created_at, id);
 
                 CREATE INDEX IF NOT EXISTS idx_exam_candidates_student
                     ON exam_session_candidates(student_id, session_id);
