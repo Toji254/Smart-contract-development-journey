@@ -1312,7 +1312,8 @@ class AssessmentEvidenceService:
                 active_keys.add((subject_key, category))
                 existing = conn.execute(
                     """
-                    SELECT id, status, severity, assigned_role, assigned_user_id
+                    SELECT id, status, severity, assigned_role, assigned_user_id,
+                           evidence_cleared_at
                     FROM evidence_cases
                     WHERE session_id = ? AND subject_key = ? AND category = ?
                     """,
@@ -1395,13 +1396,21 @@ class AssessmentEvidenceService:
                     continue
 
                 case_id = existing["id"]
-                if existing["status"] == "EVIDENCE_CLEARED":
+                should_reopen = (
+                    existing["status"] == "EVIDENCE_CLEARED"
+                    or (
+                        existing["status"] in {"RESOLVED", "DISMISSED"}
+                        and existing["evidence_cleared_at"] is not None
+                    )
+                )
+                if should_reopen:
                     conn.execute(
                         """
                         UPDATE evidence_cases
                         SET status = 'OPEN', severity = ?, assigned_role = ?,
                             assigned_user_id = ?, updated_at = ?, last_detected_at = ?,
-                            evidence_cleared_at = NULL
+                            evidence_cleared_at = NULL, resolved_at = NULL,
+                            resolved_by = NULL, resolution_note = ''
                         WHERE id = ?
                         """,
                         (
@@ -1414,7 +1423,7 @@ class AssessmentEvidenceService:
                         case_id,
                         "REOPENED",
                         actor_id,
-                        "The evidence exception appeared again after being cleared.",
+                        "The evidence exception reappeared after its earlier evidence-clearance cycle.",
                         {"category": category, "severity": issue["severity"]},
                         now,
                     )
@@ -1434,7 +1443,7 @@ class AssessmentEvidenceService:
                     )
                 # RESOLVED and DISMISSED are human terminal decisions. A later
                 # session sync must not silently reverse those decisions.
-                if existing["status"] == "EVIDENCE_CLEARED":
+                if should_reopen:
                     if student_id is not None:
                         self.app._notify(
                             conn,
