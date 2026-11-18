@@ -311,6 +311,8 @@ class AssessmentEvidenceService:
             note = str(item.get("note", "")).strip()
             if len(note) > 1000:
                 raise AppError("Attendance notes must be 1,000 characters or fewer.")
+            if status in {"ABSENT", "EXCUSED", "CONTESTED"} and len(note) < 8:
+                raise AppError(f"{status.title()} attendance decisions require an 8-character reason.")
             if correction_mode and len(note) < 8:
                 raise AppError("Closed-register corrections require an 8-character reason.")
             prepared.append((student_id, status, int(signature), int(card), int(identity), note))
@@ -416,8 +418,10 @@ class AssessmentEvidenceService:
             raise AppError("Enter a unique script reference of at most 80 characters.")
         if len(note) > 1000:
             raise AppError("Script notes must be 1,000 characters or fewer.")
-        if student_id is None and not note.strip():
+        if student_id is None and len(note.strip()) < 8:
             raise AppError("An unidentified script needs an incident note explaining why it could not be matched.")
+        if session["status"] == "CLOSED" and len(note.strip()) < 8:
+            raise AppError("Scripts received after register closure require an 8-character reason.")
         with self.db.transaction() as conn:
             candidate = None
             if student_id is not None:
