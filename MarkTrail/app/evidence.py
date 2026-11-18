@@ -107,14 +107,79 @@ class AssessmentEvidenceService:
                     created_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS exam_session_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL REFERENCES exam_sessions(id) ON DELETE RESTRICT,
+                    event_type TEXT NOT NULL CHECK (event_type IN ('SESSION_CREATED','REGISTER_CLOSED')),
+                    actor_id INTEGER NOT NULL REFERENCES users(id),
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS exam_attendance_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    student_id INTEGER NOT NULL,
+                    actor_id INTEGER NOT NULL REFERENCES users(id),
+                    event_type TEXT NOT NULL CHECK (event_type IN ('RECORDED','CORRECTED')),
+                    old_state_json TEXT,
+                    new_state_json TEXT NOT NULL,
+                    reason TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id, student_id)
+                        REFERENCES exam_session_candidates(session_id, student_id)
+                        ON DELETE RESTRICT
+                );
+
+                CREATE TRIGGER IF NOT EXISTS exam_session_events_no_update
+                BEFORE UPDATE ON exam_session_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'exam session history is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS exam_session_events_no_delete
+                BEFORE DELETE ON exam_session_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'exam session history is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS exam_attendance_events_no_update
+                BEFORE UPDATE ON exam_attendance_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'attendance history is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS exam_attendance_events_no_delete
+                BEFORE DELETE ON exam_attendance_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'attendance history is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS exam_script_events_no_update
+                BEFORE UPDATE ON exam_script_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'script custody history is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS exam_script_events_no_delete
+                BEFORE DELETE ON exam_script_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'script custody history is append-only');
+                END;
+
                 CREATE INDEX IF NOT EXISTS idx_exam_sessions_assessment
                     ON exam_sessions(assessment_id, created_at DESC);
+
                 CREATE INDEX IF NOT EXISTS idx_exam_candidates_student
                     ON exam_session_candidates(student_id, session_id);
                 CREATE INDEX IF NOT EXISTS idx_exam_scripts_custodian
                     ON exam_scripts(current_custodian, status);
                 CREATE INDEX IF NOT EXISTS idx_exam_script_events_script
                     ON exam_script_events(script_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_exam_attendance_events_session
+                    ON exam_attendance_events(session_id, created_at, id);
+                CREATE INDEX IF NOT EXISTS idx_exam_session_events_session
+                    ON exam_session_events(session_id, created_at, id);
                 """
             )
         finally:
@@ -260,6 +325,24 @@ class AssessmentEvidenceService:
                     for row in candidates
                 ],
             )
+            conn.execute(
+                """
+                INSERT INTO exam_session_events
+                (session_id, event_type, actor_id, metadata_json, created_at)
+                VALUES (?, 'SESSION_CREATED', ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    user_id,
+                    json.dumps({
+                        "assessment_id": assessment_id,
+                        "candidate_count": len(candidates),
+                        "venue": venue,
+                        "exam_at": normalized_exam_at,
+                    }, sort_keys=True),
+                    now,
+                ),
+            )
             self.app._audit(
                 conn,
                 "EXAM_SESSION",
@@ -353,6 +436,31 @@ class AssessmentEvidenceService:
                     """,
                     (session_id, student_id, status, signature, card, identity, note, user_id, now),
                 )
+                new_state = {
+                    "attendance_status": status,
+                    "signature_present": bool(signature),
+                    "exam_card_seen": bool(card),
+                    "student_id_seen": bool(identity),
+                    "note": note,
+                }
+                conn.execute(
+                    """
+                    INSERT INTO exam_attendance_events
+                    (session_id, student_id, actor_id, event_type, old_state_json,
+                     new_state_json, reason, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        session_id,
+                        student_id,
+                        user_id,
+                        "CORRECTED" if previous is not None or correction_mode else "RECORDED",
+                        json.dumps(dict(previous), sort_keys=True) if previous else None,
+                        json.dumps(new_state, sort_keys=True),
+                        note,
+                        now,
+                    ),
+                )
                 self.app._audit(
                     conn,
                     "EXAM_ATTENDANCE",
@@ -398,6 +506,19 @@ class AssessmentEvidenceService:
                 WHERE id = ? AND status = 'OPEN'
                 """,
                 (user_id, utc_now(), session_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO exam_session_events
+                (session_id, event_type, actor_id, metadata_json, created_at)
+                VALUES (?, 'REGISTER_CLOSED', ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    user_id,
+                    json.dumps({"assessment_id": session["assessment_id"]}, sort_keys=True),
+                    utc_now(),
+                ),
             )
             self.app._audit(
                 conn, "EXAM_SESSION", session_id, user_id, "EXAM_SESSION_CLOSED",
