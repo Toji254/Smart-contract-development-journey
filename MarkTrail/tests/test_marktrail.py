@@ -576,6 +576,33 @@ class MarkTrailTests(unittest.TestCase):
                 """
             )
 
+    def test_new_assessment_creation_requires_explicit_release_policy(self):
+        with self.assertRaisesRegex(AppError, "explicit release policy"):
+            self.service.admin_create_assessment(
+                self.admin["id"],
+                "course-csc201",
+                "Unclassified Assessment",
+                20,
+            )
+
+        created = self.service.admin_create_assessment(
+            self.admin["id"],
+            "course-csc201",
+            "Explicit Direct CAT",
+            20,
+            None,
+            "DIRECT",
+        )
+        conn = self.db.connect()
+        try:
+            policy = conn.execute(
+                "SELECT release_policy FROM assessments WHERE id = ?",
+                (created["id"],),
+            ).fetchone()["release_policy"]
+        finally:
+            conn.close()
+        self.assertEqual(policy, "DIRECT")
+
     def _create_senate_release_batch(self, assessment_name="Final Exam Senate Test"):
         assessment = self.service.admin_create_assessment(
             self.admin["id"],
