@@ -236,6 +236,32 @@ class Database:
                     """
                 )
 
+            senate_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(senate_decisions)").fetchall()
+            }
+            if senate_columns and "revision" not in senate_columns:
+                conn.execute(
+                    "ALTER TABLE senate_decisions ADD COLUMN revision INTEGER NOT NULL DEFAULT 0"
+                )
+                conn.execute(
+                    """
+                    UPDATE batches
+                    SET senate_status = 'PENDING'
+                    WHERE senate_status IN ('APPROVED','DEFERRED')
+                      AND id IN (
+                        SELECT d.batch_id
+                        FROM senate_decisions d
+                        WHERE d.revision = 0
+                      )
+                      AND EXISTS (
+                        SELECT 1 FROM assessments a
+                        WHERE a.id = batches.assessment_id
+                          AND a.release_policy = 'SENATE'
+                      )
+                    """
+                )
+
             revisions_cols = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(batch_revisions)").fetchall()
@@ -426,6 +452,7 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     batch_id TEXT NOT NULL REFERENCES batches(id) ON DELETE RESTRICT,
                     decision_number INTEGER NOT NULL,
+                    revision INTEGER NOT NULL CHECK (revision > 0),
                     decision TEXT NOT NULL CHECK (decision IN ('APPROVED','DEFERRED')),
                     meeting_reference TEXT NOT NULL,
                     reason TEXT NOT NULL DEFAULT '',
