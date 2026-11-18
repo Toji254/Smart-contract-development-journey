@@ -749,8 +749,8 @@ class Database:
             conn.execute(
                 """
                 INSERT INTO senate_decisions
-                (batch_id, decision_number, decision, meeting_reference, reason, actor_id, created_at)
-                VALUES (?, 1, 'APPROVED', 'DEMO-SENATE-MEETING-001',
+                (batch_id, decision_number, revision, decision, meeting_reference, reason, actor_id, created_at)
+                VALUES (?, 1, 1, 'APPROVED', 'DEMO-SENATE-MEETING-001',
                         'Synthetic demo approval for a pre-published sample result.', ?, ?)
                 """,
                 (batch_id, int(senate_actor["id"]), now),
