@@ -384,6 +384,21 @@ async function loadStudent() {
           ? '<p class="muted">' + esc(item.exam_at || "Exam time not recorded") +
             (item.venue ? " · " + esc(item.venue) : "") + '</p>'
           : '<p class="muted">No examination evidence has been captured in MarkTrail for this assessment yet.</p>';
+        const studentEvidenceForm = item.evidence_available
+          ? '<form class="student-evidence-report" data-evidence-report-session="' + esc(item.session_id) + '">' +
+            '<label>What needs checking?' +
+            '<select name="category" required>' +
+            '<option value="">Choose an issue</option>' +
+            '<option value="ATTENDANCE">I attended but attendance is missing or incorrect</option>' +
+            '<option value="SIGNATURE">My attendance signature is missing or disputed</option>' +
+            '<option value="SCRIPT_SUBMISSION">I submitted my answer booklet but script receipt is missing</option>' +
+            '<option value="OTHER">Another examination evidence issue</option>' +
+            '</select></label>' +
+            '<label>Explain what happened' +
+            '<textarea name="description" rows="3" maxlength="1000" minlength="10" required placeholder="Tell the department what you experienced and what evidence you can help them locate."></textarea></label>' +
+            '<button type="submit" class="button secondary">Report an evidence issue</button>' +
+            '<small class="muted">Your report opens a review case. It does not create or change a mark.</small></form>'
+          : '';
         return '<article class="student-progress-card"><div class="issue-top"><div><p class="eyebrow">' +
           esc(item.course) + '</p><h3>' + esc(item.assessment) + '</h3></div>' +
           (item.session_status ? badge(item.session_status) : '<span class="badge muted">No session</span>') +
@@ -399,9 +414,40 @@ async function loadStudent() {
           (evidenceCases
             ? '<div class="student-cases"><strong>Evidence cases</strong>' + evidenceCases + '</div>'
             : '') +
+          studentEvidenceForm +
           '</article>';
       }).join("")
     : '<div class="card"><p class="muted">No assessments are linked to your student account yet. Contact your department if this does not look right.</p></div>';
+
+  progressRoot.querySelectorAll(".student-evidence-report").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const values = new FormData(form);
+      const category = String(values.get("category") || "");
+      const description = String(values.get("description") || "").trim();
+      if (!category || description.length < 10) {
+        toast("Choose an issue type and describe what happened in at least 10 characters.", "error");
+        return;
+      }
+      const submit = form.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      try {
+        const result = await api("/api/student/evidence-cases", {
+          method: "POST",
+          body: JSON.stringify({
+            session_id: form.dataset.evidenceReportSession,
+            category,
+            description
+          })
+        });
+        toast("Evidence report received. Case " + result.case_id + " is now with staff for review.");
+        await loadStudent();
+      } catch (error) {
+        toast(error.message, "error");
+        submit.disabled = false;
+      }
+    });
+  });
 
   $("#student-reports").innerHTML =
     reportsData.reports.length === 0
