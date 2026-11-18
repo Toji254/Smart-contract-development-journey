@@ -327,6 +327,68 @@ class AssessmentEvidenceService:
                     SELECT RAISE(ABORT, 'script custody history is append-only');
                 END;
 
+                CREATE TABLE IF NOT EXISTS evidence_cases (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL REFERENCES exam_sessions(id) ON DELETE RESTRICT,
+                    assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE RESTRICT,
+                    student_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                    script_id TEXT REFERENCES exam_scripts(id) ON DELETE RESTRICT,
+                    subject_key TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    severity TEXT NOT NULL CHECK (severity IN ('high','medium','low')),
+                    status TEXT NOT NULL CHECK (
+                        status IN ('OPEN','EVIDENCE_CLEARED','RESOLVED','DISMISSED')
+                    ),
+                    assigned_role TEXT NOT NULL CHECK (
+                        assigned_role IN ('lecturer','reviewer','exam_office','admin')
+                    ),
+                    assigned_user_id INTEGER REFERENCES users(id),
+                    opened_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    last_detected_at TEXT NOT NULL,
+                    evidence_cleared_at TEXT,
+                    resolved_at TEXT,
+                    resolved_by INTEGER REFERENCES users(id),
+                    resolution_note TEXT NOT NULL DEFAULT '',
+                    UNIQUE (session_id, subject_key, category)
+                );
+
+                CREATE TABLE IF NOT EXISTS evidence_case_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    case_id TEXT NOT NULL REFERENCES evidence_cases(id) ON DELETE RESTRICT,
+                    event_type TEXT NOT NULL CHECK (
+                        event_type IN (
+                            'OPENED','UPDATED','EVIDENCE_CLEARED',
+                            'ASSIGNED','RESOLVED','DISMISSED'
+                        )
+                    ),
+                    actor_id INTEGER REFERENCES users(id),
+                    note TEXT NOT NULL DEFAULT '',
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TRIGGER IF NOT EXISTS evidence_case_events_no_update
+                BEFORE UPDATE ON evidence_case_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'evidence case history is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS evidence_case_events_no_delete
+                BEFORE DELETE ON evidence_case_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'evidence case history is append-only');
+                END;
+
+                CREATE INDEX IF NOT EXISTS idx_evidence_cases_student
+                    ON evidence_cases(student_id, status, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_evidence_cases_assignment
+                    ON evidence_cases(assigned_role, assigned_user_id, status, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_evidence_cases_session
+                    ON evidence_cases(session_id, status, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_evidence_case_events_case
+                    ON evidence_case_events(case_id, created_at, id);
+
                 CREATE INDEX IF NOT EXISTS idx_exam_sessions_assessment
                     ON exam_sessions(assessment_id, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_exam_card_signoffs_session
