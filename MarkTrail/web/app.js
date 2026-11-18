@@ -11,6 +11,7 @@ const state = {
   senateBatches: [],
   evidenceAssessments: [],
   evidenceStaff: [],
+  evidenceCases: [],
   evidenceSessions: [],
   evidenceSelectedAssessment: "",
   evidenceSelectedSession: "",
@@ -1277,12 +1278,15 @@ function evidenceStaffOptions(selectedId) {
 }
 
 async function loadEvidence() {
-  const [assessmentData, staffData] = await Promise.all([
+  const [assessmentData, staffData, caseData] = await Promise.all([
     api("/api/evidence/assessments"),
-    api("/api/evidence/staff")
+    api("/api/evidence/staff"),
+    api("/api/evidence/cases")
   ]);
   state.evidenceAssessments = assessmentData.assessments || [];
   state.evidenceStaff = staffData.staff || [];
+  state.evidenceCases = caseData.cases || [];
+  renderEvidenceCaseQueue();
 
   const select = $("#evidence-assessment");
   const previous = state.evidenceSelectedAssessment || select.value;
@@ -1303,6 +1307,81 @@ async function loadEvidence() {
     return;
   }
   await loadEvidenceAssessment(state.evidenceSelectedAssessment);
+}
+
+function evidenceCaseLabel(code) {
+  return String(code || "UNKNOWN").replaceAll("_", " ").toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function renderEvidenceCaseQueue() {
+  const root = $("#evidence-case-queue");
+  if (!root) return;
+  const cases = state.evidenceCases || [];
+  root.innerHTML = cases.length
+    ? cases.map((item) => {
+        const identity = item.registration_number
+          ? esc(item.registration_number) + " · " + esc(item.full_name || "Candidate")
+          : (item.script_ref ? "Script " + esc(item.script_ref) : "Candidate record");
+        const assignment = item.assigned_role
+          ? "Assigned to " + esc(item.assigned_role.replaceAll("_", " "))
+          : "";
+        const canDecide = ["reviewer", "admin"].includes(state.user.role) &&
+          ["OPEN", "EVIDENCE_CLEARED"].includes(item.status);
+        const decision = canDecide
+          ? '<label>Decision note<textarea data-case-reason="' + esc(item.id) + '" rows="2" maxlength="1000" placeholder="Record what was checked and why this case can close"></textarea></label>' +
+            '<div class="actions"><button type="button" class="button primary" data-case-decision="RESOLVED" data-case-id="' + esc(item.id) + '">Resolve case</button>' +
+            '<button type="button" class="button secondary" data-case-decision="DISMISSED" data-case-id="' + esc(item.id) + '">Dismiss as not applicable</button></div>'
+          : "";
+        return '<article class="issue evidence-case" data-case-card="' + esc(item.id) + '">' +
+          '<div class="issue-top"><div><strong>' + esc(item.course + " · " + item.assessment) + '</strong>' +
+          '<p class="muted">' + identity + '</p></div><div class="case-badges">' +
+          badge(item.severity) + badge(item.status) + '</div></div>' +
+          '<p class="case-category">' + esc(evidenceCaseLabel(item.category)) + '</p>' +
+          '<small class="muted">' + assignment + ' · Updated ' + esc(item.updated_at) + '</small>' +
+          (item.status === "EVIDENCE_CLEARED"
+            ? '<p class="muted">The source evidence no longer shows this exception. A reviewer must confirm the case outcome.</p>'
+            : "") +
+          decision + '</article>';
+      }).join("")
+    : '<div class="card"><p class="muted">No evidence cases are currently assigned to this role or account.</p></div>';
+
+  root.querySelectorAll("[data-case-decision]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const card = button.closest("[data-case-card]");
+      const reason = card.querySelector("[data-case-reason]").value.trim();
+      if (reason.length < 8) {
+        toast("Add an investigation outcome of at least 8 characters.", "error");
+        return;
+      }
+      if (!confirm(
+        button.dataset.caseDecision === "RESOLVED"
+          ? "Confirm that the evidence case has been investigated and resolved?"
+          : "Confirm that this exception is not applicable and should be dismissed?"
+      )) return;
+      button.disabled = true;
+      try {
+        await api("/api/evidence/cases/" + encodeURIComponent(button.dataset.caseId) + "/decision", {
+          method: "POST",
+          body: JSON.stringify({
+            decision: button.dataset.caseDecision,
+            reason
+          })
+        });
+        toast("Evidence case " + button.dataset.caseDecision.toLowerCase() + ".");
+        await loadEvidenceCases();
+      } catch (error) {
+        toast(error.message, "error");
+        button.disabled = false;
+      }
+    });
+  });
+}
+
+async function loadEvidenceCases() {
+  const data = await api("/api/evidence/cases");
+  state.evidenceCases = data.cases || [];
+  renderEvidenceCaseQueue();
 }
 
 async function loadEvidenceAssessment(assessmentId) {
