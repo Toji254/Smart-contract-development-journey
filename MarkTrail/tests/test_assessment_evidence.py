@@ -322,6 +322,55 @@ class AssessmentEvidenceTests(unittest.TestCase):
                     (session_id,),
                 )
 
+    def test_student_progress_is_scoped_and_hides_staff_only_notes(self):
+        session_id = self.create_session()
+        candidates = self.record_complete_register(session_id)
+        first = candidates[0]
+        self.evidence.receive_script(
+            self.users["lecturer"],
+            session_id,
+            first["student_id"],
+            "STUDENT-VIEW-PACKET-01",
+            "Private intake note for staff only.",
+        )
+
+        first_progress = self.evidence.student_progress(first["student_id"])
+        first_item = next(
+            item for item in first_progress
+            if item["assessment_id"] == "assessment-demo-upload"
+            and item["session_id"] == session_id
+        )
+        self.assertEqual(first_item["attendance_status"], "PRESENT")
+        self.assertEqual(first_item["script_status"], "RECEIVED")
+        self.assertTrue(first_item["evidence_available"])
+        self.assertNotIn("activity", first_item)
+        self.assertNotIn("note", first_item)
+        self.assertNotIn("script_ref", first_item)
+        self.assertNotIn("current_custodian", first_item)
+
+        second_progress = self.evidence.student_progress(candidates[1]["student_id"])
+        second_item = next(
+            item for item in second_progress
+            if item["assessment_id"] == "assessment-demo-upload"
+            and item["session_id"] == session_id
+        )
+        self.assertEqual(second_item["attendance_status"], "ABSENT")
+        self.assertIsNone(second_item["script_status"])
+
+    def test_student_progress_marks_unrecorded_exam_evidence_as_unavailable(self):
+        progress = self.evidence.student_progress(self.users["student"])
+        item = next(
+            row for row in progress
+            if row["assessment_id"] == "assessment-demo-upload"
+        )
+        self.assertFalse(item["evidence_available"])
+        self.assertIsNone(item["attendance_status"])
+        self.assertIsNone(item["script_status"])
+
+    def test_non_student_cannot_read_student_progress(self):
+        with self.assertRaisesRegex(AppError, "permission"):
+            self.evidence.student_progress(self.users["lecturer"])
+
     def test_student_cannot_access_staff_evidence_management(self):
         with self.assertRaisesRegex(AppError, "permission"):
             self.evidence.list_assessments(self.users["student"])
