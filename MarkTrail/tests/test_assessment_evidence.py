@@ -652,6 +652,67 @@ class AssessmentEvidenceTests(unittest.TestCase):
         finally:
             check.close()
 
+    def test_student_can_report_own_exam_evidence_issue_and_track_case(self):
+        session_id = self.create_session(session_type="FINAL_EXAM")
+        candidates = self.record_complete_register(session_id)
+        own_student = candidates[0]["student_id"]
+
+        with self.assertRaisesRegex(AppError, "10–1,000 characters"):
+            self.evidence.student_report_evidence_issue(
+                own_student, session_id, "ATTENDANCE", "Too short"
+            )
+
+        with self.assertRaisesRegex(AppError, "own registered unit"):
+            self.evidence.student_report_evidence_issue(
+                999999, session_id, "ATTENDANCE",
+                "I attended the examination but my attendance is not displayed.",
+            )
+
+        report = self.evidence.student_report_evidence_issue(
+            own_student,
+            session_id,
+            "SCRIPT_SUBMISSION",
+            "I handed my answer booklet to the invigilator but the portal still shows no script receipt.",
+        )
+        self.assertEqual(report["status"], "OPEN")
+        self.assertEqual(report["category"], "STUDENT_REPORTED_SCRIPT_SUBMISSION")
+
+        repeated = self.evidence.student_report_evidence_issue(
+            own_student,
+            session_id,
+            "SCRIPT_SUBMISSION",
+            "I am following up with another detail about the same answer booklet hand-in.",
+        )
+        self.assertEqual(repeated["case_id"], report["case_id"])
+
+        reviewer_queue = self.evidence.list_evidence_cases(self.users["reviewer"])
+        case = next(item for item in reviewer_queue if item["id"] == report["case_id"])
+        self.assertEqual(case["status"], "OPEN")
+        self.assertEqual(case["assigned_role"], "reviewer")
+        self.assertEqual(len(case["events"]), 2)
+        self.assertIn("another detail", case["events"][-1]["note"])
+
+        student_cases = self.evidence.list_evidence_cases(own_student)
+        own_case = next(item for item in student_cases if item["id"] == report["case_id"])
+        self.assertEqual(own_case["status"], "OPEN")
+        self.assertNotIn("events", own_case)
+        self.assertNotIn("resolution_note", own_case)
+        self.assertNotIn("assigned_user_name", own_case)
+
+        other_student_cases = self.evidence.list_evidence_cases(candidates[1]["student_id"])
+        self.assertFalse(any(item["id"] == report["case_id"] for item in other_student_cases))
+
+        notifications = self.app.student_notifications(own_student)
+        self.assertTrue(any(item["event_type"] == "EVIDENCE_CASE_OPENED" for item in notifications))
+
+        with self.assertRaisesRegex(AppError, "permission"):
+            self.evidence.student_report_evidence_issue(
+                self.users["lecturer"],
+                session_id,
+                "OTHER",
+                "A lecturer cannot submit a student-owned evidence report.",
+            )
+
     def test_evidence_case_opens_clears_and_requires_human_resolution(self):
         session_id = self.create_session()
         candidates = self.record_complete_register(
