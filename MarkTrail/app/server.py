@@ -204,6 +204,7 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     str(body.get("assessment_id", "")),
                     str(body.get("exam_at", "")),
                     str(body.get("venue", "")),
+                    str(body.get("session_type", "UNCLASSIFIED")),
                 ),
                 201,
             )
@@ -221,6 +222,15 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
             body = self._body()
             return self._send_json(
                 self.evidence.record_attendance(
+                    user_id, match.group(1), body.get("items", [])
+                )
+            )
+
+        match = re.fullmatch(r"/api/evidence/sessions/([^/]+)/exam-card-signoffs", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.evidence.sign_exam_cards(
                     user_id, match.group(1), body.get("items", [])
                 )
             )
