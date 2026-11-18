@@ -6,7 +6,13 @@ const state = {
   reports: [],
   adminUsers: [],
   adminCourses: [],
-  adminBatches: []
+  adminBatches: [],
+  evidenceAssessments: [],
+  evidenceStaff: [],
+  evidenceSessions: [],
+  evidenceSelectedAssessment: "",
+  evidenceSelectedSession: "",
+  evidenceDetail: null
 };
 let bulkActivationCredentials = [];
 
@@ -113,11 +119,11 @@ function showView(view) {
   const role = state.user.role;
   const panelMap = {
     student: { home: "student-panel", marks: "student-panel", reports: "student-panel", audit: "audit-panel" },
-    lecturer: { home: "lecturer-panel", batches: "lecturer-panel", reports: "lecturer-panel", audit: "audit-panel" },
-    reviewer: { home: "reviewer-panel", verify: "reviewer-panel", audit: "audit-panel" },
-    exam_office: { home: "exam-office-panel", process: "exam-office-panel", audit: "audit-panel" },
+    lecturer: { home: "lecturer-panel", batches: "lecturer-panel", reports: "lecturer-panel", evidence: "evidence-panel", audit: "audit-panel" },
+    reviewer: { home: "reviewer-panel", verify: "reviewer-panel", evidence: "evidence-panel", audit: "audit-panel" },
+    exam_office: { home: "exam-office-panel", process: "exam-office-panel", evidence: "evidence-panel", audit: "audit-panel" },
     portal_operator: { home: "portal-operator-panel", import: "portal-operator-panel", audit: "audit-panel" },
-    admin: { home: "admin-panel", setup: "admin-panel", audit: "audit-panel" }
+    admin: { home: "admin-panel", setup: "admin-panel", evidence: "evidence-panel", audit: "audit-panel" }
   };
   const id = panelMap[role]?.[view] || panelMap[role]?.home;
   if (id) {
@@ -152,6 +158,7 @@ function updatePageHeading(view) {
     process: ["Process batches", "Record exam-office processing."],
     import: ["Publish marks", "Make processed marks available to students."],
     setup: ["Institution setup", "Users, courses, rosters, and assessments."],
+    evidence: ["Assessment evidence", "Track attendance, scripts, custody and marking before marks are submitted."],
     audit: ["Batch history", "Follow the handoffs and see what changed."]
   };
   const item = titles[view] || titles.home;
@@ -163,11 +170,11 @@ function buildNav() {
   const role = state.user.role;
   const views = {
     student: [["home", "Dashboard"], ["marks", "My marks"], ["reports", "My reports"], ["audit", "History"]],
-    lecturer: [["home", "Dashboard"], ["batches", "Upload & batches"], ["reports", "Issues"], ["audit", "History"]],
-    reviewer: [["home", "Dashboard"], ["verify", "Review batches"], ["audit", "History"]],
-    exam_office: [["home", "Dashboard"], ["process", "Process batches"], ["audit", "History"]],
+    lecturer: [["home", "Dashboard"], ["batches", "Upload & batches"], ["evidence", "Exam evidence"], ["reports", "Issues"], ["audit", "History"]],
+    reviewer: [["home", "Dashboard"], ["verify", "Review batches"], ["evidence", "Exam evidence"], ["audit", "History"]],
+    exam_office: [["home", "Dashboard"], ["process", "Process batches"], ["evidence", "Exam evidence"], ["audit", "History"]],
     portal_operator: [["home", "Dashboard"], ["import", "Publish marks"], ["audit", "History"]],
-    admin: [["home", "Dashboard"], ["setup", "Setup"], ["audit", "History"]]
+    admin: [["home", "Dashboard"], ["setup", "Setup"], ["evidence", "Exam evidence"], ["audit", "History"]]
   };
   $("#nav").innerHTML = (views[role] || [])
     .map(([value, label]) => '<button data-view="' + value + '">' + label + "</button>")
@@ -1020,6 +1027,422 @@ async function loadAuditSelector() {
     : '<option value="">No batches available</option>';
 }
 
+
+
+// ── Assessment evidence workspace ───────────────────────────
+function evidenceIssueLabel(code) {
+  const labels = {
+    ATTENDANCE_NOT_RECORDED: "Attendance decision not recorded",
+    ATTENDANCE_DISPUTED: "Attendance is disputed",
+    ATTENDANCE_SIGNATURE_MISSING: "Present, but signature is missing",
+    EXAM_CARD_CHECK_NOT_RECORDED: "Exam-card check not recorded",
+    STUDENT_ID_CHECK_NOT_RECORDED: "Student-ID check not recorded",
+    SCRIPT_NOT_RECEIVED: "Candidate recorded present; no script receipt",
+    SCRIPT_RECEIVED_FOR_RECORDED_ABSENT: "Script received for a candidate recorded absent",
+    SCRIPT_WITHOUT_ATTENDANCE: "Script has no attendance record",
+    SCRIPT_HANDOFF_NOT_ACCEPTED: "Script handover awaits acceptance",
+    SCRIPT_NOT_MARKED: "Script received but not marked",
+    MARK_ENTRY_NOT_FOUND: "Script marked; no marks entry found",
+    MARK_RECORDED_FOR_RECORDED_ABSENT: "Mark recorded for a candidate recorded absent",
+    MARK_WITHOUT_SCRIPT_RECEIPT: "Mark exists but no script receipt was recorded",
+    SCRIPT_UNIDENTIFIED: "Script received but candidate is unidentified"
+  };
+  return labels[code] || code.replaceAll("_", " ").toLowerCase();
+}
+
+function evidenceStaffOptions(selectedId) {
+  return state.evidenceStaff.map((person) =>
+    '<option value="' + esc(person.id) + '"' +
+    (Number(selectedId) === Number(person.id) ? " selected" : "") + ">" +
+    esc(person.full_name + " · " + person.role.replaceAll("_", " ")) + "</option>"
+  ).join("");
+}
+
+async function loadEvidence() {
+  const [assessmentData, staffData] = await Promise.all([
+    api("/api/evidence/assessments"),
+    api("/api/evidence/staff")
+  ]);
+  state.evidenceAssessments = assessmentData.assessments || [];
+  state.evidenceStaff = staffData.staff || [];
+
+  const select = $("#evidence-assessment");
+  const previous = state.evidenceSelectedAssessment || select.value;
+  select.innerHTML = state.evidenceAssessments.length
+    ? state.evidenceAssessments.map((assessment) =>
+        '<option value="' + esc(assessment.id) + '">' +
+        esc(assessment.course_code + " · " + assessment.name) +
+        " · " + esc(assessment.enrolled_count) + " students</option>"
+      ).join("")
+    : '<option value="">No assessments available for your account</option>';
+  state.evidenceSelectedAssessment = state.evidenceAssessments.some((item) => item.id === previous)
+    ? previous
+    : (state.evidenceAssessments[0]?.id || "");
+  select.value = state.evidenceSelectedAssessment;
+  if (!state.evidenceSelectedAssessment) {
+    $("#evidence-sessions").innerHTML = '<p class="muted">No assessments are assigned to this account.</p>';
+    $("#evidence-workspace").innerHTML = "";
+    return;
+  }
+  await loadEvidenceAssessment(state.evidenceSelectedAssessment);
+}
+
+async function loadEvidenceAssessment(assessmentId) {
+  state.evidenceSelectedAssessment = assessmentId;
+  const data = await api("/api/evidence/assessments/" + encodeURIComponent(assessmentId));
+  state.evidenceSessions = data.sessions || [];
+  if (!state.evidenceSessions.some((item) => item.id === state.evidenceSelectedSession)) {
+    state.evidenceSelectedSession = state.evidenceSessions[0]?.id || "";
+  }
+  renderEvidenceSessions();
+  if (state.evidenceSelectedSession) {
+    await loadEvidenceSession(state.evidenceSelectedSession);
+  } else {
+    state.evidenceDetail = null;
+    $("#evidence-workspace").innerHTML =
+      '<div class="card"><p class="muted">No examination session exists yet. Create one above to snapshot the candidate register.</p></div>';
+  }
+}
+
+async function loadEvidenceSession(sessionId) {
+  state.evidenceSelectedSession = sessionId;
+  state.evidenceDetail = await api("/api/evidence/sessions/" + encodeURIComponent(sessionId));
+  renderEvidenceSessions();
+  renderEvidenceSession();
+}
+
+function renderEvidenceSessions() {
+  const root = $("#evidence-sessions");
+  if (!state.evidenceSessions.length) {
+    root.innerHTML = '<p class="muted">No examination sessions yet for this assessment.</p>';
+    return;
+  }
+  root.innerHTML = state.evidenceSessions.map((session) =>
+    '<button type="button" class="evidence-session' +
+    (session.id === state.evidenceSelectedSession ? " active" : "") +
+    '" data-evidence-open-session="' + esc(session.id) + '">' +
+    '<span><strong>' + esc(session.venue) + '</strong><small>' +
+    esc(session.exam_at) + " · " + esc(session.candidate_count) + " candidates</small></span>" +
+    badge(session.status) + "</button>"
+  ).join("");
+  root.querySelectorAll("[data-evidence-open-session]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await loadEvidenceSession(button.dataset.evidenceOpenSession);
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+  });
+}
+
+function renderEvidenceSession() {
+  const root = $("#evidence-workspace");
+  const data = state.evidenceDetail;
+  if (!data) {
+    root.innerHTML = "";
+    return;
+  }
+  const session = data.session;
+  const summary = data.summary;
+  const locked = session.status === "CLOSED";
+  const candidates = data.candidates || [];
+  const candidateOptions = candidates.map((candidate) =>
+    '<option value="' + esc(candidate.student_id) + '">' +
+    esc((candidate.registration_number || "No reg number") + " · " + candidate.full_name) +
+    "</option>"
+  ).join("");
+
+  let rosterRows = candidates.map((candidate) => {
+    const attendance = candidate.attendance || {};
+    const recordedStatus = attendance.attendance_status || "";
+    const script = candidate.script;
+    const markLabel = candidate.mark && candidate.mark.candidate_status === "RECORDED"
+      ? "Mark entered"
+      : "No mark entry";
+    return "<tr data-evidence-candidate=\"" + esc(candidate.student_id) + "\">" +
+      "<td><strong>" + esc(candidate.registration_number || "—") + "</strong><small>" + esc(candidate.full_name) + "</small></td>" +
+      '<td><select data-attendance-status ' + (locked ? "disabled" : "") + ">" +
+      '<option value="">Not recorded</option>' +
+      ["PRESENT", "ABSENT", "EXCUSED", "CONTESTED"].map((option) =>
+        '<option value="' + option + '"' + (recordedStatus === option ? " selected" : "") + ">" +
+        option.replaceAll("_", " ") + "</option>"
+      ).join("") + "</select></td>" +
+      '<td><label class="check-inline"><input type="checkbox" data-signature ' +
+      (attendance.signature_present ? "checked" : "") + (locked ? " disabled" : "") +
+      "> Signed</label></td>" +
+      '<td><label class="check-inline"><input type="checkbox" data-exam-card ' +
+      (attendance.exam_card_seen ? "checked" : "") + (locked ? " disabled" : "") +
+      "> Card</label></td>" +
+      '<td><label class="check-inline"><input type="checkbox" data-student-id ' +
+      (attendance.student_id_seen ? "checked" : "") + (locked ? " disabled" : "") +
+      "> ID</label></td>" +
+      "<td>" + (script ? badge(script.status) + '<small>' + esc(script.script_ref) + "</small>" : '<span class="muted">No receipt</span>') + "</td>" +
+      "<td>" + esc(markLabel) + "</td>" +
+      '<td><input type="text" data-attendance-note maxlength="1000" placeholder="Optional incident note" value="' +
+      esc(attendance.note || "") + '"' + (locked ? " disabled" : "") + ">" +
+      '<button type="button" class="button secondary" data-save-attendance="' + esc(candidate.student_id) + '"' +
+      (locked ? " disabled" : "") + ">Save</button></td></tr>";
+  }).join("");
+
+  const issues = (data.exceptions || []).length
+    ? '<div class="evidence-issues">' + data.exceptions.map((issue) =>
+        '<div class="evidence-issue"><span>' + esc(issue.registration_number || issue.script_ref || "Unmatched record") +
+        " · " + esc(issue.full_name || "") + "</span>" +
+        "<strong>" + esc(evidenceIssueLabel(issue.code)) + "</strong>" +
+        badge(issue.severity) + "</div>"
+      ).join("") + "</div>"
+    : '<p class="muted">No reconciliation exceptions detected in the evidence currently recorded.</p>';
+
+  const scripts = candidates.filter((candidate) => candidate.script).map((candidate) => ({
+    candidate,
+    script: candidate.script
+  }));
+  const scriptCards = scripts.length
+    ? scripts.map(({candidate, script}) => {
+        const currentCustodian = Number(script.current_custodian);
+        const pendingCustodian = Number(script.pending_custodian);
+        let actions = "";
+        if (script.status === "HANDOFF_PENDING" && pendingCustodian === Number(state.user.id)) {
+          actions = '<button type="button" class="button primary" data-accept-script="' + esc(script.id) + '">Accept custody</button>';
+        } else if (script.status !== "MARKED" && currentCustodian === Number(state.user.id)) {
+          actions =
+            '<div class="form-grid compact-grid"><label>Hand over to<select data-handoff-recipient="' + esc(script.id) + '">' +
+            '<option value="">Choose staff member</option>' + evidenceStaffOptions("") +
+            '</select></label><label>Handover note<input data-handoff-note="' + esc(script.id) + '" maxlength="1000" placeholder="e.g. second marker"></label></div>' +
+            '<div class="actions"><button type="button" class="button secondary" data-handoff-script="' + esc(script.id) + '">Request handover</button>' +
+            '<button type="button" class="button primary" data-mark-script="' + esc(script.id) + '">Marking complete</button></div>';
+        } else {
+          actions = '<p class="muted">Custody: staff account #' + esc(currentCustodian) + '</p>';
+        }
+        return '<div class="script-card"><div class="issue-top"><div><strong>' + esc(script.script_ref) +
+          '</strong><div class="muted">' + esc(candidate.registration_number || "") + " · " + esc(candidate.full_name) +
+          "</div></div>" + badge(script.status) + "</div><p class=\"muted\">Received " +
+          esc(script.received_at || "") + "</p>" + actions + "</div>";
+      }).join("")
+    : '<p class="muted">No candidate-linked scripts have been received in this session yet.</p>';
+
+  const orphanCards = (data.unidentified_scripts || []).map((script) => {
+    const linkAction = ["reviewer", "exam_office", "admin"].includes(state.user.role)
+      ? '<div class="form-grid compact-grid"><label>Match to candidate<select data-link-candidate="' + esc(script.id) +
+        '"><option value="">Select candidate</option>' + candidateOptions + '</select></label>' +
+        '<label>Reason / evidence<input data-link-reason="' + esc(script.id) +
+        '" maxlength="1000" placeholder="Explain how identity was confirmed"></label></div>' +
+        '<button type="button" class="button primary" data-link-script="' + esc(script.id) + '">Link verified candidate</button>'
+      : '<p class="muted">A reviewer or exam-office officer must verify and link this script to a candidate.</p>';
+    return '<div class="script-card"><div class="issue-top"><div><strong>' + esc(script.script_ref) +
+      '</strong><div class="muted">Candidate not identified · ' + esc(script.received_at) +
+      '</div></div>' + badge("FLAGGED") + "</div><p>" + esc(script.notes || "") + "</p>" + linkAction + "</div>";
+  }).join("");
+
+  root.innerHTML =
+    '<div class="card"><div class="section-head compact"><div><p class="eyebrow">SESSION OVERVIEW</p><h2>' +
+    esc(session.course + " · " + session.assessment) + "</h2><p class=\"muted\">" +
+    esc(session.exam_at + " · " + session.venue) + "</p></div>" + badge(session.status) + "</div>" +
+    '<div class="evidence-metrics">' +
+    '<div><strong>' + esc(summary.candidates) + '</strong><span>Candidates</span></div>' +
+    '<div><strong>' + esc(summary.attendance_recorded) + '</strong><span>Attendance captured</span></div>' +
+    '<div><strong>' + esc(summary.scripts_received) + '</strong><span>Scripts received</span></div>' +
+    '<div><strong>' + esc(summary.scripts_marked) + '</strong><span>Scripts marked</span></div>' +
+    '<div><strong>' + esc(summary.exceptions) + '</strong><span>Exceptions</span></div></div>' +
+    (locked ? '<p class="muted">Attendance register is closed. Historical records remain visible.</p>' :
+      '<p class="muted">Record an explicit decision for each candidate. A PRESENT decision without a signature stays PRESENT and raises a signature exception; it is never converted to ABSENT.</p>') +
+    (locked ? "" : '<div class="actions"><button type="button" class="button secondary" id="close-evidence-session">Close attendance register</button></div>') +
+    "</div>" +
+    '<div class="card"><div class="section-head compact"><div><p class="eyebrow">CANDIDATE REGISTER</p><h2>Attendance and checks</h2></div></div>' +
+    '<div class="table-wrap"><table><thead><tr><th>Candidate</th><th>Attendance decision</th><th>Signature</th><th>Exam card</th><th>Student ID</th><th>Script</th><th>Marks</th><th>Incident note / action</th></tr></thead><tbody>' +
+    (rosterRows || '<tr><td colspan="8">No candidates in the locked roster.</td></tr>') +
+    "</tbody></table></div></div>" +
+    '<div class="card"><div class="section-head compact"><div><p class="eyebrow">SCRIPT INTAKE</p><h2>Record a collected script</h2></div></div>' +
+    '<form id="evidence-script-form" class="form-grid">' +
+    '<label>Candidate<select id="evidence-script-student"><option value="">Unidentified / needs review</option>' + candidateOptions + '</select></label>' +
+    '<label>Script or booklet reference<input id="evidence-script-ref" maxlength="80" placeholder="e.g. packet-04-seat-18" required></label>' +
+    '<label>Receipt / incident note<input id="evidence-script-note" maxlength="1000" placeholder="Required for unidentified scripts"></label>' +
+    '<div class="actions"><button type="submit" class="button primary">Record script receipt</button></div></form>' +
+    '<p class="muted">Use an institution-approved reference or packet identifier. Do not type marks or sensitive personal details into this reference.</p></div>' +
+    '<div class="card"><div class="section-head compact"><div><p class="eyebrow">SCRIPT CUSTODY</p><h2>Received scripts and handovers</h2></div></div>' +
+    scriptCards + orphanCards + "</div>" +
+    '<div class="card"><div class="section-head compact"><div><p class="eyebrow">RECONCILIATION</p><h2>Exceptions to investigate</h2></div></div>' +
+    issues + '</div>';
+
+  root.querySelectorAll("[data-save-attendance]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = button.closest("tr");
+      const status = row.querySelector("[data-attendance-status]").value;
+      if (!status) {
+        toast("Choose an attendance decision before saving.", "error");
+        return;
+      }
+      try {
+        await api("/api/evidence/sessions/" + encodeURIComponent(session.id) + "/attendance", {
+          method: "POST",
+          body: JSON.stringify({ items: [{
+            student_id: Number(button.dataset.saveAttendance),
+            attendance_status: status,
+            signature_present: row.querySelector("[data-signature]").checked,
+            exam_card_seen: row.querySelector("[data-exam-card]").checked,
+            student_id_seen: row.querySelector("[data-student-id]").checked,
+            note: row.querySelector("[data-attendance-note]").value
+          }] })
+        });
+        toast("Attendance evidence saved.");
+        await loadEvidenceSession(session.id);
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+  });
+
+  const closeButton = $("#close-evidence-session");
+  if (closeButton) closeButton.addEventListener("click", async () => {
+    if (!confirm("Close this attendance register? Further attendance changes will require an authorised correction workflow.")) return;
+    try {
+      await api("/api/evidence/sessions/" + encodeURIComponent(session.id) + "/close", { method: "POST" });
+      toast("Attendance register closed.");
+      await loadEvidenceAssessment(state.evidenceSelectedAssessment);
+    } catch (error) {
+      toast(error.message, "error");
+    }
+  });
+
+  $("#evidence-script-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const candidateValue = $("#evidence-script-student").value;
+    try {
+      await api("/api/evidence/sessions/" + encodeURIComponent(session.id) + "/scripts", {
+        method: "POST",
+        body: JSON.stringify({
+          student_id: candidateValue ? Number(candidateValue) : null,
+          script_ref: $("#evidence-script-ref").value.trim(),
+          note: $("#evidence-script-note").value.trim()
+        })
+      });
+      $("#evidence-script-ref").value = "";
+      $("#evidence-script-note").value = "";
+      toast(candidateValue ? "Script receipt recorded." : "Unidentified script quarantined for review.", candidateValue ? "success" : "error");
+      await loadEvidenceSession(session.id);
+    } catch (error) {
+      toast(error.message, "error");
+    }
+  });
+
+  root.querySelectorAll("[data-mark-script]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await api("/api/evidence/scripts/" + encodeURIComponent(button.dataset.markScript) + "/mark", {
+          method: "POST",
+          body: JSON.stringify({ note: "Marking completion recorded by the current custodian." })
+        });
+        toast("Script marking completion recorded. Submit the mark through the normal marks-batch workflow.");
+        await loadEvidenceSession(session.id);
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+  });
+
+  root.querySelectorAll("[data-handoff-script]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const scriptId = button.dataset.handoffScript;
+      const recipient = root.querySelector('[data-handoff-recipient="' + scriptId + '"]').value;
+      const note = root.querySelector('[data-handoff-note="' + scriptId + '"]').value;
+      if (!recipient) {
+        toast("Choose the staff member who will receive custody.", "error");
+        return;
+      }
+      try {
+        await api("/api/evidence/scripts/" + encodeURIComponent(scriptId) + "/handoff", {
+          method: "POST",
+          body: JSON.stringify({ recipient_id: Number(recipient), note })
+        });
+        toast("Handover requested. The recipient must accept custody.");
+        await loadEvidenceSession(session.id);
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+  });
+
+  root.querySelectorAll("[data-accept-script]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        await api("/api/evidence/scripts/" + encodeURIComponent(button.dataset.acceptScript) + "/accept", { method: "POST" });
+        toast("Script custody accepted.");
+        await loadEvidenceSession(session.id);
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+  });
+
+  root.querySelectorAll("[data-link-script]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const scriptId = button.dataset.linkScript;
+      const studentId = root.querySelector('[data-link-candidate="' + scriptId + '"]').value;
+      const reason = root.querySelector('[data-link-reason="' + scriptId + '"]').value;
+      if (!studentId || reason.trim().length < 8) {
+        toast("Choose a candidate and provide the evidence for the match.", "error");
+        return;
+      }
+      try {
+        await api("/api/evidence/scripts/" + encodeURIComponent(scriptId) + "/link", {
+          method: "POST",
+          body: JSON.stringify({ student_id: Number(studentId), reason })
+        });
+        toast("Script identity linked after review.");
+        await loadEvidenceSession(session.id);
+      } catch (error) {
+        toast(error.message, "error");
+      }
+    });
+  });
+}
+
+$("#evidence-assessment").addEventListener("change", async (event) => {
+  state.evidenceSelectedSession = "";
+  try {
+    await loadEvidenceAssessment(event.target.value);
+  } catch (error) {
+    toast(error.message, "error");
+  }
+});
+
+$("#evidence-session-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const examAt = $("#evidence-exam-at").value;
+  const date = new Date(examAt);
+  if (!examAt || Number.isNaN(date.getTime())) {
+    toast("Choose a valid examination date and time.", "error");
+    return;
+  }
+  try {
+    const result = await api("/api/evidence/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        assessment_id: $("#evidence-assessment").value,
+        exam_at: date.toISOString(),
+        venue: $("#evidence-venue").value.trim()
+      })
+    });
+    state.evidenceSelectedSession = result.session_id;
+    $("#evidence-venue").value = "";
+    toast("Examination session created with " + result.candidate_count + " candidates.");
+    await loadEvidenceAssessment(state.evidenceSelectedAssessment);
+    await loadEvidenceSession(result.session_id);
+  } catch (error) {
+    toast(error.message, "error");
+  }
+});
+
+$("#evidence-refresh").addEventListener("click", async () => {
+  try {
+    await loadEvidence();
+    toast("Assessment evidence refreshed.");
+  } catch (error) {
+    toast(error.message, "error");
+  }
+});
+
 // ── View loader ──────────────────────────────────────────────
 async function loadCurrentView() {
   try {
@@ -1029,6 +1452,7 @@ async function loadCurrentView() {
     if (state.user.role === "exam_office") await loadExamOffice();
     if (state.user.role === "portal_operator") await loadPortalOperator();
     if (state.user.role === "admin") await loadAdmin();
+    if (state.navView === "evidence") await loadEvidence();
     if (state.navView === "audit") await loadAuditSelector();
   } catch (error) {
     if (error.status === 401) {
