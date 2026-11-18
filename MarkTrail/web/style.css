@@ -510,3 +510,55 @@ footer {
   .evidence-issue { grid-template-columns: 1fr; }
   .evidence-session { align-items: flex-start; flex-direction: column; }
 }
+
+
+.activity-list {
+  display: grid;
+  gap: 0;
+  position: relative;
+}
+.activity-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 12px;
+  padding: 0 0 18px;
+  position: relative;
+}
+.activity-item::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin: 6px 0 0 4px;
+  border-radius: 50%;
+  background: var(--ink-muted);
+  position: relative;
+  z-index: 1;
+}
+.activity-item:not(:last-child)::after {
+  content: "";
+  width: 1px;
+  position: absolute;
+  top: 17px;
+  bottom: 0;
+  left: 7px;
+  background: var(--border);
+}
+.activity-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.activity-copy > span {
+  color: var(--ink);
+  font-size: .9rem;
+}
+.activity-copy > p {
+  margin: 2px 0;
+  color: var(--ink-muted);
+  font-size: .84rem;
+  overflow-wrap: anywhere;
+}
+.activity-copy > small {
+  color: var(--ink-muted);
+  font-size: .75rem;
+}
