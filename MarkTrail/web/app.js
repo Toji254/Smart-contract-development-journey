@@ -1256,13 +1256,13 @@ function renderEvidenceSession() {
         " · " + (previous ? previous + " → " : "") + next;
       note = event.reason || "";
     } else if (event.category === "SCRIPT") {
-      const linked = event.event_type === "FLAGGED" && (event.note || "").startsWith("Identity linked after review:");
       const labels = {
         RECEIVED: "Script received",
         HANDOFF_REQUESTED: "Script handover requested",
         HANDOFF_ACCEPTED: "Script custody accepted",
         MARKED: "Marking completion recorded",
-        FLAGGED: linked ? "Script identity linked after review" : "Script flagged for review"
+        FLAGGED: "Script flagged for review",
+        IDENTITY_LINKED: "Script identity linked after review"
       };
       title = labels[event.event_type] || title;
       subject = [event.script_ref, event.registration_number, event.candidate_name].filter(Boolean).join(" · ");
