@@ -740,10 +740,10 @@ class AssessmentEvidenceService:
             conn.execute(
                 """
                 INSERT INTO exam_script_events
-                (script_id, event_type, actor_id, note, created_at)
-                VALUES (?, 'HANDOFF_ACCEPTED', ?, '', ?)
+                (script_id, event_type, actor_id, recipient_id, note, created_at)
+                VALUES (?, 'HANDOFF_ACCEPTED', ?, ?, '', ?)
                 """,
-                (script_id, user_id, now),
+                (script_id, user_id, int(script["current_custodian"]), now),
             )
             self.app._audit(
                 conn, "EXAM_SCRIPT", script_id, user_id, "EXAM_SCRIPT_HANDOFF_ACCEPTED",
@@ -859,14 +859,17 @@ class AssessmentEvidenceService:
                        a.student_id_seen, a.note AS attendance_note, a.recorded_at,
                        a.recorded_by,
                        s.id AS script_id, s.script_ref, s.status AS script_status,
-                       s.current_custodian, s.pending_custodian, s.received_at,
-                       s.marked_by, s.marked_at, s.notes AS script_note,
+                       s.current_custodian, current_staff.full_name AS current_custodian_name,
+                       s.pending_custodian, pending_staff.full_name AS pending_custodian_name,
+                       s.received_at, s.marked_by, s.marked_at, s.notes AS script_note,
                        m.candidate_mark, m.candidate_status
                 FROM exam_session_candidates c
                 LEFT JOIN exam_attendance a
                   ON a.session_id = c.session_id AND a.student_id = c.student_id
                 LEFT JOIN exam_scripts s
                   ON s.session_id = c.session_id AND s.student_id = c.student_id
+                LEFT JOIN users current_staff ON current_staff.id = s.current_custodian
+                LEFT JOIN users pending_staff ON pending_staff.id = s.pending_custodian
                 LEFT JOIN assessment_marks m
                   ON m.assessment_id = ? AND m.student_id = c.student_id
                 WHERE c.session_id = ?
@@ -896,7 +899,9 @@ class AssessmentEvidenceService:
                         "script_ref": row["script_ref"],
                         "status": row["script_status"],
                         "current_custodian": row["current_custodian"],
+                        "current_custodian_name": row["current_custodian_name"],
                         "pending_custodian": row["pending_custodian"],
+                        "pending_custodian_name": row["pending_custodian_name"],
                         "received_at": row["received_at"],
                         "marked_by": row["marked_by"],
                         "marked_at": row["marked_at"],
