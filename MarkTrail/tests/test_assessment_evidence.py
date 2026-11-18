@@ -652,6 +652,137 @@ class AssessmentEvidenceTests(unittest.TestCase):
         finally:
             check.close()
 
+    def test_evidence_case_opens_clears_and_requires_human_resolution(self):
+        session_id = self.create_session()
+        candidates = self.record_complete_register(
+            session_id,
+            first_status="PRESENT",
+            first_signature=False,
+        )
+        first = candidates[0]
+
+        student_cases = self.evidence.list_evidence_cases(first["student_id"])
+        signature_case = next(
+            item for item in student_cases
+            if item["category"] == "ATTENDANCE_SIGNATURE_MISSING"
+        )
+        self.assertEqual(signature_case["status"], "OPEN")
+        self.assertNotIn("resolution_note", signature_case)
+        self.assertNotIn("assigned_user_name", signature_case)
+
+        other_student_cases = self.evidence.list_evidence_cases(candidates[1]["student_id"])
+        self.assertEqual(other_student_cases, [])
+
+        staff_cases = self.evidence.list_evidence_cases(self.users["exam_office"])
+        self.assertTrue(any(item["id"] == signature_case["id"] for item in staff_cases))
+        lecturer_cases = self.evidence.list_evidence_cases(self.users["lecturer"])
+        self.assertTrue(any(item["category"] == "SCRIPT_NOT_RECEIVED" for item in lecturer_cases))
+
+        self.evidence.record_attendance(self.users["lecturer"], session_id, [{
+            "student_id": first["student_id"],
+            "attendance_status": "PRESENT",
+            "signature_present": True,
+            "exam_card_seen": True,
+            "student_id_seen": True,
+            "note": "",
+        }])
+
+        reviewer_cases = self.evidence.list_evidence_cases(self.users["reviewer"])
+        cleared = next(item for item in reviewer_cases if item["id"] == signature_case["id"])
+        self.assertEqual(cleared["status"], "EVIDENCE_CLEARED")
+
+        with self.assertRaisesRegex(AppError, "8"):
+            self.evidence.decide_evidence_case(
+                self.users["reviewer"], signature_case["id"], "RESOLVED", "Fix"
+            )
+
+        decision = self.evidence.decide_evidence_case(
+            self.users["reviewer"],
+            signature_case["id"],
+            "RESOLVED",
+            "Verified the signed physical attendance register against the invigilator record.",
+        )
+        self.assertEqual(decision["status"], "RESOLVED")
+        final_student_cases = self.evidence.list_evidence_cases(first["student_id"])
+        final_case = next(item for item in final_student_cases if item["id"] == signature_case["id"])
+        self.assertEqual(final_case["status"], "RESOLVED")
+        self.assertNotIn("resolution_note", final_case)
+
+        notifications = self.app.student_notifications(first["student_id"])
+        self.assertTrue(any(item["event_type"] == "EVIDENCE_CASE_OPENED" for item in notifications))
+        self.assertTrue(any(item["event_type"] == "EVIDENCE_CASE_CLEARED" for item in notifications))
+        self.assertTrue(any(item["event_type"] == "EVIDENCE_CASE_RESOLVED" for item in notifications))
+
+        with self.assertRaisesRegex(AppError, "terminal decision"):
+            self.evidence.decide_evidence_case(
+                self.users["reviewer"],
+                signature_case["id"],
+                "DISMISSED",
+                "Duplicate review.",
+            )
+
+    def test_unidentified_script_opens_staff_case_without_exposing_student_identity(self):
+        session_id = self.create_session()
+        result = self.evidence.receive_script(
+            self.users["lecturer"],
+            session_id,
+            None,
+            "UNIDENTIFIED-CASE-PACKET",
+            "Registration and candidate name are unreadable.",
+        )
+        reviewer_cases = self.evidence.list_evidence_cases(self.users["reviewer"])
+        case = next(
+            item for item in reviewer_cases
+            if item["category"] == "SCRIPT_UNIDENTIFIED"
+        )
+        self.assertEqual(case["script_id"], result["script_id"])
+        self.assertIsNone(case["student_id"])
+        self.assertEqual(case["status"], "OPEN")
+        self.assertEqual(self.evidence.list_evidence_cases(self.users["student"]), [])
+
+    def test_evidence_case_event_history_is_append_only(self):
+        import sqlite3
+
+        session_id = self.create_session()
+        candidates = self.record_complete_register(
+            session_id,
+            first_status="PRESENT",
+            first_signature=False,
+        )
+        cases = self.evidence.list_evidence_cases(candidates[0]["student_id"])
+        case = next(item for item in cases if item["category"] == "ATTENDANCE_SIGNATURE_MISSING")
+        conn = self.db.connect()
+        try:
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "evidence case history is append-only"):
+                conn.execute(
+                    "UPDATE evidence_case_events SET note = 'rewritten' WHERE case_id = ?",
+                    (case["id"],),
+                )
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "evidence case history is append-only"):
+                conn.execute(
+                    "DELETE FROM evidence_case_events WHERE case_id = ?",
+                    (case["id"],),
+                )
+        finally:
+            conn.close()
+
+    def test_only_reviewer_or_admin_can_decide_evidence_case(self):
+        session_id = self.create_session()
+        candidates = self.record_complete_register(
+            session_id,
+            first_status="PRESENT",
+            first_signature=False,
+        )
+        cases = self.evidence.list_evidence_cases(candidates[0]["student_id"])
+        case = next(item for item in cases if item["category"] == "ATTENDANCE_SIGNATURE_MISSING")
+        with self.assertRaisesRegex(AppError, "permission"):
+            self.evidence.decide_evidence_case(
+                self.users["lecturer"],
+                case["id"],
+                "RESOLVED",
+                "Investigation completed with evidence.",
+            )
+
     def test_student_progress_is_scoped_and_hides_staff_only_notes(self):
         session_id = self.create_session()
         candidates = self.record_complete_register(session_id)
