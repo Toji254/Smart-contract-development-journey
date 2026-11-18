@@ -144,6 +144,7 @@ class AppService:
         labels = {
             "DEPARTMENT_REVIEW": ("Department / reviewer", "reviewer"),
             "EXAM_OFFICE": ("Exam office", "exam_office"),
+            "SENATE_APPROVAL": ("University Senate", "senate_office"),
             "PORTAL_IMPORT": ("Portal operator", "portal_operator"),
             "PUBLISHED": ("Published to students", None),
         }
@@ -155,7 +156,8 @@ class AppService:
             WHERE ae.entity_type = 'BATCH' AND ae.entity_id = ?
               AND ae.action IN (
                   'BATCH_SUBMITTED','BATCH_AMENDED','BATCH_VERIFIED',
-                  'EXAM_OFFICE_PROCESSED','PORTAL_IMPORTED'
+                  'EXAM_OFFICE_PROCESSED','SENATE_APPROVAL_REQUESTED',
+                  'SENATE_APPROVED','PORTAL_IMPORTED'
               )
             ORDER BY ae.created_at, ae.id
             """,
@@ -188,6 +190,8 @@ class AppService:
             "BATCH_AMENDED": "DEPARTMENT_REVIEW",
             "BATCH_VERIFIED": "EXAM_OFFICE",
             "EXAM_OFFICE_PROCESSED": "PORTAL_IMPORT",
+            "SENATE_APPROVAL_REQUESTED": "SENATE_APPROVAL",
+            "SENATE_APPROVED": "PORTAL_IMPORT",
             "PORTAL_IMPORTED": "PUBLISHED",
         }
         for row in rows:
@@ -198,7 +202,7 @@ class AppService:
                 close_stage(when, actor)
             elif action == "BATCH_VERIFIED":
                 close_stage(when, actor)
-            elif action == "EXAM_OFFICE_PROCESSED":
+            elif action in {"EXAM_OFFICE_PROCESSED", "SENATE_APPROVAL_REQUESTED", "SENATE_APPROVED"}:
                 close_stage(when, actor)
             elif action == "PORTAL_IMPORTED":
                 close_stage(when, actor)
@@ -216,6 +220,11 @@ class AppService:
             )
 
         current_stage = batch["pipeline_stage"]
+        if (
+            current_stage == "PORTAL_IMPORT"
+            and batch["senate_status"] in {"PENDING", "DEFERRED"}
+        ):
+            current_stage = "SENATE_APPROVAL"
         if current_stage == "PUBLISHED":
             active = None
         elif active is None or active["stage"] != current_stage:
@@ -264,15 +273,15 @@ class AppService:
             user_id,
             {
                 "student", "lecturer", "reviewer", "exam_office",
-                "portal_operator", "admin",
+                "senate_office", "portal_operator", "admin",
             },
         )
         conn = self.db.connect()
         try:
             batch = conn.execute(
                 """
-                SELECT b.id, b.status, b.pipeline_stage, b.submitted_at, b.verified_at,
-                       a.course_id, c.lecturer_id
+                SELECT b.id, b.status, b.pipeline_stage, b.senate_status,
+                       b.submitted_at, b.verified_at, a.course_id, c.lecturer_id
                 FROM batches b
                 JOIN assessments a ON a.id = b.assessment_id
                 JOIN courses c ON c.id = a.course_id
@@ -301,7 +310,7 @@ class AppService:
             user_id,
             {
                 "student", "lecturer", "reviewer", "exam_office",
-                "portal_operator", "admin",
+                "senate_office", "portal_operator", "admin",
             },
         )
         conn = self.db.connect()
@@ -1925,6 +1934,7 @@ class AppService:
                 SELECT b.id, b.assessment_id, b.status, b.student_count,
                        b.marks_hash, b.revision, b.chain_state, b.chain_tx_hash,
                        b.submitted_at, b.verified_at, b.pipeline_stage,
+                       b.senate_status, a.release_policy,
                        a.name AS assessment, a.course_id,
                        c.code AS course, c.title AS course_title, c.lecturer_id
                 FROM batches b
@@ -2007,7 +2017,8 @@ class AppService:
             safe_batch_fields = (
                 "id", "assessment_id", "status", "student_count", "marks_hash",
                 "revision", "chain_state", "chain_tx_hash", "submitted_at",
-                "verified_at", "pipeline_stage", "assessment", "course_id",
+                "verified_at", "pipeline_stage", "senate_status", "release_policy",
+                "assessment", "course_id",
                 "course", "course_title",
             )
             event_data = []
@@ -2710,7 +2721,7 @@ class AppService:
             raise AppError("Username and full name are required.")
         if role not in {
             "student", "lecturer", "reviewer", "exam_office",
-            "portal_operator", "admin",
+            "portal_operator", "senate_office", "admin",
         }:
             raise AppError("Invalid role.")
         if len(password) < 8:
@@ -2950,8 +2961,12 @@ class AppService:
         name: str,
         max_mark: float,
         submission_deadline: str | None = None,
+        release_policy: str = "DIRECT",
     ) -> dict:
         self.require_role(user_id, {"admin"})
+        release_policy = str(release_policy or "DIRECT").upper()
+        if release_policy not in {"DIRECT", "SENATE"}:
+            raise AppError("Release policy must be DIRECT or SENATE.")
         if not name.strip():
             raise AppError("Assessment name is required.")
         if max_mark <= 0:
@@ -2968,10 +2983,19 @@ class AppService:
 
             conn.execute(
                 """
-                INSERT INTO assessments (id, course_id, name, max_mark, submission_deadline, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO assessments
+                (id, course_id, name, max_mark, submission_deadline, release_policy, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (assessment_id, course_id, name.strip(), max_mark, submission_deadline or None, utc_now()),
+                (
+                    assessment_id,
+                    course_id,
+                    name.strip(),
+                    max_mark,
+                    submission_deadline or None,
+                    release_policy,
+                    utc_now(),
+                ),
             )
             self._audit(
                 conn,
@@ -2979,9 +3003,112 @@ class AppService:
                 assessment_id,
                 user_id,
                 "ASSESSMENT_CREATED",
-                {"course_id": course_id, "max_mark": max_mark, "submission_deadline": submission_deadline},
+                {
+                    "course_id": course_id,
+                    "max_mark": max_mark,
+                    "submission_deadline": submission_deadline,
+                    "release_policy": release_policy,
+                },
             )
         return {"id": assessment_id}
+
+    def admin_assessments(self, user_id: int) -> list[dict]:
+        self.require_role(user_id, {"admin"})
+        conn = self.db.connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT a.id, a.name, a.max_mark, a.release_policy,
+                       c.code AS course_code, c.title AS course_title,
+                       b.id AS batch_id, b.pipeline_stage, b.senate_status,
+                       b.status AS batch_status
+                FROM assessments a
+                JOIN courses c ON c.id = a.course_id
+                LEFT JOIN batches b ON b.assessment_id = a.id
+                ORDER BY c.code, a.created_at
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def admin_update_assessment_release_policy(
+        self,
+        user_id: int,
+        assessment_id: str,
+        release_policy: str,
+        reason: str,
+    ) -> dict:
+        self.require_role(user_id, {"admin"})
+        release_policy = str(release_policy or "").upper()
+        reason = str(reason or "").strip()
+        if release_policy not in {"DIRECT", "SENATE"}:
+            raise AppError("Release policy must be DIRECT or SENATE.")
+        if len(reason) < 8 or len(reason) > 1000:
+            raise AppError("Provide an 8–1,000 character reason for changing the release policy.")
+
+        now = utc_now()
+        with self.db.transaction() as conn:
+            assessment = conn.execute(
+                "SELECT id, release_policy FROM assessments WHERE id = ?",
+                (assessment_id,),
+            ).fetchone()
+            if not assessment:
+                raise AppError("Assessment not found.", 404)
+            if assessment["release_policy"] == release_policy:
+                raise AppError("This assessment already has that release policy.", 409)
+            batch = conn.execute(
+                """
+                SELECT id, status, pipeline_stage, senate_status
+                FROM batches WHERE assessment_id = ?
+                """,
+                (assessment_id,),
+            ).fetchone()
+            if batch and batch["pipeline_stage"] == "PUBLISHED":
+                raise AppError("A published assessment's release policy cannot be changed.", 409)
+            if batch and batch["senate_status"] in {"PENDING", "DEFERRED", "APPROVED"}:
+                raise AppError("A batch with Senate decision history cannot be reclassified.", 409)
+
+            conn.execute(
+                "UPDATE assessments SET release_policy = ? WHERE id = ?",
+                (release_policy, assessment_id),
+            )
+            if batch and batch["pipeline_stage"] == "PORTAL_IMPORT":
+                senate_status = "PENDING" if release_policy == "SENATE" else "NOT_REQUIRED"
+                conn.execute(
+                    "UPDATE batches SET senate_status = ? WHERE id = ?",
+                    (senate_status, batch["id"]),
+                )
+                if senate_status == "PENDING":
+                    self._audit(
+                        conn,
+                        "BATCH",
+                        batch["id"],
+                        user_id,
+                        "SENATE_APPROVAL_REQUESTED",
+                        {
+                            "from_stage": "PORTAL_IMPORT",
+                            "to_stage": "SENATE_APPROVAL",
+                            "reason": reason,
+                            "policy_classified_by_admin": True,
+                        },
+                    )
+            self._audit(
+                conn,
+                "ASSESSMENT",
+                assessment_id,
+                user_id,
+                "ASSESSMENT_RELEASE_POLICY_CHANGED",
+                {
+                    "old_policy": assessment["release_policy"],
+                    "new_policy": release_policy,
+                    "reason": reason,
+                },
+            )
+        return {
+            "assessment_id": assessment_id,
+            "release_policy": release_policy,
+        }
 
     def admin_bulk_enroll_csv(
         self,
