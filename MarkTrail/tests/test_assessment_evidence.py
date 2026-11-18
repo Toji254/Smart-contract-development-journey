@@ -51,7 +51,8 @@ class AssessmentEvidenceTests(unittest.TestCase):
                 "signature_present": first_signature if is_first else False,
                 "exam_card_seen": is_first,
                 "student_id_seen": is_first,
-                "note": "",
+                "note": "" if (first_status if is_first else "ABSENT") == "PRESENT"
+                    else "Recorded absent by invigilator register.",
             })
         self.evidence.record_attendance(self.users["lecturer"], session_id, items)
         return candidates
@@ -91,6 +92,31 @@ class AssessmentEvidenceTests(unittest.TestCase):
         self.assertEqual(first["attendance"]["attendance_status"], "PRESENT")
         self.assertIn("ATTENDANCE_SIGNATURE_MISSING", issue_codes)
         self.assertNotEqual(first["attendance"]["attendance_status"], "ABSENT")
+
+    def test_absent_or_excused_attendance_requires_a_reason(self):
+        session_id = self.create_session()
+        candidate = self.roster(session_id)[0]
+        with self.assertRaisesRegex(AppError, "ABSENT attendance decisions require"):
+            self.evidence.record_attendance(self.users["lecturer"], session_id, [{
+                "student_id": candidate["student_id"],
+                "attendance_status": "ABSENT",
+                "signature_present": False,
+                "exam_card_seen": False,
+                "student_id_seen": False,
+                "note": "",
+            }])
+
+    def test_late_script_intake_after_register_closure_requires_reason(self):
+        session_id = self.create_session()
+        candidates = self.record_complete_register(session_id)
+        self.evidence.close_session(self.users["lecturer"], session_id)
+        with self.assertRaisesRegex(AppError, "Scripts received after register closure"):
+            self.evidence.receive_script(
+                self.users["lecturer"],
+                session_id,
+                candidates[0]["student_id"],
+                "LATE-PACKET-01",
+            )
 
     def test_register_cannot_close_until_every_candidate_has_a_decision(self):
         session_id = self.create_session()
