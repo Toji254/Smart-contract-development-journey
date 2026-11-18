@@ -400,6 +400,123 @@ class AssessmentEvidenceTests(unittest.TestCase):
                     (session_id,),
                 )
 
+    def test_legacy_evidence_schema_migrates_without_losing_script_history(self):
+        session_id = self.create_session()
+        candidates = self.record_complete_register(session_id)
+        original = self.evidence.receive_script(
+            self.users["lecturer"],
+            session_id,
+            candidates[0]["student_id"],
+            "LEGACY-PACKET-01",
+        )
+
+        conn = self.db.connect()
+        try:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """
+                CREATE TABLE exam_scripts_legacy (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    student_id INTEGER NOT NULL,
+                    script_ref TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (
+                        status IN ('RECEIVED','HANDOFF_PENDING','ASSIGNED','MARKED','FLAGGED')
+                    ),
+                    current_custodian INTEGER NOT NULL REFERENCES users(id),
+                    pending_custodian INTEGER REFERENCES users(id),
+                    notes TEXT NOT NULL DEFAULT '',
+                    received_by INTEGER NOT NULL REFERENCES users(id),
+                    received_at TEXT NOT NULL,
+                    marked_by INTEGER REFERENCES users(id),
+                    marked_at TEXT,
+                    UNIQUE (session_id, student_id),
+                    UNIQUE (session_id, script_ref),
+                    FOREIGN KEY (session_id, student_id)
+                        REFERENCES exam_session_candidates(session_id, student_id)
+                        ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO exam_scripts_legacy
+                SELECT id, session_id, student_id, script_ref, status, current_custodian,
+                       pending_custodian, notes, received_by, received_at, marked_by, marked_at
+                FROM exam_scripts
+                """
+            )
+            conn.execute("DROP TABLE exam_scripts")
+            conn.execute("ALTER TABLE exam_scripts_legacy RENAME TO exam_scripts")
+
+            conn.execute(
+                """
+                CREATE TABLE exam_script_events_legacy (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    script_id TEXT NOT NULL REFERENCES exam_scripts(id) ON DELETE CASCADE,
+                    event_type TEXT NOT NULL CHECK (
+                        event_type IN (
+                            'RECEIVED','HANDOFF_REQUESTED','HANDOFF_ACCEPTED','MARKED','FLAGGED'
+                        )
+                    ),
+                    actor_id INTEGER NOT NULL REFERENCES users(id),
+                    recipient_id INTEGER REFERENCES users(id),
+                    note TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO exam_script_events_legacy
+                SELECT id, script_id, event_type, actor_id, recipient_id, note, created_at
+                FROM exam_script_events
+                """
+            )
+            conn.execute("DROP TABLE exam_script_events")
+            conn.execute(
+                "ALTER TABLE exam_script_events_legacy RENAME TO exam_script_events"
+            )
+            conn.commit()
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.close()
+
+        upgraded = AssessmentEvidenceService(self.db, self.app)
+        detail_before = upgraded.session_detail(self.users["lecturer"], session_id)
+        self.assertEqual(detail_before["summary"]["scripts_received"], 1)
+        self.assertEqual(
+            sum(1 for event in detail_before["activity"] if event["event_type"] == "RECEIVED"),
+            1,
+        )
+
+        unidentified = upgraded.receive_script(
+            self.users["lecturer"],
+            session_id,
+            None,
+            "LEGACY-UNIDENTIFIED-02",
+            "Registration number is unreadable on the answer booklet.",
+        )
+        target = detail_before["candidates"][1]
+        upgraded.link_unidentified_script(
+            self.users["reviewer"],
+            unidentified["script_id"],
+            target["student_id"],
+            "Matched against the signed register and invigilator packet record.",
+        )
+
+        detail_after = upgraded.session_detail(self.users["reviewer"], session_id)
+        self.assertIn(
+            "IDENTITY_LINKED",
+            {event["event_type"] for event in detail_after["activity"]},
+        )
+        check = self.db.connect()
+        try:
+            self.assertEqual(check.execute("PRAGMA foreign_key_check").fetchall(), [])
+        finally:
+            check.close()
+
     def test_student_progress_is_scoped_and_hides_staff_only_notes(self):
         session_id = self.create_session()
         candidates = self.record_complete_register(session_id)
