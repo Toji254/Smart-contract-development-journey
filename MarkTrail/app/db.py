@@ -73,7 +73,27 @@ class Database:
             users_sql = conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'"
             ).fetchone()
-            if users_sql and "'portal_operator'" not in users_sql["sql"]:
+            if users_sql and (
+                "'portal_operator'" not in users_sql["sql"]
+                or "'senate_office'" not in users_sql["sql"]
+            ):
+                existing_user_columns = {
+                    row["name"]
+                    for row in conn.execute("PRAGMA table_info(users)").fetchall()
+                }
+                source_columns = [
+                    "id",
+                    "username",
+                    "full_name",
+                    "role",
+                    "password_salt",
+                    "password_hash",
+                    "active" if "active" in existing_user_columns else "1",
+                    "must_change_password" if "must_change_password" in existing_user_columns else "0",
+                    "reg_number" if "reg_number" in existing_user_columns else "NULL",
+                    "access_until" if "access_until" in existing_user_columns else "NULL",
+                    "created_at",
+                ]
                 conn.execute(
                     """
                     CREATE TABLE users_new (
@@ -83,7 +103,7 @@ class Database:
                         role TEXT NOT NULL CHECK (
                             role IN (
                                 'student','lecturer','reviewer','exam_office',
-                                'portal_operator','admin'
+                                'portal_operator','senate_office','admin'
                             )
                         ),
                         password_salt TEXT NOT NULL,
@@ -97,12 +117,10 @@ class Database:
                     """
                 )
                 conn.execute(
-                    """
-                    INSERT INTO users_new
-                    (id, username, full_name, role, password_salt, password_hash, active, created_at)
-                    SELECT id, username, full_name, role, password_salt, password_hash, active, created_at
-                    FROM users
-                    """
+                    "INSERT INTO users_new "
+                    "(id, username, full_name, role, password_salt, password_hash, "
+                    "active, must_change_password, reg_number, access_until, created_at) "
+                    "SELECT " + ", ".join(source_columns) + " FROM users"
                 )
                 conn.execute("DROP TABLE users")
                 conn.execute("ALTER TABLE users_new RENAME TO users")
@@ -192,6 +210,31 @@ class Database:
                 conn.execute(
                     "ALTER TABLE assessments ADD COLUMN submission_deadline TEXT"
                 )
+            if assess_cols and "release_policy" not in assess_cols:
+                conn.execute(
+                    """
+                    ALTER TABLE assessments
+                    ADD COLUMN release_policy TEXT NOT NULL DEFAULT 'UNCLASSIFIED'
+                    CHECK (release_policy IN ('DIRECT','SENATE','UNCLASSIFIED'))
+                    """
+                )
+
+            batch_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(batches)").fetchall()
+            }
+            if batch_cols and "senate_status" not in batch_cols:
+                conn.execute(
+                    """
+                    ALTER TABLE batches
+                    ADD COLUMN senate_status TEXT NOT NULL DEFAULT 'NOT_REQUIRED'
+                    CHECK (
+                        senate_status IN (
+                            'NOT_REQUIRED','PENDING','DEFERRED','APPROVED'
+                        )
+                    )
+                    """
+                )
 
             revisions_cols = {
                 row["name"]
@@ -227,7 +270,7 @@ class Database:
                     role TEXT NOT NULL CHECK (
                         role IN (
                             'student','lecturer','reviewer','exam_office',
-                            'portal_operator','admin'
+                            'portal_operator','senate_office','admin'
                         )
                     ),
                     password_salt TEXT NOT NULL,
@@ -266,6 +309,8 @@ class Database:
                     name TEXT NOT NULL,
                     max_mark REAL NOT NULL CHECK (max_mark > 0),
                     submission_deadline TEXT,
+                    release_policy TEXT NOT NULL DEFAULT 'UNCLASSIFIED'
+                        CHECK (release_policy IN ('DIRECT','SENATE','UNCLASSIFIED')),
                     created_at TEXT NOT NULL
                 );
 
@@ -289,6 +334,9 @@ class Database:
                         pipeline_stage IN (
                             'DEPARTMENT_REVIEW','EXAM_OFFICE','PORTAL_IMPORT','PUBLISHED'
                         )
+                    ),
+                    senate_status TEXT NOT NULL DEFAULT 'NOT_REQUIRED' CHECK (
+                        senate_status IN ('NOT_REQUIRED','PENDING','DEFERRED','APPROVED')
                     )
                 );
 
@@ -373,6 +421,33 @@ class Database:
                     created_at TEXT NOT NULL,
                     read_at TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS senate_decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id TEXT NOT NULL REFERENCES batches(id) ON DELETE RESTRICT,
+                    decision_number INTEGER NOT NULL,
+                    decision TEXT NOT NULL CHECK (decision IN ('APPROVED','DEFERRED')),
+                    meeting_reference TEXT NOT NULL,
+                    reason TEXT NOT NULL DEFAULT '',
+                    actor_id INTEGER NOT NULL REFERENCES users(id),
+                    created_at TEXT NOT NULL,
+                    UNIQUE (batch_id, decision_number)
+                );
+
+                CREATE TRIGGER IF NOT EXISTS senate_decisions_no_update
+                BEFORE UPDATE ON senate_decisions
+                BEGIN
+                    SELECT RAISE(ABORT, 'Senate decision history is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS senate_decisions_no_delete
+                BEFORE DELETE ON senate_decisions
+                BEGIN
+                    SELECT RAISE(ABORT, 'Senate decision history is append-only');
+                END;
+
+                CREATE INDEX IF NOT EXISTS idx_senate_decisions_batch
+                    ON senate_decisions(batch_id, decision_number);
 
                 CREATE INDEX IF NOT EXISTS idx_assessment_marks_student
                     ON assessment_marks(student_id);
