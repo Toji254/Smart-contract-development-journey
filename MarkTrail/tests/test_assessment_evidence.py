@@ -88,6 +88,10 @@ class AssessmentEvidenceTests(unittest.TestCase):
         self.assertNotIn("storage_key", listed[0])
         self.assertNotIn("path", listed[0])
         self.assertEqual(
+            [event["event_type"] for event in listed[0]["history"]],
+            ["UPLOADED", "SCANNED_CLEAN"],
+        )
+        self.assertEqual(
             self.attachments.read_attachment(self.users["student"], uploaded["id"])["content"],
             payload,
         )
@@ -104,6 +108,37 @@ class AssessmentEvidenceTests(unittest.TestCase):
                     "DELETE FROM evidence_attachment_events WHERE attachment_id = ?",
                     (uploaded["id"],),
                 )
+
+    def test_script_attachment_is_linked_to_exact_script_and_scoped_to_course_staff(self):
+        session_id = self.create_session()
+        candidate = self.roster(session_id)[0]
+        script = self.evidence.receive_script(
+            self.users["lecturer"],
+            session_id,
+            candidate["student_id"],
+            "SCRIPT-ATTACHMENT-01",
+            "Received sealed script packet.",
+        )
+        payload = b"%PDF-1.7\nSynthetic candidate script scan.\n%%EOF"
+        uploaded = self.attachments.upload(
+            self.users["lecturer"],
+            "SCRIPT",
+            script["script_id"],
+            "candidate-script.pdf",
+            base64.b64encode(payload).decode("ascii"),
+        )
+        listed = self.attachments.list_attachments(
+            self.users["lecturer"], "SCRIPT", script["script_id"]
+        )
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["owner_id"], script["script_id"])
+        self.assertEqual(listed[0]["sha256"], uploaded["sha256"])
+        self.assertEqual(
+            self.attachments.read_attachment(
+                self.users["lecturer"], uploaded["id"]
+            )["content"],
+            payload,
+        )
 
     def test_attachment_authorization_prevents_cross_student_case_access(self):
         session_id = self.create_session()
