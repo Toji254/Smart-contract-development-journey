@@ -530,6 +530,28 @@ submitting another one.
 The contract uses two-step ownership transfer and does not permit ownership
 renunciation, so the contract cannot be left without an administrator.
 
+### Private examination evidence attachments
+
+Students can attach supporting files to their own open evidence cases. Authorised
+staff can attach scanned source records to an examination session or an
+individual script, including an unidentified script waiting for candidate
+matching. Supported file types are PDF, PNG and JPEG, up to 10 MB per file.
+
+Files are stored outside the web root under `MARKTRAIL_EVIDENCE_DIR` (or
+`private-evidence` beside the database by default), using generated storage
+keys and restricted filesystem permissions. The original filename is metadata,
+not a storage path. Access is checked again on every list and download request.
+
+A clean ClamAV scan is required before download. If ClamAV is missing,
+unavailable or times out, the file remains quarantined and downloads are
+blocked. Every download rechecks the byte count and SHA-256 digest. Attachment
+metadata is immutable; upload, scan, rescan and integrity events are retained
+in append-only history. Files, contents and hashes stay off-chain.
+
+Database backups now have matching evidence sidecar archives. Both files must
+be retained and restored as a pair; the restore script refuses a database with
+an attachment table if its matching evidence archive is missing.
+
 ### Handoff tracking, notifications, and reports
 
 The audit view shows the current handoff owner, how long the batch has waited,
