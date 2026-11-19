@@ -657,6 +657,18 @@ class AssessmentEvidenceTests(unittest.TestCase):
         candidates = self.record_complete_register(session_id)
         own_student = candidates[0]["student_id"]
 
+        # A later enrolment change must not erase the locked exam-roster record.
+        with self.db.transaction() as conn:
+            conn.execute(
+                "DELETE FROM enrollments WHERE student_id = ? AND course_id = 'course-csc201'",
+                (own_student,),
+            )
+        historical_progress = self.evidence.student_progress(own_student)
+        self.assertTrue(any(
+            item["session_id"] == session_id
+            for item in historical_progress
+        ))
+
         with self.assertRaisesRegex(AppError, "10–1,000 characters"):
             self.evidence.student_report_evidence_issue(
                 own_student, session_id, "ATTENDANCE", "Too short"
