@@ -150,6 +150,146 @@ class MarkTrailTests(unittest.TestCase):
         self.assertIsNone(cat2["mark"])
         self.assertEqual(cat2["batch_status"], "VERIFIED")
 
+    def test_unit_readiness_checks_every_component_without_calculating_a_total(self):
+        student_id = int(self.student["id"])
+        initial = next(
+            item for item in self.service.student_unit_readiness(student_id)
+            if item["course_id"] == "course-csc201"
+        )
+        self.assertGreaterEqual(initial["component_count"], 3)
+        self.assertNotEqual(initial["readiness"], "ALL_COMPONENTS_PUBLISHED")
+        self.assertIsNone(initial["unit_total"])
+
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.transaction() as conn:
+            assessments = conn.execute(
+                """
+                SELECT id, release_policy
+                FROM assessments
+                WHERE course_id = 'course-csc201'
+                ORDER BY created_at, id
+                """
+            ).fetchall()
+            for index, assessment in enumerate(assessments):
+                batch = conn.execute(
+                    "SELECT id FROM batches WHERE assessment_id = ?",
+                    (assessment["id"],),
+                ).fetchone()
+                if batch:
+                    batch_id = batch["id"]
+                    conn.execute(
+                        """
+                        UPDATE batches
+                        SET status = 'VERIFIED', pipeline_stage = 'PUBLISHED',
+                            senate_status = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            "APPROVED" if assessment["release_policy"] == "SENATE" else "NOT_REQUIRED",
+                            batch_id,
+                        ),
+                    )
+                else:
+                    batch_id = "readiness-" + assessment["id"]
+                    conn.execute(
+                        """
+                        INSERT INTO batches
+                        (id, assessment_id, submitted_by, status, student_count,
+                         marks_hash, commitment_salt, revision, chain_state,
+                         submitted_at, verified_by, verified_at, pipeline_stage, senate_status)
+                        VALUES (?, ?, ?, 'VERIFIED', 1, ?, ?, 1, 'LOCAL_ONLY',
+                                ?, ?, ?, 'PUBLISHED', ?)
+                        """,
+                        (
+                            batch_id,
+                            assessment["id"],
+                            int(self.lecturer["id"]),
+                            "0x" + str(index + 1) * 64,
+                            "readiness-test-salt",
+                            now,
+                            int(self.reviewer["id"]),
+                            now,
+                            "APPROVED" if assessment["release_policy"] == "SENATE" else "NOT_REQUIRED",
+                        ),
+                    )
+
+                existing_mark = conn.execute(
+                    """
+                    SELECT 1 FROM assessment_marks
+                    WHERE assessment_id = ? AND student_id = ?
+                    """,
+                    (assessment["id"], student_id),
+                ).fetchone()
+                if existing_mark:
+                    conn.execute(
+                        """
+                        UPDATE assessment_marks
+                        SET candidate_mark = 12, candidate_status = 'RECORDED',
+                            published_mark = 12, published_status = 'RECORDED',
+                            batch_id = ?, updated_at = ?
+                        WHERE assessment_id = ? AND student_id = ?
+                        """,
+                        (batch_id, now, assessment["id"], student_id),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO assessment_marks
+                        (assessment_id, student_id, candidate_mark, candidate_status,
+                         published_mark, published_status, batch_id, updated_at)
+                        VALUES (?, ?, 12, 'RECORDED', 12, 'RECORDED', ?, ?)
+                        """,
+                        (assessment["id"], student_id, batch_id, now),
+                    )
+
+        ready = next(
+            item for item in self.service.student_unit_readiness(student_id)
+            if item["course_id"] == "course-csc201"
+        )
+        self.assertEqual(ready["readiness"], "ALL_COMPONENTS_PUBLISHED")
+        self.assertEqual(ready["complete_component_count"], ready["component_count"])
+        self.assertEqual(ready["numeric_component_count"], ready["component_count"])
+        self.assertIsNone(ready["unit_total"])
+        self.assertTrue(all(component["status"] == "RECORDED" for component in ready["components"]))
+
+        no_mark_assessment = ready["components"][0]["assessment_id"]
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE assessment_marks
+                SET candidate_mark = NULL, candidate_status = 'NO_MARK',
+                    published_mark = NULL, published_status = 'NO_MARK'
+                WHERE assessment_id = ? AND student_id = ?
+                """,
+                (no_mark_assessment, student_id),
+            )
+        no_mark = next(
+            item for item in self.service.student_unit_readiness(student_id)
+            if item["course_id"] == "course-csc201"
+        )
+        self.assertEqual(no_mark["readiness"], "OFFICIAL_NO_MARK_OUTCOME")
+        self.assertEqual(no_mark["complete_component_count"], no_mark["component_count"])
+        self.assertLess(no_mark["numeric_component_count"], no_mark["component_count"])
+
+        missing_assessment = ready["components"][-1]["assessment_id"]
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE assessment_marks
+                SET candidate_mark = NULL, candidate_status = 'MISSING',
+                    published_mark = NULL, published_status = 'MISSING'
+                WHERE assessment_id = ? AND student_id = ?
+                """,
+                (missing_assessment, student_id),
+            )
+        missing = next(
+            item for item in self.service.student_unit_readiness(student_id)
+            if item["course_id"] == "course-csc201"
+        )
+        self.assertEqual(missing["readiness"], "MISSING_COMPONENTS")
+        self.assertLess(missing["complete_component_count"], missing["component_count"])
+        self.assertIsNone(missing["unit_total"])
+
     def test_admin_can_schedule_expiry_and_disable_user_access(self):
         student_id = int(self.student["id"])
         tomorrow = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
