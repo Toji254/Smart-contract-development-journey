@@ -233,6 +233,28 @@ to the service account, and add that exact path to `ReadWritePaths=` in the
 systemd unit. Place the volume on institution-approved encrypted storage and
 include it in monitoring and retention controls.
 
+MarkTrail also encrypts evidence contents before writing them to this directory
+using AES-256-GCM. Generate a dedicated 32-byte key on the host and add it to
+the protected environment file (do not put it in the database directory):
+
+~~~bash
+sudo sh -c 'umask 077; printf "MARKTRAIL_EVIDENCE_ENCRYPTION_KEY=%s\\n" "$(openssl rand -hex 32)" >> /etc/marktrail/marktrail.env'
+sudo chmod 600 /etc/marktrail/marktrail.env
+~~~
+
+Keep a sealed, access-controlled backup of this key separately from the
+database and evidence archives. The backup scripts deliberately do not copy
+the key. Losing the key makes encrypted evidence unrecoverable; changing it
+without a re-encryption/key-rotation procedure makes existing files unreadable.
+The current MVP supports one active evidence key and does not automate key
+rotation. The service checks a key identifier before decryption and fails
+closed if the configured key does not match.
+
+New uploads are encrypted at rest. If a prior version created plaintext
+attachments, starting with the configured key migrates them after checking
+their original SHA-256 and byte count; failed integrity checks are quarantined
+and recorded rather than encrypted as trusted evidence.
+
 Install ClamAV and ensure `clamscan` is available to the MarkTrail service
 account. MarkTrail fails closed: if the scanner is missing, times out or
 returns an error, the upload remains quarantined and no download is served.

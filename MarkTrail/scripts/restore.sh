@@ -83,7 +83,9 @@ with tarfile.open(archive_path, "r:gz") as archive:
             name = name[2:]
         if not member.isfile() or "/" in name or not allowed.fullmatch(name):
             raise SystemExit(f"Unsafe evidence archive entry rejected: {member.name!r}")
-        if member.size <= 0 or member.size > 10 * 1024 * 1024:
+        # AES-256-GCM envelope adds a fixed header, nonce and authentication tag.
+        # Allow that small overhead while preserving the 10 MB plaintext limit.
+        if member.size <= 0 or member.size > 10 * 1024 * 1024 + 128:
             raise SystemExit(f"Invalid evidence file size in archive: {member.name!r}")
         source = archive.extractfile(member)
         if source is None:

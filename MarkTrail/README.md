@@ -448,7 +448,8 @@ The Python application provides:
 - audit events;
 - database/chain reconciliation hooks.
 
-The application uses SQLite and only Python's standard library so the architecture stays easy to inspect.
+The application uses SQLite and Python's standard library for its core workflow.
+Evidence encryption uses the maintained `cryptography` package (AES-256-GCM).
 
 ### Blockchain layer
 
@@ -539,8 +540,13 @@ matching. Supported file types are PDF, PNG and JPEG, up to 10 MB per file.
 
 Files are stored outside the web root under `MARKTRAIL_EVIDENCE_DIR` (or
 `private-evidence` beside the database by default), using generated storage
-keys and restricted filesystem permissions. The original filename is metadata,
-not a storage path. Access is checked again on every list and download request.
+keys and restricted filesystem permissions. File contents are encrypted at rest
+with AES-256-GCM before they are written; the original filename is metadata,
+not a storage path. The encryption key is supplied through
+`MARKTRAIL_EVIDENCE_ENCRYPTION_KEY`, never stored in SQLite or the evidence
+archive. New uploads fail closed when the key is not configured. When a key is
+configured, legacy plaintext attachments are integrity-checked and encrypted
+during service startup. Access is checked again on every list and download request.
 
 A clean ClamAV scan is required before download. If ClamAV is missing,
 unavailable or times out, the file remains quarantined and downloads are
@@ -570,9 +576,26 @@ personal portal passwords or session cookies.
 
 ### Local development
 
+Install the one runtime dependency:
+
 ~~~bash
 cd MarkTrail
-MARKTRAIL_SEED_DEMO=1 MARKTRAIL_COOKIE_SECURE=0 python3 run.py
+python3 -m pip install -r requirements.txt
+~~~
+
+Generate a persistent local evidence key once. Keep it unchanged while any
+encrypted evidence exists:
+
+~~~bash
+python3 -c 'import secrets; print(secrets.token_hex(32))'
+~~~
+
+Put the output in your local environment as
+`MARKTRAIL_EVIDENCE_ENCRYPTION_KEY`. Do not commit the key or place it in a
+database backup.
+
+~~~bash
+MARKTRAIL_EVIDENCE_ENCRYPTION_KEY="PASTE_YOUR_64_HEX_CHARACTER_KEY" MARKTRAIL_SEED_DEMO=1 MARKTRAIL_COOKIE_SECURE=0 python3 run.py
 ~~~
 
 Open http://127.0.0.1:8000.
