@@ -706,6 +706,16 @@ class AssessmentEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(repeated["case_id"], report["case_id"])
 
+        # A later system reconciliation must not auto-clear a student-submitted report.
+        self.evidence.record_attendance(self.users["lecturer"], session_id, [{
+            "student_id": own_student,
+            "attendance_status": "PRESENT",
+            "signature_present": True,
+            "exam_card_seen": True,
+            "student_id_seen": True,
+            "note": "",
+        }])
+
         reviewer_queue = self.evidence.list_evidence_cases(self.users["reviewer"])
         case = next(item for item in reviewer_queue if item["id"] == report["case_id"])
         self.assertEqual(case["status"], "OPEN")
