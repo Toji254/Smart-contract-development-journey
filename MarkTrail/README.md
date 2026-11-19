@@ -555,8 +555,12 @@ metadata is immutable; upload, scan, rescan and integrity events are retained
 in append-only history. Files, contents and hashes stay off-chain.
 
 Database backups now have matching evidence sidecar archives. Both files must
-be retained and restored as a pair; the restore script refuses a database with
-an attachment table if its matching evidence archive is missing.
+be retained and restored as a pair. Before publishing a backup, MarkTrail checks
+that every attachment row in the database snapshot points to a safe file with
+the expected stored size. Restore repeats that cross-check against the extracted
+archive and refuses to replace live data if even one referenced file is missing
+or does not match its recorded size. Legacy plaintext files are also checked
+against their SHA-256 digest before a backup or restore is accepted.
 
 ### Handoff tracking, notifications, and reports
 
