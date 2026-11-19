@@ -2901,6 +2901,13 @@ document.querySelectorAll("[data-back-to-site]").forEach((link) => {
   });
 });
 
+document.querySelectorAll(".site-mobile-nav nav a").forEach((link) => {
+  link.addEventListener("click", () => {
+    const menu = link.closest("details");
+    if (menu) menu.open = false;
+  });
+});
+
 const siteYear = $("#site-year");
 if (siteYear) siteYear.textContent = String(new Date().getFullYear());
 
