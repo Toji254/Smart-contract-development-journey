@@ -419,6 +419,145 @@ class AppService:
         finally:
             conn.close()
 
+    def student_unit_readiness(self, user_id: int) -> list[dict]:
+        """Show component completeness without inventing a weighted unit total."""
+        self.require_role(user_id, {"student"})
+        conn = self.db.connect()
+        try:
+            courses = conn.execute(
+                """
+                WITH student_courses AS (
+                    SELECT e.course_id
+                    FROM enrollments e
+                    WHERE e.student_id = ?
+                    UNION
+                    SELECT a.course_id
+                    FROM exam_session_candidates candidate
+                    JOIN exam_sessions session ON session.id = candidate.session_id
+                    JOIN assessments a ON a.id = session.assessment_id
+                    WHERE candidate.student_id = ?
+                )
+                SELECT c.id AS course_id, c.code, c.title
+                FROM student_courses sc
+                JOIN courses c ON c.id = sc.course_id
+                ORDER BY c.code
+                """,
+                (user_id, user_id),
+            ).fetchall()
+
+            results = []
+            for course in courses:
+                rows = conn.execute(
+                    """
+                    SELECT
+                        a.id AS assessment_id,
+                        a.name AS assessment,
+                        a.max_mark,
+                        a.release_policy,
+                        b.id AS batch_id,
+                        b.status AS batch_status,
+                        b.pipeline_stage,
+                        b.senate_status,
+                        m.candidate_status,
+                        m.published_mark,
+                        m.published_status
+                    FROM assessments a
+                    LEFT JOIN batches b ON b.assessment_id = a.id
+                    LEFT JOIN assessment_marks m
+                      ON m.assessment_id = a.id
+                     AND m.student_id = ?
+                    WHERE a.course_id = ?
+                    ORDER BY a.created_at, a.id
+                    """,
+                    (user_id, course["course_id"]),
+                ).fetchall()
+
+                components = []
+                for row in rows:
+                    stage = row["pipeline_stage"]
+                    candidate_status = row["candidate_status"]
+                    published_status = row["published_status"]
+                    published = stage == "PUBLISHED"
+
+                    if published:
+                        if published_status == "RECORDED":
+                            component_status = "RECORDED"
+                        elif published_status == "NO_MARK":
+                            component_status = "NO_MARK"
+                        else:
+                            component_status = "MISSING"
+                    elif candidate_status == "MISSING":
+                        component_status = "MISSING_IN_SUBMISSION"
+                    elif row["release_policy"] == "UNCLASSIFIED":
+                        component_status = "POLICY_UNCLASSIFIED"
+                    elif not row["batch_id"]:
+                        component_status = "NOT_SUBMITTED"
+                    elif row["release_policy"] == "SENATE" and row["senate_status"] == "PENDING":
+                        component_status = "AWAITING_SENATE_APPROVAL"
+                    elif row["release_policy"] == "SENATE" and row["senate_status"] == "DEFERRED":
+                        component_status = "SENATE_DEFERRED"
+                    elif stage == "DEPARTMENT_REVIEW":
+                        component_status = "AWAITING_DEPARTMENT_REVIEW"
+                    elif stage == "EXAM_OFFICE":
+                        component_status = "AWAITING_EXAM_OFFICE"
+                    elif stage == "PORTAL_IMPORT":
+                        component_status = "AWAITING_PORTAL_PUBLICATION"
+                    else:
+                        component_status = "AWAITING_PUBLICATION"
+
+                    components.append({
+                        "assessment_id": row["assessment_id"],
+                        "assessment": row["assessment"],
+                        "max_mark": row["max_mark"],
+                        "release_policy": row["release_policy"],
+                        "batch_id": row["batch_id"],
+                        "pipeline_stage": stage,
+                        "status": component_status,
+                        "published_mark": (
+                            row["published_mark"]
+                            if published and published_status == "RECORDED"
+                            else None
+                        ),
+                        "is_required": True,
+                    })
+
+                if not components:
+                    readiness = "NO_ASSESSMENTS_CONFIGURED"
+                elif any(item["status"] == "POLICY_UNCLASSIFIED" for item in components):
+                    readiness = "CONFIGURATION_REQUIRED"
+                elif any(item["status"] in {"MISSING", "MISSING_IN_SUBMISSION"} for item in components):
+                    readiness = "MISSING_COMPONENTS"
+                elif any(item["status"] not in {"RECORDED", "NO_MARK"} for item in components):
+                    readiness = "AWAITING_COMPONENTS"
+                elif any(item["status"] == "NO_MARK" for item in components):
+                    readiness = "OFFICIAL_NO_MARK_OUTCOME"
+                else:
+                    readiness = "ALL_COMPONENTS_PUBLISHED"
+
+                results.append({
+                    "course_id": course["course_id"],
+                    "course": course["code"],
+                    "course_title": course["title"],
+                    "readiness": readiness,
+                    "component_count": len(components),
+                    "complete_component_count": sum(
+                        1 for item in components
+                        if item["status"] in {"RECORDED", "NO_MARK"}
+                    ),
+                    "numeric_component_count": sum(
+                        1 for item in components if item["status"] == "RECORDED"
+                    ),
+                    "components": components,
+                    "unit_total": None,
+                    "total_note": (
+                        "This is a component-completeness check, not a calculated unit total. "
+                        "No weighting or final score is inferred."
+                    ),
+                })
+            return results
+        finally:
+            conn.close()
+
     def student_marks(self, user_id: int) -> list[dict]:
         self.require_role(user_id, {"student"})
         conn = self.db.connect()
