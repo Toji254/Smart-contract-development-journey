@@ -554,6 +554,22 @@ blocked. Every download rechecks the byte count and SHA-256 digest. Attachment
 metadata is immutable; upload, scan, rescan and integrity events are retained
 in append-only history. Files, contents and hashes stay off-chain.
 
+Assigned academic staff can manually request local document extraction for a
+clean attachment. Tesseract handles PNG/JPEG; PDF OCR uses Tesseract plus
+Poppler utilities (`pdfinfo` and `pdftoppm`). Extraction is optional and
+requires the evidence encryption key. OCR text and suggestions are encrypted
+before they enter SQLite. MarkTrail limits image dimensions to 40 megapixels,
+PDF processing to the first five pages, and extracted text to 24,000
+characters. The staff workspace presents possible document type, registration
+references, dates and keyword hits as suggestions only. Every result requires
+comparison with the original document and locked roster; OCR never changes
+attendance, marks, student identity, script custody or case decisions. Missing
+OCR tools are reported as unavailable rather than as a successful extraction.
+
+The analysis endpoint is `POST /api/evidence/attachments/{attachment_id}/analyze`.
+It rechecks the user's role and attachment ownership and refuses files that
+have not passed the malware scan.
+
 Database backups now have matching evidence sidecar archives. Both files must
 be retained and restored as a pair. Before publishing a backup, MarkTrail checks
 that every attachment row in the database snapshot points to a safe file with
