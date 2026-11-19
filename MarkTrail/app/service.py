@@ -465,8 +465,32 @@ class AppService:
 
             results = []
             for course in courses:
-                rows = conn.execute(
+                roster_filter = ""
+                assessment_params = (user_id, course["course_id"])
+                if has_exam_roster:
+                    roster_filter = """
+                      AND (
+                        EXISTS (
+                            SELECT 1 FROM enrollments current_enrolment
+                            WHERE current_enrolment.course_id = a.course_id
+                              AND current_enrolment.student_id = ?
+                        )
+                        OR EXISTS (
+                            SELECT 1
+                            FROM exam_session_candidates candidate
+                            JOIN exam_sessions session
+                              ON session.id = candidate.session_id
+                            WHERE session.assessment_id = a.id
+                              AND candidate.student_id = ?
+                        )
+                      )
                     """
+                    assessment_params = (
+                        user_id, course["course_id"], user_id, user_id
+                    )
+
+                rows = conn.execute(
+                    f"""
                     SELECT
                         a.id AS assessment_id,
                         a.name AS assessment,
@@ -485,9 +509,10 @@ class AppService:
                       ON m.assessment_id = a.id
                      AND m.student_id = ?
                     WHERE a.course_id = ?
+                    {roster_filter}
                     ORDER BY a.created_at, a.id
                     """,
-                    (user_id, course["course_id"]),
+                    assessment_params,
                 ).fetchall()
 
                 components = []
