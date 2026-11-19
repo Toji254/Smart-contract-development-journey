@@ -223,7 +223,6 @@ class AssessmentEvidenceTests(unittest.TestCase):
         )
         self.assertEqual(stored[0]["scan_status"], "CORRUPT")
 
-    def test_session_locks_candidate_roster_snapshot(self):
     def test_scanner_receives_plaintext_but_plaintext_is_not_persisted(self):
         session_id = self.create_session()
         payload = b"%PDF-1.7\nSynthetic source record.\n%%EOF"

@@ -171,66 +171,17 @@ class EvidenceAttachmentService:
             conn.close()
 
     @staticmethod
-    def _event
-            columns = {
-                row["name"]
-                for row in conn.execute("PRAGMA table_info(evidence_attachments)").fetchall()
-            }
-            if "encryption_version" not in columns:
-                conn.execute("ALTER TABLE evidence_attachments ADD COLUMN encryption_version INTEGER NOT NULL DEFAULT 0")
-            if "encryption_key_id" not in columns:
-                conn.execute("ALTER TABLE evidence_attachments ADD COLUMN encryption_key_id TEXT")
-
-            event_schema = conn.execute(
-                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'evidence_attachment_events'"
-            ).fetchone()
-            if event_schema and "STORAGE_ENCRYPTED" not in event_schema["sql"]:
-                conn.execute("BEGIN IMMEDIATE")
-                conn.execute("DROP TRIGGER IF EXISTS evidence_attachment_events_no_update")
-                conn.execute("DROP TRIGGER IF EXISTS evidence_attachment_events_no_delete")
-                conn.execute("ALTER TABLE evidence_attachment_events RENAME TO evidence_attachment_events_legacy")
-                conn.execute("""
-                    CREATE TABLE evidence_attachment_events (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        attachment_id TEXT NOT NULL REFERENCES evidence_attachments(id) ON DELETE RESTRICT,
-                        event_type TEXT NOT NULL CHECK (event_type IN (
-                            'UPLOADED','SCANNED_CLEAN','QUARANTINED','INFECTED',
-                            'SCAN_ERROR','SCAN_RETRIED','INTEGRITY_FAILED','STORAGE_ENCRYPTED'
-                        )),
-                        actor_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
-                        note TEXT NOT NULL DEFAULT '',
-                        metadata_json TEXT NOT NULL DEFAULT '{}',
-                        created_at TEXT NOT NULL
-                    )
-                """)
-                conn.execute("""
-                    INSERT INTO evidence_attachment_events
-                        (id, attachment_id, event_type, actor_id, note, metadata_json, created_at)
-                    SELECT id, attachment_id, event_type, actor_id, note, metadata_json, created_at
-                    FROM evidence_attachment_events_legacy
-                """)
-                conn.execute("DROP TABLE evidence_attachment_events_legacy")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_evidence_attachment_events ON evidence_attachment_events(attachment_id, created_at, id)")
-                conn.execute("""
-                    CREATE TRIGGER evidence_attachment_events_no_update
-                    BEFORE UPDATE ON evidence_attachment_events
-                    BEGIN
-                        SELECT RAISE(ABORT, 'evidence attachment history is append-only');
-                    END
-                """)
-                conn.execute("""
-                    CREATE TRIGGER evidence_attachment_events_no_delete
-                    BEFORE DELETE ON evidence_attachment_events
-                    BEGIN
-                        SELECT RAISE(ABORT, 'evidence attachment history is append-only');
-                    END
-                """)
-                conn.commit()
-        finally:
-            conn.close()
-
-    @staticmethod
     def _event(conn, attachment_id, event_type, actor_id, note, metadata, now) -> None:
+        conn.execute(
+            """
+            INSERT INTO evidence_attachment_events
+                (attachment_id, event_type, actor_id, note, metadata_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (attachment_id, event_type, actor_id, str(note or "")[:1000],
+             json.dumps(metadata, sort_keys=True), now),
+        )
+
     def _aad(self, attachment_id: str, media_type: str) -> bytes:
         return f"MarkTrail evidence v{EVIDENCE_ENCRYPTION_VERSION}|{attachment_id}|{media_type}".encode("utf-8")
 
