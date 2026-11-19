@@ -28,7 +28,7 @@ jobs:
       - name: Frontend JavaScript syntax check
         run: node --check web/app.js
       - name: Shell syntax check
-        run: bash -n scripts/start.sh
+        run: bash -n scripts/start.sh scripts/backup.sh scripts/restore.sh
 
   solidity-tests:
     runs-on: ubuntu-latest
