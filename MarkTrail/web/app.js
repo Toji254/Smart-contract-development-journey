@@ -61,11 +61,18 @@ function renderEvidenceAttachmentList(items) {
     const download = item.scan_status === "CLEAN"
       ? '<a class="button secondary evidence-download" href="/api/evidence/attachments/' + encodeURIComponent(item.id) + '/download">Download</a>'
       : '<small class="muted">Download blocked until a clean scan succeeds.</small>';
+    const history = (item.history || []).map((event) =>
+      '<div class="attachment-history-event"><strong>' + esc(event.event_type.replaceAll("_", " ")) +
+      '</strong><small>' + esc(event.actor_name) + ' · ' + esc(event.created_at) + '</small>' +
+      (event.note ? '<span>' + esc(event.note) + '</span>' : '') + '</div>'
+    ).join("");
     return '<div class="evidence-attachment-row"><div><strong>' + esc(item.filename) + '</strong>' +
       '<small class="muted">' + esc((item.byte_size / 1024).toFixed(1)) + ' KB · SHA-256 ' +
       esc(item.sha256.slice(0, 16)) + '… · ' + esc(item.uploaded_by_name || "Staff") + ' · ' +
-      esc(item.created_at) + '</small></div><div class="evidence-attachment-actions">' +
-      scanLabel + download + '</div></div>';
+      esc(item.created_at) + '</small>' +
+      (history ? '<details class="attachment-history"><summary>File history (' + (item.history || []).length + ')</summary>' +
+        '<div class="attachment-history-list">' + history + '</div></details>' : '') +
+      '</div><div class="evidence-attachment-actions">' + scanLabel + download + '</div></div>';
   }).join("") + "</div>";
 }
 
