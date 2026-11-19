@@ -104,12 +104,17 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         if length < 0 or length > max_bytes:
             raise AppError("Request body is too large.", 413)
         raw = self.rfile.read(length)
+        if len(raw) != length:
+            raise AppError("Request body was truncated.", 400)
         if not raw:
             return {}
         try:
-            return json.loads(raw.decode("utf-8"))
-        except json.JSONDecodeError as exc:
-            raise AppError("Request body must be valid JSON.", 400) from exc
+            payload = json.loads(raw.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise AppError("Request body must be valid UTF-8 JSON.", 400) from exc
+        if not isinstance(payload, dict):
+            raise AppError("Request body must be a JSON object.", 400)
+        return payload
 
     def _user(self):
         return current_user(self.db, self.headers.get("Cookie"))
