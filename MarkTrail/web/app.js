@@ -8,6 +8,7 @@ const state = {
   adminCourses: [],
   adminBatches: [],
   adminAssessments: [],
+  staffCompleteness: null,
   senateBatches: [],
   evidenceAssessments: [],
   evidenceStaff: [],
@@ -160,7 +161,7 @@ function showView(view) {
     exam_office: { home: "exam-office-panel", process: "exam-office-panel", evidence: "evidence-panel", audit: "audit-panel" },
     portal_operator: { home: "portal-operator-panel", import: "portal-operator-panel", audit: "audit-panel" },
     senate_office: { home: "senate-panel", review: "senate-panel", audit: "audit-panel" },
-    admin: { home: "admin-panel", setup: "admin-panel", evidence: "evidence-panel", audit: "audit-panel" }
+    admin: { home: "admin-panel", setup: "admin-panel", completeness: "admin-panel", evidence: "evidence-panel", audit: "audit-panel" }
   };
   const id = panelMap[role]?.[view] || panelMap[role]?.home;
   if (id) {
@@ -196,6 +197,7 @@ function updatePageHeading(view) {
     process: ["Process batches", "Record exam-office processing."],
     import: ["Publish marks", "Make processed marks available to students."],
     setup: ["Institution setup", "Users, courses, rosters, assessments and release policies."],
+    completeness: ["Unit completeness", "Find missing and delayed assessment components across your courses."],
     review: ["Senate approvals", "Approve or defer final-result batches with a meeting reference."],
     evidence: ["Assessment evidence", "Track attendance, scripts, custody and marking before marks are submitted."],
     audit: ["Batch history", "Follow the handoffs and see what changed."]
@@ -209,12 +211,12 @@ function buildNav() {
   const role = state.user.role;
   const views = {
     student: [["home", "Dashboard"], ["marks", "My marks"], ["progress", "Exam progress"], ["reports", "My reports"], ["audit", "History"]],
-    lecturer: [["home", "Dashboard"], ["batches", "Upload & batches"], ["evidence", "Exam evidence"], ["reports", "Issues"], ["audit", "History"]],
+    lecturer: [["home", "Dashboard"], ["completeness", "Unit completeness"], ["batches", "Upload & batches"], ["evidence", "Exam evidence"], ["reports", "Issues"], ["audit", "History"]],
     reviewer: [["home", "Dashboard"], ["verify", "Review batches"], ["evidence", "Exam evidence"], ["audit", "History"]],
     exam_office: [["home", "Dashboard"], ["process", "Process batches"], ["evidence", "Exam evidence"], ["audit", "History"]],
     portal_operator: [["home", "Dashboard"], ["import", "Publish marks"], ["audit", "History"]],
     senate_office: [["home", "Dashboard"], ["review", "Senate approvals"], ["audit", "History"]],
-    admin: [["home", "Dashboard"], ["setup", "Setup"], ["evidence", "Exam evidence"], ["audit", "History"]]
+    admin: [["home", "Dashboard"], ["completeness", "Unit completeness"], ["setup", "Setup"], ["evidence", "Exam evidence"], ["audit", "History"]]
   };
   $("#nav").innerHTML = (views[role] || [])
     .map(([value, label]) => '<button data-view="' + value + '">' + label + "</button>")
@@ -516,13 +518,104 @@ async function loadStudent() {
           .join("");
 }
 
+
+function staffCompletenessBadge(status) {
+  const labels = {
+    RECORDED: ["success", "Published"],
+    NO_MARK: ["warning", "Official no-mark"],
+    MISSING: ["danger", "Published as missing"],
+    MISSING_IN_SUBMISSION: ["danger", "Missing in submission"],
+    NOT_SUBMITTED: ["muted", "Not submitted"],
+    POLICY_UNCLASSIFIED: ["warning", "Release policy unclassified"],
+    AWAITING_SENATE_APPROVAL: ["warning", "Awaiting Senate"],
+    SENATE_DEFERRED: ["warning", "Senate deferred"],
+    AWAITING_DEPARTMENT_REVIEW: ["muted", "Department review"],
+    AWAITING_EXAM_OFFICE: ["muted", "Exam office"],
+    AWAITING_PORTAL_PUBLICATION: ["muted", "Portal publication"],
+    AWAITING_PUBLICATION: ["muted", "Awaiting publication"]
+  };
+  const [kind, label] = labels[status] || ["muted", status || "Unknown"];
+  return '<span class="badge ' + kind + '">' + esc(label) + "</span>";
+}
+
+function renderStaffCompleteness(data, targetSelector) {
+  const target = $(targetSelector);
+  if (!target) return;
+  const courses = data?.courses || [];
+  if (!courses.length) {
+    target.innerHTML = '<div class="card"><p class="muted">No courses are currently in scope. Course assignments and enrolments appear here once configured.</p></div>';
+    return;
+  }
+
+  target.innerHTML =
+    '<p class="muted">' + esc(data.unit_total_note || "") +
+    " · Scope: " + esc(data.scope === "ALL_COURSES" ? "All institution courses" : "Your assigned courses") +
+    "</p>" +
+    courses.map((course) => {
+      const counts = course.counts || {};
+      const metrics =
+        '<div class="staff-completeness-metrics">' +
+        '<div><strong>' + esc(counts.complete || 0) + '</strong><span>Published outcomes</span></div>' +
+        '<div><strong>' + esc(counts.missing || 0) + '</strong><span>Missing</span></div>' +
+        '<div><strong>' + esc(counts.not_submitted || 0) + '</strong><span>Not submitted</span></div>' +
+        '<div><strong>' + esc(counts.awaiting || 0) + '</strong><span>Awaiting handoff</span></div>' +
+        '<div><strong>' + esc(counts.policy_unclassified || 0) + '</strong><span>Policy unclassified</span></div>' +
+        "</div>";
+      const assessments = (course.assessments || []).map((assessment) => {
+        const c = assessment.counts || {};
+        const students = [...(assessment.students || [])].sort((a, b) => {
+          const priority = (status) => (
+            ["MISSING", "MISSING_IN_SUBMISSION", "POLICY_UNCLASSIFIED"].includes(status) ? 0 :
+            status === "NOT_SUBMITTED" ? 1 :
+            ["RECORDED", "NO_MARK"].includes(status) ? 3 : 2
+          );
+          return priority(a.status) - priority(b.status) ||
+            String(a.registration_number || a.full_name).localeCompare(String(b.registration_number || b.full_name));
+        });
+        const table = students.length
+          ? '<div class="table-wrap"><table><thead><tr><th>Student</th><th>Registration number</th><th>Component status</th></tr></thead><tbody>' +
+            students.map((student) =>
+              '<tr><td>' + esc(student.full_name) + '</td><td>' +
+              esc(student.registration_number || "—") + '</td><td>' +
+              staffCompletenessBadge(student.status) + "</td></tr>"
+            ).join("") + "</tbody></table></div>"
+          : '<p class="muted">No students are enrolled or present on this assessment’s locked examination roster.</p>';
+        return (
+          '<details class="staff-assessment-detail"><summary><span><strong>' +
+          esc(assessment.assessment) + '</strong><small>' +
+          esc(assessment.release_policy || "UNCLASSIFIED") + " · " +
+          esc(assessment.pipeline_stage || "NOT SUBMITTED") +
+          '</small></span><span class="staff-assessment-counts">' +
+          esc(c.complete || 0) + "/" + esc(c.total || 0) + " complete · " +
+          esc(c.missing || 0) + " missing · " +
+          esc(c.not_submitted || 0) + " not submitted</span></summary>" +
+          table +
+          "</details>"
+        );
+      }).join("");
+      return (
+        '<article class="staff-completeness-course"><div class="staff-completeness-course-head"><div><p class="eyebrow">' +
+        esc(course.course) + '</p><h3>' + esc(course.course_title) +
+        '</h3><p class="muted">' + esc(course.student_count) + " students · " +
+        esc(course.assessment_count) + " configured components</p></div>" +
+        staffCompletenessBadge(course.readiness) +
+        '</div>' + metrics +
+        (assessments || '<p class="muted">No assessments are configured for this course yet.</p>') +
+        "</article>"
+      );
+    }).join("");
+}
+
 // ── Lecturer ─────────────────────────────────────────────────
 async function loadLecturer() {
-  const [assessmentsData, batchesData, reportsData] = await Promise.all([
+  const [assessmentsData, batchesData, reportsData, completenessData] = await Promise.all([
     api("/api/lecturer/assessments"),
     api("/api/lecturer/batches"),
-    api("/api/lecturer/reports")
+    api("/api/lecturer/reports"),
+    api("/api/staff/unit-completeness")
   ]);
+  state.staffCompleteness = completenessData.completeness;
+  renderStaffCompleteness(state.staffCompleteness, "#lecturer-completeness");
 
   state.assessments = assessmentsData.assessments;
   state.batches = batchesData.batches;
@@ -890,12 +983,15 @@ async function loadPortalOperator() {
 
 // ── Admin ────────────────────────────────────────────────────
 async function loadAdmin() {
-  const [users, coursesData, batches, assessmentsData] = await Promise.all([
+  const [users, coursesData, batches, assessmentsData, completenessData] = await Promise.all([
     api("/api/admin/users"),
     api("/api/admin/courses"),
     api("/api/admin/batches"),
-    api("/api/admin/assessments")
+    api("/api/admin/assessments"),
+    api("/api/staff/unit-completeness")
   ]);
+  state.staffCompleteness = completenessData.completeness;
+  renderStaffCompleteness(state.staffCompleteness, "#admin-completeness");
   state.adminUsers = users.users;
   state.adminCourses = coursesData.courses;
   state.adminBatches = batches.batches;
