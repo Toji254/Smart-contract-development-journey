@@ -269,6 +269,41 @@ attachment history during the pilot. Do not manually change scan state or
 bypass quarantine. ClamAV is one defence layer, not proof that a document is
 safe or factually authentic.
 
+### Optional local document extraction
+
+Document extraction is manual and is available only to authorized academic
+staff after a clean malware scan. It does not run on upload and does not make
+academic decisions.
+
+Install Tesseract with its English language data on the MarkTrail host. PDF
+documents also require Poppler's `pdfinfo` and `pdftoppm` commands. Confirm
+the binaries are visible to the service account:
+
+```bash
+command -v tesseract
+command -v pdfinfo
+command -v pdftoppm
+tesseract --list-langs
+```
+
+The `eng` language must be present. Restart MarkTrail after installing tools.
+If a required binary is missing, the interface reports extraction as
+unavailable; uploads and other evidence workflows continue to work.
+
+The local OCR pipeline has bounded work: no more than 40 megapixels per
+uploaded image, the first five pages of a PDF, a 20-second PDF render limit,
+10 seconds per OCR page and 24,000 stored text characters. OCR runs locally
+with no external document-processing API. The result (including extracted
+text) is encrypted using the evidence key before being stored in SQLite.
+Back up and protect that key separately as described above.
+
+The extraction result is append-only and audited. It can suggest a document
+type, possible registration references, date strings and occurrences of
+PRESENT/ABSENT keywords. These are not attendance totals or identity matches.
+A lecturer, reviewer or exam-office officer must inspect the original source
+and compare it with the locked register. OCR output cannot update attendance,
+marks, script custody or evidence-case status.
+
 ## 9. Automated Database + Evidence Backups and Retention
 
 MarkTrail's `scripts/backup.sh` creates two matching archives: an atomic
