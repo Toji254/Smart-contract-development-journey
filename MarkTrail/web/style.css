@@ -721,6 +721,97 @@ footer {
 }
 
 
+
+/* ── Staff unit completeness dashboard ─────────────────────── */
+.staff-completeness-list {
+  display: grid;
+  gap: 16px;
+}
+.staff-completeness-course {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  display: grid;
+  gap: 14px;
+}
+.staff-completeness-course-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+.staff-completeness-course-head h3 {
+  margin: 0;
+}
+.staff-completeness-course-head p {
+  margin: 3px 0 0;
+}
+.staff-completeness-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.staff-completeness-metrics > div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+}
+.staff-completeness-metrics strong {
+  display: block;
+  font-size: 1.2rem;
+}
+.staff-completeness-metrics span {
+  color: var(--ink-muted);
+  font-size: .76rem;
+}
+.staff-assessment-detail {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  background: var(--bg-panel);
+}
+.staff-assessment-detail summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style-position: inside;
+}
+.staff-assessment-detail summary > span:first-of-type {
+  display: grid;
+  gap: 3px;
+}
+.staff-assessment-detail summary small {
+  color: var(--ink-muted);
+  font-size: .76rem;
+  font-weight: 500;
+}
+.staff-assessment-counts {
+  color: var(--ink-muted);
+  font-size: .8rem;
+  text-align: right;
+}
+.staff-assessment-detail .table-wrap {
+  margin-top: 12px;
+}
+@media (max-width: 800px) {
+  .staff-completeness-course-head,
+  .staff-assessment-detail summary {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .staff-completeness-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .staff-assessment-counts {
+    text-align: left;
+  }
+}
+
 /* ── Unit assessment component readiness ───────────────────── */
 .unit-readiness-intro {
   display: grid;
