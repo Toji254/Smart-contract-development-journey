@@ -18,12 +18,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
       - name: Python syntax check
         run: python -m compileall -q app run.py tests
       - name: Application tests
         run: python -m unittest discover -s tests -v
+      - name: Frontend JavaScript syntax check
+        run: node --check web/app.js
       - name: Shell syntax check
-        run: bash -n scripts/start.sh
+        run: bash -n scripts/start.sh scripts/backup.sh scripts/restore.sh
 
   solidity-tests:
     runs-on: ubuntu-latest
