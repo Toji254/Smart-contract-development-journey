@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import base64
 import binascii
+import errno
 import hashlib
 import hmac
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import uuid
@@ -23,6 +25,8 @@ MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 EVIDENCE_ENCRYPTION_MAGIC = b"MT-EVIDENCE-ENC1"
 EVIDENCE_ENCRYPTION_VERSION = 1
 AES_GCM_NONCE_BYTES = 12
+AES_GCM_TAG_BYTES = 16
+MAX_STORED_BYTES = MAX_ATTACHMENT_BYTES + len(EVIDENCE_ENCRYPTION_MAGIC) + AES_GCM_NONCE_BYTES + AES_GCM_TAG_BYTES
 ALLOWED_TYPES = {
     ".pdf": "application/pdf",
     ".png": "image/png",
@@ -265,7 +269,10 @@ class EvidenceAttachmentService:
     def _decrypt_payload(self, attachment: dict, stored: bytes) -> bytes:
         version = int(attachment.get("encryption_version") or 0)
         if version == 0 and not stored.startswith(EVIDENCE_ENCRYPTION_MAGIC):
-            return stored
+            raise AppError(
+                "This legacy evidence file is not encrypted at rest. Configure the evidence encryption key and restart MarkTrail to migrate it before downloading.",
+                503,
+            )
         if not self.encryption_key:
             raise AppError("The evidence encryption key is not configured on this server.", 503)
         saved_key_id = attachment.get("encryption_key_id")
@@ -292,6 +299,31 @@ class EvidenceAttachmentService:
         if target.resolve().parent != root:
             raise AppError("Private evidence path escaped its storage directory.", 500)
         return target
+
+    @staticmethod
+    def _read_private_file(target: Path) -> bytes:
+        """Read a bounded regular file without following a final symlink."""
+        no_follow = getattr(os, "O_NOFOLLOW", 0)
+        if not no_follow and target.is_symlink():
+            raise ValueError("Private evidence storage object must not be a symlink.")
+        fd = os.open(target, os.O_RDONLY | no_follow | getattr(os, "O_CLOEXEC", 0))
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError("Private evidence storage object is not a single-link regular file.")
+            if info.st_size <= 0 or info.st_size > MAX_STORED_BYTES:
+                raise ValueError("Private evidence storage object has an invalid size.")
+            with os.fdopen(fd, "rb") as handle:
+                payload = handle.read(MAX_STORED_BYTES + 1)
+            if len(payload) != info.st_size:
+                raise ValueError("Private evidence storage object changed while being read.")
+            return payload
+        except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
 
     @staticmethod
     def _write_private_file(target: Path, payload: bytes) -> None:
@@ -372,9 +404,12 @@ class EvidenceAttachmentService:
         for row in rows:
             attachment = dict(row)
             target = self._storage_path(attachment["storage_key"])
-            if not target.is_file():
-                raise RuntimeError(f"Cannot migrate evidence attachment {attachment['id']}: private file is missing.")
-            stored = target.read_bytes()
+            try:
+                stored = self._read_private_file(target)
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(
+                    f"Cannot safely read legacy evidence attachment {attachment['id']} during encryption migration."
+                ) from exc
             if stored.startswith(EVIDENCE_ENCRYPTION_MAGIC):
                 try:
                     plaintext = self._decrypt_payload(attachment, stored)
@@ -741,9 +776,22 @@ class EvidenceAttachmentService:
         if attachment["scan_status"] != "CLEAN":
             raise AppError("This file is not available for download until a clean malware scan has completed.", 409)
         target = self._storage_path(attachment["storage_key"])
-        if not target.is_file():
-            raise AppError("The private evidence file is unavailable; contact an administrator.", 404)
-        stored = target.read_bytes()
+        try:
+            stored = self._read_private_file(target)
+        except FileNotFoundError:
+            self._mark_corrupt(user_id, attachment, hashlib.sha256(b"").hexdigest(),
+                               "Private evidence file is missing from storage.")
+            raise AppError("Evidence integrity check failed. The missing file has been marked CORRUPT.", 409)
+        except ValueError as exc:
+            self._mark_corrupt(user_id, attachment, hashlib.sha256(b"").hexdigest(),
+                               f"Private evidence object is unsafe or invalid: {exc}")
+            raise AppError("Evidence integrity check failed. The unsafe file has been marked CORRUPT.", 409)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                self._mark_corrupt(user_id, attachment, hashlib.sha256(b"").hexdigest(),
+                                   "Private evidence object is a symlink and is not permitted.")
+                raise AppError("Evidence integrity check failed. The unsafe file has been marked CORRUPT.", 409)
+            raise AppError("Private evidence storage is unavailable. Contact an administrator.", 503)
         try:
             payload = self._decrypt_payload(attachment, stored)
         except AppError:
@@ -774,9 +822,22 @@ class EvidenceAttachmentService:
         finally:
             conn.close()
         target = self._storage_path(attachment["storage_key"])
-        if not target.is_file():
-            raise AppError("The private evidence file is unavailable.", 404)
-        stored = target.read_bytes()
+        try:
+            stored = self._read_private_file(target)
+        except FileNotFoundError:
+            self._mark_corrupt(user_id, attachment, hashlib.sha256(b"").hexdigest(),
+                               "Private evidence file is missing from storage during rescan.")
+            raise AppError("Evidence integrity check failed. The missing file has been marked CORRUPT.", 409)
+        except ValueError as exc:
+            self._mark_corrupt(user_id, attachment, hashlib.sha256(b"").hexdigest(),
+                               f"Private evidence object is unsafe or invalid during rescan: {exc}")
+            raise AppError("Evidence integrity check failed. The unsafe file has been marked CORRUPT.", 409)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                self._mark_corrupt(user_id, attachment, hashlib.sha256(b"").hexdigest(),
+                                   "Private evidence object is a symlink and is not permitted during rescan.")
+                raise AppError("Evidence integrity check failed. The unsafe file has been marked CORRUPT.", 409)
+            raise AppError("Private evidence storage is unavailable. Contact an administrator.", 503)
         try:
             payload = self._decrypt_payload(attachment, stored)
         except AppError:
