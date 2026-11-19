@@ -301,6 +301,105 @@ class AssessmentEvidenceTests(unittest.TestCase):
         row = wrong_key_service.list_attachments(self.users["lecturer"], "SESSION", session_id)[0]
         self.assertEqual(row["scan_status"], "CLEAN")
 
+    def test_legacy_attachment_event_schema_migrates_without_losing_history(self):
+        session_id = self.create_session()
+        payload = b"%PDF-1.7\nExisting attachment history.\n%%EOF"
+        uploaded = self.attachments.upload(
+            self.users["lecturer"], "SESSION", session_id,
+            "existing-register.pdf", base64.b64encode(payload).decode("ascii"),
+        )
+
+        conn = self.db.connect()
+        try:
+            conn.execute("DROP TRIGGER IF EXISTS evidence_attachment_events_no_update")
+            conn.execute("DROP TRIGGER IF EXISTS evidence_attachment_events_no_delete")
+            conn.execute(
+                "ALTER TABLE evidence_attachment_events RENAME TO evidence_attachment_events_current"
+            )
+            conn.execute(
+                """
+                CREATE TABLE evidence_attachment_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    attachment_id TEXT NOT NULL REFERENCES evidence_attachments(id) ON DELETE RESTRICT,
+                    event_type TEXT NOT NULL CHECK (
+                        event_type IN (
+                            'UPLOADED','SCANNED_CLEAN','QUARANTINED','INFECTED',
+                            'SCAN_ERROR','SCAN_RETRIED','INTEGRITY_FAILED'
+                        )
+                    ),
+                    actor_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                    note TEXT NOT NULL DEFAULT '',
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO evidence_attachment_events
+                    (id, attachment_id, event_type, actor_id, note, metadata_json, created_at)
+                SELECT id, attachment_id, event_type, actor_id, note, metadata_json, created_at
+                FROM evidence_attachment_events_current
+                """
+            )
+            conn.execute("DROP TABLE evidence_attachment_events_current")
+            conn.execute(
+                """
+                CREATE INDEX idx_evidence_attachment_events
+                ON evidence_attachment_events(attachment_id, created_at, id)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TRIGGER evidence_attachment_events_no_update
+                BEFORE UPDATE ON evidence_attachment_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'evidence attachment history is append-only');
+                END
+                """
+            )
+            conn.execute(
+                """
+                CREATE TRIGGER evidence_attachment_events_no_delete
+                BEFORE DELETE ON evidence_attachment_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'evidence attachment history is append-only');
+                END
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        upgraded = EvidenceAttachmentService(
+            self.db,
+            self.app,
+            storage_dir=Path(self.tmp.name) / "private-evidence",
+            scanner=lambda _path: ("CLEAN", "test-scanner: clean"),
+            encryption_key=self.encryption_key,
+        )
+        history = upgraded.list_attachments(
+            self.users["lecturer"], "SESSION", session_id
+        )
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["id"], uploaded["id"])
+        self.assertEqual(
+            [event["event_type"] for event in history[0]["history"]],
+            ["UPLOADED", "SCANNED_CLEAN"],
+        )
+
+        conn = self.db.connect()
+        try:
+            schema = conn.execute(
+                """
+                SELECT sql FROM sqlite_master
+                WHERE type = 'table' AND name = 'evidence_attachment_events'
+                """
+            ).fetchone()["sql"]
+            self.assertIn("STORAGE_ENCRYPTED", schema)
+        finally:
+            conn.close()
+
     def test_session_locks_candidate_roster_snapshot(self):
         session_id = self.create_session()
         before = self.roster(session_id)
