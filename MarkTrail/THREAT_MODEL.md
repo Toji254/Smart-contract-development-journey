@@ -116,7 +116,18 @@ A clean ClamAV scan is required before download. Missing scanner, timeout or
 scanner error fails closed into quarantine. Administrators can request a rescan
 from the staff UI, but a rescan never bypasses the scanner's verdict. Every
 download uses a bounded regular-file read without following a final symlink,
-then verifies the decrypted byte size and SHA-256. Missing, oversized,
+then verifies the decrypted byte size and SHA-256.
+
+Optional document extraction runs locally through Tesseract and Poppler only
+after the attachment has passed malware scanning and ownership checks. OCR
+input is treated as untrusted: images are capped at 40 megapixels, PDFs are
+rendered to a maximum of five pages at a bounded scale, subprocesses have
+timeouts, and extracted text is capped at 24,000 characters. Extracted text and
+suggestions are AES-GCM encrypted before database storage. Results are
+append-only and accessible to authorized academic staff only. Classification,
+registration references, dates and PRESENT/ABSENT keyword occurrences are
+suggestions, not verified academic facts. No OCR result can mutate attendance,
+marks, identity links, script custody or case decisions. Missing, oversized,
 symlinked or altered objects are marked CORRUPT and blocked. Legacy plaintext
 records are not downloadable until the configured key migrates them. Metadata
 is immutable and event history is append-only. Database backups are paired
