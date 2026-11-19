@@ -576,6 +576,277 @@ class AppService:
         finally:
             conn.close()
 
+
+    def staff_unit_completeness(self, user_id: int) -> dict:
+        """Return course/component completeness for authorised academic staff.
+
+        This is deliberately a status-only view: candidate and unpublished
+        numeric marks are never returned, and no weighted unit total is
+        calculated.
+        """
+        user = self.require_role(user_id, {"lecturer", "admin"})
+        conn = self.db.connect()
+        try:
+            if user["role"] == "lecturer":
+                course_rows = conn.execute(
+                    """
+                    SELECT c.id, c.code, c.title
+                    FROM courses c
+                    WHERE c.lecturer_id = ?
+                    ORDER BY c.code
+                    """,
+                    (user_id,),
+                ).fetchall()
+                scope = "ASSIGNED_COURSES"
+            else:
+                course_rows = conn.execute(
+                    """
+                    SELECT c.id, c.code, c.title
+                    FROM courses c
+                    ORDER BY c.code
+                    """
+                ).fetchall()
+                scope = "ALL_COURSES"
+
+            has_exam_roster = conn.execute(
+                """
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'exam_session_candidates'
+                """
+            ).fetchone() is not None
+
+            overall = {
+                "components": 0,
+                "complete": 0,
+                "missing": 0,
+                "not_submitted": 0,
+                "awaiting": 0,
+                "policy_unclassified": 0,
+            }
+            courses = []
+
+            for course in course_rows:
+                assessments = conn.execute(
+                    """
+                    SELECT
+                        a.id,
+                        a.name,
+                        a.max_mark,
+                        a.release_policy,
+                        b.id AS batch_id,
+                        b.pipeline_stage,
+                        b.senate_status,
+                        b.revision
+                    FROM assessments a
+                    LEFT JOIN batches b ON b.assessment_id = a.id
+                    WHERE a.course_id = ?
+                    ORDER BY a.created_at, a.id
+                    """,
+                    (course["id"],),
+                ).fetchall()
+
+                course_student_ids = set()
+                course_counts = {
+                    "components": 0,
+                    "complete": 0,
+                    "missing": 0,
+                    "not_submitted": 0,
+                    "awaiting": 0,
+                    "policy_unclassified": 0,
+                }
+                component_results = []
+
+                for assessment in assessments:
+                    if has_exam_roster:
+                        roster = conn.execute(
+                            """
+                            WITH roster AS (
+                                SELECT student_id
+                                FROM enrollments
+                                WHERE course_id = ?
+                                UNION
+                                SELECT candidate.student_id
+                                FROM exam_session_candidates candidate
+                                JOIN exam_sessions session
+                                  ON session.id = candidate.session_id
+                                WHERE session.assessment_id = ?
+                            )
+                            SELECT
+                                u.full_name,
+                                u.reg_number,
+                                m.candidate_status,
+                                m.published_status
+                            FROM roster
+                            JOIN users u ON u.id = roster.student_id
+                            LEFT JOIN assessment_marks m
+                              ON m.assessment_id = ? AND m.student_id = u.id
+                            ORDER BY COALESCE(u.reg_number, ''), u.full_name
+                            """,
+                            (course["id"], assessment["id"], assessment["id"]),
+                        ).fetchall()
+                        candidate_ids = conn.execute(
+                            """
+                            SELECT student_id FROM enrollments WHERE course_id = ?
+                            UNION
+                            SELECT candidate.student_id
+                            FROM exam_session_candidates candidate
+                            JOIN exam_sessions session
+                              ON session.id = candidate.session_id
+                            WHERE session.assessment_id = ?
+                            """,
+                            (course["id"], assessment["id"]),
+                        ).fetchall()
+                    else:
+                        roster = conn.execute(
+                            """
+                            SELECT
+                                u.full_name,
+                                u.reg_number,
+                                m.candidate_status,
+                                m.published_status
+                            FROM enrollments e
+                            JOIN users u ON u.id = e.student_id
+                            LEFT JOIN assessment_marks m
+                              ON m.assessment_id = ? AND m.student_id = u.id
+                            WHERE e.course_id = ?
+                            ORDER BY COALESCE(u.reg_number, ''), u.full_name
+                            """,
+                            (assessment["id"], course["id"]),
+                        ).fetchall()
+                        candidate_ids = conn.execute(
+                            "SELECT student_id FROM enrollments WHERE course_id = ?",
+                            (course["id"],),
+                        ).fetchall()
+
+                    course_student_ids.update(int(row["student_id"]) for row in candidate_ids)
+                    students = []
+                    component_counts = {
+                        "total": 0,
+                        "complete": 0,
+                        "missing": 0,
+                        "not_submitted": 0,
+                        "awaiting": 0,
+                        "policy_unclassified": 0,
+                    }
+
+                    for candidate in roster:
+                        stage = assessment["pipeline_stage"]
+                        candidate_status = candidate["candidate_status"]
+                        published_status = candidate["published_status"]
+
+                        if stage == "PUBLISHED":
+                            if published_status == "RECORDED":
+                                status = "RECORDED"
+                            elif published_status == "NO_MARK":
+                                status = "NO_MARK"
+                            else:
+                                status = "MISSING"
+                        elif candidate_status == "MISSING":
+                            status = "MISSING_IN_SUBMISSION"
+                        elif assessment["release_policy"] == "UNCLASSIFIED":
+                            status = "POLICY_UNCLASSIFIED"
+                        elif not assessment["batch_id"]:
+                            status = "NOT_SUBMITTED"
+                        elif (
+                            assessment["release_policy"] == "SENATE"
+                            and assessment["senate_status"] == "PENDING"
+                        ):
+                            status = "AWAITING_SENATE_APPROVAL"
+                        elif (
+                            assessment["release_policy"] == "SENATE"
+                            and assessment["senate_status"] == "DEFERRED"
+                        ):
+                            status = "SENATE_DEFERRED"
+                        elif stage == "DEPARTMENT_REVIEW":
+                            status = "AWAITING_DEPARTMENT_REVIEW"
+                        elif stage == "EXAM_OFFICE":
+                            status = "AWAITING_EXAM_OFFICE"
+                        elif stage == "PORTAL_IMPORT":
+                            status = "AWAITING_PORTAL_PUBLICATION"
+                        else:
+                            status = "AWAITING_PUBLICATION"
+
+                        students.append({
+                            "full_name": candidate["full_name"],
+                            "registration_number": candidate["reg_number"],
+                            "status": status,
+                        })
+                        component_counts["total"] += 1
+                        if status in {"RECORDED", "NO_MARK"}:
+                            component_counts["complete"] += 1
+                        elif status in {"MISSING", "MISSING_IN_SUBMISSION"}:
+                            component_counts["missing"] += 1
+                        elif status == "NOT_SUBMITTED":
+                            component_counts["not_submitted"] += 1
+                        elif status == "POLICY_UNCLASSIFIED":
+                            component_counts["policy_unclassified"] += 1
+                        else:
+                            component_counts["awaiting"] += 1
+
+                    for key in course_counts:
+                        course_counts[key] += component_counts[key]
+                        overall[key] += component_counts[key]
+
+                    component_results.append({
+                        "assessment_id": assessment["id"],
+                        "assessment": assessment["name"],
+                        "max_mark": assessment["max_mark"],
+                        "release_policy": assessment["release_policy"],
+                        "batch_id": assessment["batch_id"],
+                        "pipeline_stage": assessment["pipeline_stage"],
+                        "senate_status": assessment["senate_status"],
+                        "revision": assessment["revision"],
+                        "counts": component_counts,
+                        "students": students,
+                    })
+
+                if not assessments:
+                    course_student_ids.update(
+                        int(row["student_id"])
+                        for row in conn.execute(
+                            "SELECT student_id FROM enrollments WHERE course_id = ?",
+                            (course["id"],),
+                        ).fetchall()
+                    )
+
+                if not assessments:
+                    readiness = "NO_ASSESSMENTS_CONFIGURED"
+                elif course_counts["policy_unclassified"]:
+                    readiness = "CONFIGURATION_REQUIRED"
+                elif course_counts["missing"]:
+                    readiness = "MISSING_COMPONENTS"
+                elif course_counts["not_submitted"] or course_counts["awaiting"]:
+                    readiness = "AWAITING_COMPONENTS"
+                elif course_counts["components"] and course_counts["complete"] == course_counts["components"]:
+                    readiness = "ALL_COMPONENTS_PUBLISHED"
+                else:
+                    readiness = "NO_STUDENT_COMPONENTS"
+
+                courses.append({
+                    "course_id": course["id"],
+                    "course": course["code"],
+                    "course_title": course["title"],
+                    "student_count": len(course_student_ids),
+                    "assessment_count": len(assessments),
+                    "readiness": readiness,
+                    "counts": course_counts,
+                    "assessments": component_results,
+                })
+
+            return {
+                "scope": scope,
+                "generated_at": utc_now(),
+                "summary": overall,
+                "courses": courses,
+                "unit_total_note": (
+                    "This is a component-completeness view only. It does not "
+                    "calculate weighted unit totals or infer assessment weights."
+                ),
+                "mark_values_included": False,
+            }
+        finally:
+            conn.close()
+
     def student_marks(self, user_id: int) -> list[dict]:
         self.require_role(user_id, {"student"})
         conn = self.db.connect()
