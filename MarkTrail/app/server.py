@@ -316,6 +316,11 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/api/student/marks":
             return self._send_json({"marks": self.service.student_marks(user_id)})
 
+        if method == "GET" and path == "/api/student/unit-readiness":
+            return self._send_json(
+                {"courses": self.service.student_unit_readiness(user_id)}
+            )
+
         if method == "GET" and path == "/api/student/progress":
             return self._send_json({"progress": self.evidence.student_progress(user_id)})
 
