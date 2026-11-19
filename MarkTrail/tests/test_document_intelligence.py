@@ -66,15 +66,23 @@ class EvidenceDocumentIntelligenceTests(unittest.TestCase):
         conn = self.db.connect()
         try:
             return {
-                table: conn.execute(
-                    f"SELECT COUNT(*) FROM {table} WHERE session_id = ?", (session_id,)
-                ).fetchone()[0]
-                for table in (
-                    "exam_attendance",
-                    "exam_session_events",
-                    "evidence_cases",
-                    "evidence_case_events",
-                )
+                "exam_attendance": conn.execute(
+                    "SELECT COUNT(*) FROM exam_attendance WHERE session_id = ?", (session_id,)
+                ).fetchone()[0],
+                "exam_session_events": conn.execute(
+                    "SELECT COUNT(*) FROM exam_session_events WHERE session_id = ?", (session_id,)
+                ).fetchone()[0],
+                "evidence_cases": conn.execute(
+                    "SELECT COUNT(*) FROM evidence_cases WHERE session_id = ?", (session_id,)
+                ).fetchone()[0],
+                "evidence_case_events": conn.execute(
+                    """
+                    SELECT COUNT(*) FROM evidence_case_events event
+                    JOIN evidence_cases item ON item.id = event.case_id
+                    WHERE item.session_id = ?
+                    """,
+                    (session_id,),
+                ).fetchone()[0],
             }
         finally:
             conn.close()
