@@ -18,7 +18,8 @@ const state = {
   evidenceSessions: [],
   evidenceSelectedAssessment: "",
   evidenceSelectedSession: "",
-  evidenceDetail: null
+  evidenceDetail: null,
+  evidenceDocumentAnalyses: {}
 };
 let bulkActivationCredentials = [];
 
@@ -48,6 +49,28 @@ async function uploadEvidenceAttachment(ownerType, ownerId, file) {
   });
 }
 
+function renderEvidenceDocumentAnalysis(attachmentId, analysis) {
+  const suggestions = analysis.suggestions || {};
+  const registrationNumbers = (suggestions.registration_number_candidates || []).join(", ");
+  const dates = (suggestions.date_candidates || []).join(", ");
+  const status = String(analysis.status || "UNKNOWN").replaceAll("_", " ");
+  const textBlock = analysis.text
+    ? '<details><summary>View extracted text (' + esc(analysis.extracted_character_count || analysis.text.length) + ' characters)</summary>' +
+      '<pre>' + esc(analysis.text) + '</pre></details>'
+    : "";
+  return '<section class="evidence-document-analysis" data-document-analysis="' + esc(attachmentId) + '">' +
+    '<div class="document-analysis-heading"><strong>Document intelligence · Human review required</strong>' +
+    '<span class="badge warning">' + esc(status) + '</span></div>' +
+    '<p><strong>Suggested document type:</strong> ' + esc(suggestions.suggested_document_type || "UNKNOWN") + '</p>' +
+    '<p><strong>Possible registration references:</strong> ' + esc(registrationNumbers || "None detected") + '</p>' +
+    '<p><strong>Possible dates:</strong> ' + esc(dates || "None detected") + '</p>' +
+    '<p><strong>Keyword hits only:</strong> PRESENT ' + esc(suggestions.present_word_occurrences ?? 0) +
+      ' · ABSENT ' + esc(suggestions.absent_word_occurrences ?? 0) + '</p>' +
+    (analysis.warning ? '<p class="muted">' + esc(analysis.warning) + '</p>' : '') +
+    '<p class="muted">OCR suggestions are not evidence of attendance, identity or marks. Compare with the original and locked roster. MarkTrail does not apply these values automatically.</p>' +
+    textBlock + '</section>';
+}
+
 function renderEvidenceAttachmentList(items) {
   if (!items || !items.length) return '<p class="muted">No documents attached yet.</p>';
   return '<div class="evidence-attachment-list">' + items.map((item) => {
@@ -66,18 +89,26 @@ function renderEvidenceAttachmentList(items) {
     const rescan = canRescan
       ? '<button type="button" class="button secondary evidence-rescan" data-rescan-attachment="' + esc(item.id) + '">Rescan file</button>'
       : "";
+    const canAnalyse = ["admin", "reviewer", "exam_office", "lecturer"].includes(state.user?.role) &&
+      item.scan_status === "CLEAN";
+    const analyse = canAnalyse
+      ? '<button type="button" class="button secondary evidence-analyse" data-analyse-document="' + esc(item.id) + '">Extract / review</button>'
+      : "";
     const history = (item.history || []).map((event) =>
       '<div class="attachment-history-event"><strong>' + esc(event.event_type.replaceAll("_", " ")) +
       '</strong><small>' + esc(event.actor_name) + ' · ' + esc(event.created_at) + '</small>' +
       (event.note ? '<span>' + esc(event.note) + '</span>' : '') + '</div>'
     ).join("");
-    return '<div class="evidence-attachment-row"><div><strong>' + esc(item.filename) + '</strong>' +
+    return '<div class="evidence-attachment-row" data-attachment-row="' + esc(item.id) + '"><div><strong>' + esc(item.filename) + '</strong>' +
       '<small class="muted">' + esc((item.byte_size / 1024).toFixed(1)) + ' KB · SHA-256 ' +
       esc(item.sha256.slice(0, 16)) + '… · ' + esc(item.uploaded_by_name || "Staff") + ' · ' +
       esc(item.created_at) + '</small>' +
       (history ? '<details class="attachment-history"><summary>File history (' + (item.history || []).length + ')</summary>' +
         '<div class="attachment-history-list">' + history + '</div></details>' : '') +
-      '</div><div class="evidence-attachment-actions">' + scanLabel + download + rescan + '</div></div>';
+      '</div><div class="evidence-attachment-actions">' + scanLabel + download + rescan + analyse + '</div></div>' +
+      (state.evidenceDocumentAnalyses[item.id]
+        ? renderEvidenceDocumentAnalysis(item.id, state.evidenceDocumentAnalyses[item.id])
+        : "");
   }).join("") + "</div>";
 }
 
@@ -2768,6 +2799,42 @@ $("#create-assessment-form").addEventListener("submit", async (event) => {
 // ── Administrator evidence rescan ───────────────────────────
 document.addEventListener("click", async (event) => {
   if (!(event.target instanceof Element)) return;
+
+  const analyseButton = event.target.closest("[data-analyse-document]");
+  if (analyseButton) {
+    if (!["admin", "reviewer", "exam_office", "lecturer"].includes(state.user?.role)) {
+      toast("Document extraction is available to assigned academic staff only.", "error");
+      return;
+    }
+    const attachmentId = analyseButton.dataset.analyseDocument;
+    if (!attachmentId) return;
+    analyseButton.disabled = true;
+    try {
+      const result = await api(
+        "/api/evidence/attachments/" + encodeURIComponent(attachmentId) + "/analyze",
+        { method: "POST" }
+      );
+      state.evidenceDocumentAnalyses[attachmentId] = result;
+      const row = analyseButton.closest("[data-attachment-row]");
+      const previous = row?.nextElementSibling;
+      if (previous?.matches("[data-document-analysis]")) previous.remove();
+      row?.insertAdjacentHTML("afterend", renderEvidenceDocumentAnalysis(attachmentId, result));
+      toast(
+        result.status === "UNAVAILABLE"
+          ? "Local OCR is not installed or configured on this host."
+          : result.status === "FAILED"
+            ? "Document extraction failed; the original file is unchanged."
+            : "Text extracted. Review every suggestion against the original document.",
+        result.status === "COMPLETE" || result.status === "PARTIAL" ? "success" : "error"
+      );
+    } catch (error) {
+      toast(error.message, "error");
+    } finally {
+      analyseButton.disabled = false;
+    }
+    return;
+  }
+
   const button = event.target.closest("[data-rescan-attachment]");
   if (!button) return;
   if (state.user?.role !== "admin") {
