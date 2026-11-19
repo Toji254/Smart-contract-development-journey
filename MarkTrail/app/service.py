@@ -424,26 +424,44 @@ class AppService:
         self.require_role(user_id, {"student"})
         conn = self.db.connect()
         try:
-            courses = conn.execute(
+            has_exam_roster = conn.execute(
                 """
-                WITH student_courses AS (
-                    SELECT e.course_id
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'exam_session_candidates'
+                """
+            ).fetchone()
+            if has_exam_roster:
+                courses = conn.execute(
+                    """
+                    WITH student_courses AS (
+                        SELECT e.course_id
+                        FROM enrollments e
+                        WHERE e.student_id = ?
+                        UNION
+                        SELECT a.course_id
+                        FROM exam_session_candidates candidate
+                        JOIN exam_sessions session ON session.id = candidate.session_id
+                        JOIN assessments a ON a.id = session.assessment_id
+                        WHERE candidate.student_id = ?
+                    )
+                    SELECT c.id AS course_id, c.code, c.title
+                    FROM student_courses sc
+                    JOIN courses c ON c.id = sc.course_id
+                    ORDER BY c.code
+                    """,
+                    (user_id, user_id),
+                ).fetchall()
+            else:
+                courses = conn.execute(
+                    """
+                    SELECT DISTINCT c.id AS course_id, c.code, c.title
                     FROM enrollments e
+                    JOIN courses c ON c.id = e.course_id
                     WHERE e.student_id = ?
-                    UNION
-                    SELECT a.course_id
-                    FROM exam_session_candidates candidate
-                    JOIN exam_sessions session ON session.id = candidate.session_id
-                    JOIN assessments a ON a.id = session.assessment_id
-                    WHERE candidate.student_id = ?
-                )
-                SELECT c.id AS course_id, c.code, c.title
-                FROM student_courses sc
-                JOIN courses c ON c.id = sc.course_id
-                ORDER BY c.code
-                """,
-                (user_id, user_id),
-            ).fetchall()
+                    ORDER BY c.code
+                    """,
+                    (user_id,),
+                ).fetchall()
 
             results = []
             for course in courses:
