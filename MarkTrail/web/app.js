@@ -61,6 +61,11 @@ function renderEvidenceAttachmentList(items) {
     const download = item.scan_status === "CLEAN"
       ? '<a class="button secondary evidence-download" href="/api/evidence/attachments/' + encodeURIComponent(item.id) + '/download">Download</a>'
       : '<small class="muted">Download blocked until a clean scan succeeds.</small>';
+    const canRescan = state.user?.role === "admin" &&
+      ["QUARANTINED", "SCAN_ERROR", "INFECTED"].includes(item.scan_status);
+    const rescan = canRescan
+      ? '<button type="button" class="button secondary evidence-rescan" data-rescan-attachment="' + esc(item.id) + '">Rescan file</button>'
+      : "";
     const history = (item.history || []).map((event) =>
       '<div class="attachment-history-event"><strong>' + esc(event.event_type.replaceAll("_", " ")) +
       '</strong><small>' + esc(event.actor_name) + ' · ' + esc(event.created_at) + '</small>' +
@@ -72,7 +77,7 @@ function renderEvidenceAttachmentList(items) {
       esc(item.created_at) + '</small>' +
       (history ? '<details class="attachment-history"><summary>File history (' + (item.history || []).length + ')</summary>' +
         '<div class="attachment-history-list">' + history + '</div></details>' : '') +
-      '</div><div class="evidence-attachment-actions">' + scanLabel + download + '</div></div>';
+      '</div><div class="evidence-attachment-actions">' + scanLabel + download + rescan + '</div></div>';
   }).join("") + "</div>";
 }
 
@@ -2757,6 +2762,36 @@ $("#create-assessment-form").addEventListener("submit", async (event) => {
     await loadAdmin();
   } catch (error) {
     toast(error.message, "error");
+  }
+});
+
+// ── Administrator evidence rescan ───────────────────────────
+document.addEventListener("click", async (event) => {
+  if (!(event.target instanceof Element)) return;
+  const button = event.target.closest("[data-rescan-attachment]");
+  if (!button) return;
+  if (state.user?.role !== "admin") {
+    toast("Only administrators can rescan quarantined evidence.", "error");
+    return;
+  }
+  const attachmentId = button.dataset.rescanAttachment;
+  if (!attachmentId) return;
+  button.disabled = true;
+  try {
+    const result = await api(
+      "/api/admin/evidence-attachments/" + encodeURIComponent(attachmentId) + "/rescan",
+      { method: "POST" }
+    );
+    toast(
+      result.scan_status === "CLEAN"
+        ? "Evidence rescanned clean. Download is now available."
+        : "Evidence remains blocked: " + result.scan_status.replaceAll("_", " ").toLowerCase() + ".",
+      result.scan_status === "CLEAN" ? "success" : "error"
+    );
+    await loadCurrentView();
+  } catch (error) {
+    toast(error.message, "error");
+    button.disabled = false;
   }
 });
 
