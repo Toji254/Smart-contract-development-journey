@@ -190,6 +190,11 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/api/dashboard":
             return self._send_json(self.service.dashboard(user_id))
 
+        if method == "GET" and path == "/api/staff/unit-completeness":
+            return self._send_json(
+                {"completeness": self.service.staff_unit_completeness(user_id)}
+            )
+
         if method == "GET" and path == "/api/evidence/assessments":
             return self._send_json({"assessments": self.evidence.list_assessments(user_id)})
 
