@@ -75,6 +75,32 @@ class AssessmentEvidenceTests(unittest.TestCase):
             {row["student_id"] for row in after},
         )
 
+    def test_historical_student_readiness_only_includes_locked_roster_assessments(self):
+        session_id = self.evidence.create_session(
+            self.users["lecturer"],
+            "assessment-cat2",
+            "2026-11-20T09:00:00",
+            "Main Campus · Lecture Theatre 2",
+            "CAT",
+        )["session_id"]
+        candidates = self.roster(session_id)
+        student_id = candidates[0]["student_id"]
+
+        with self.db.transaction() as conn:
+            conn.execute(
+                "DELETE FROM enrollments WHERE course_id = ? AND student_id = ?",
+                ("course-csc201", student_id),
+            )
+
+        readiness = self.app.student_unit_readiness(student_id)
+        course = next(
+            item for item in readiness if item["course_id"] == "course-csc201"
+        )
+        self.assertEqual(
+            [component["assessment_id"] for component in course["components"]],
+            ["assessment-cat2"],
+        )
+
     def test_missing_signature_does_not_turn_present_candidate_into_absent(self):
         session_id = self.create_session()
         candidates = self.record_complete_register(
