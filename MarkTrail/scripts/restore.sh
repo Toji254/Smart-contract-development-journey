@@ -65,13 +65,16 @@ HAS_ATTACHMENT_TABLE="$(sqlite_exec "$RESTORE_STAGING" "SELECT COUNT(*) FROM sql
 
 if [ -f "$EVIDENCE_BACKUP" ]; then
     echo "[3/6] Validating and safely extracting private evidence archive..."
-    python3 - "$EVIDENCE_BACKUP" "$STAGED_EVIDENCE" <<'PY'
+    python3 - "$EVIDENCE_BACKUP" "$STAGED_EVIDENCE" "$RESTORE_STAGING" <<'PY'
+import hashlib
 import os
 import re
+import sqlite3
+import stat
 import sys
 import tarfile
 
-archive_path, destination = sys.argv[1], sys.argv[2]
+archive_path, destination, database_path = sys.argv[1], sys.argv[2], sys.argv[3]
 allowed = re.compile(r"^[a-f0-9]{32}\.(?:pdf|png|jpg|jpeg)$")
 total = 0
 with tarfile.open(archive_path, "r:gz") as archive:
@@ -101,7 +104,66 @@ with tarfile.open(archive_path, "r:gz") as archive:
                 total += len(chunk)
         if os.path.getsize(target) != member.size:
             raise SystemExit(f"Evidence archive entry was truncated: {member.name!r}")
-print(f"Verified and extracted {len(os.listdir(destination))} private evidence file(s), {total} bytes.")
+connection = sqlite3.connect(database_path)
+try:
+    exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evidence_attachments'"
+    ).fetchone()
+    if not exists:
+        rows = []
+    else:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(evidence_attachments)")}
+        if not {"storage_key", "byte_size"}.issubset(columns):
+            raise SystemExit("Restored database attachment schema is missing storage_key or byte_size.")
+        selected = ["storage_key", "byte_size"]
+        selected.append("encryption_version" if "encryption_version" in columns else "0")
+        selected.append("sha256" if "sha256" in columns else "NULL")
+        rows = connection.execute("SELECT " + ", ".join(selected) + " FROM evidence_attachments").fetchall()
+finally:
+    connection.close()
+
+magic = b"MT-EVIDENCE-ENC1"
+overhead = len(magic) + 12 + 16
+maximum_plaintext = 10 * 1024 * 1024
+for storage_key, byte_size, encryption_version, digest in rows:
+    name = str(storage_key or "")
+    if not allowed.fullmatch(name):
+        raise SystemExit(f"Unsafe storage key in restored database: {name!r}")
+    path = os.path.join(destination, name)
+    if os.path.islink(path):
+        raise SystemExit(f"Attachment file is a symlink in evidence archive: {name}")
+    try:
+        info = os.stat(path, follow_symlinks=False)
+    except FileNotFoundError:
+        raise SystemExit(f"Attachment file is missing from evidence archive: {name}")
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise SystemExit(f"Attachment is not a single-link regular file in evidence archive: {name}")
+    size, version = int(byte_size), int(encryption_version or 0)
+    if size <= 0 or size > maximum_plaintext:
+        raise SystemExit(f"Invalid plaintext size in restored attachment metadata: {name}")
+    encrypted_size = size + overhead
+    if version == 1 and info.st_size != encrypted_size:
+        raise SystemExit(f"Encrypted attachment size does not match database metadata: {name}")
+    if version == 0 and info.st_size not in (size, encrypted_size):
+        raise SystemExit(f"Legacy attachment size does not match database metadata: {name}")
+    if version not in (0, 1) or info.st_size > maximum_plaintext + overhead:
+        raise SystemExit(f"Unsupported or oversized evidence file in archive: {name}")
+    if version == 1 or (version == 0 and info.st_size == encrypted_size):
+        with open(path, "rb") as handle:
+            if handle.read(len(magic)) != magic:
+                raise SystemExit(f"Encrypted attachment header is invalid: {name}")
+    elif digest:
+        calculated = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                calculated.update(chunk)
+        if calculated.hexdigest() != str(digest):
+            raise SystemExit(f"Legacy plaintext attachment failed SHA-256 check: {name}")
+
+print(
+    f"Verified and extracted {len(os.listdir(destination))} evidence file(s), "
+    f"{total} bytes; all {len(rows)} database attachment reference(s) exist."
+)
 PY
 elif [ "$HAS_ATTACHMENT_TABLE" = "1" ]; then
     echo "ERROR: Database has evidence attachment records but the matching evidence archive is missing:"
