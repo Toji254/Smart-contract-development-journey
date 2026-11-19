@@ -783,7 +783,12 @@ class AppService:
                         else:
                             component_counts["awaiting"] += 1
 
-                    for key in course_counts:
+                    course_counts["components"] += component_counts["total"]
+                    overall["components"] += component_counts["total"]
+                    for key in (
+                        "complete", "missing", "not_submitted",
+                        "awaiting", "policy_unclassified",
+                    ):
                         course_counts[key] += component_counts[key]
                         overall[key] += component_counts[key]
 
