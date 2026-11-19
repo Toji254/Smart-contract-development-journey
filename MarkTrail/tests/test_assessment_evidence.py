@@ -683,7 +683,7 @@ class AssessmentEvidenceTests(unittest.TestCase):
             "OUT/EXAM/001",
             "2027-12-31",
         )["id"]
-        with self.assertRaisesRegex(AppError, "own registered unit"):
+        with self.assertRaisesRegex(AppError, "own locked exam roster"):
             self.evidence.student_report_evidence_issue(
                 outside_student, session_id, "ATTENDANCE",
                 "I attended the examination but my attendance is not displayed.",
