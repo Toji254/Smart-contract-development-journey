@@ -17,6 +17,7 @@ from .chain import ChainClient
 from .db import Database
 from .evidence import AssessmentEvidenceService
 from .attachments import EvidenceAttachmentService
+from .document_intelligence import EvidenceDocumentIntelligenceService
 from .service import AppError, AppService
 
 
@@ -237,6 +238,12 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
             return self._send_json({
                 "attachments": self.attachments.list_attachments(user_id, owner_type, owner_id)
             })
+
+        match = re.fullmatch(r"/api/evidence/attachments/([a-f0-9]{32})/analyze", path)
+        if method == "POST" and match:
+            return self._send_json(
+                self.document_intelligence.analyze(user_id, match.group(1))
+            )
 
         match = re.fullmatch(r"/api/evidence/attachments/([a-f0-9]{32})/download", path)
         if method == "GET" and match:
@@ -750,6 +757,9 @@ class MarkTrailServer(ThreadingHTTPServer):
         self.service = service
         self.evidence = AssessmentEvidenceService(db, service)
         self.attachments = EvidenceAttachmentService(db, service)
+        self.document_intelligence = EvidenceDocumentIntelligenceService(
+            db, service, self.attachments
+        )
 
 
 def run(host: str | None = None, port: int | None = None):
