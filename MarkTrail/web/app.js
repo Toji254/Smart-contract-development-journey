@@ -1840,6 +1840,16 @@ async function loadEvidenceSession(sessionId) {
     api("/api/evidence/sessions/" + encodeURIComponent(sessionId)),
     api("/api/evidence/attachments?owner_type=SESSION&owner_id=" + encodeURIComponent(sessionId))
   ]);
+  const scriptRecords = [
+    ...(detail.candidates || []).filter((candidate) => candidate.script).map((candidate) => candidate.script),
+    ...(detail.unidentified_scripts || [])
+  ];
+  const scriptFiles = await Promise.all(scriptRecords.map((script) =>
+    api("/api/evidence/attachments?owner_type=SCRIPT&owner_id=" + encodeURIComponent(script.id))
+  ));
+  detail.scriptAttachments = Object.fromEntries(
+    scriptRecords.map((script, index) => [script.id, scriptFiles[index].attachments || []])
+  );
   state.evidenceDetail = detail;
   state.evidenceDetail.attachments = attachments.attachments || [];
   renderEvidenceSessions();
@@ -2026,10 +2036,17 @@ function renderEvidenceSession() {
         } else {
           actions = '<p class="muted">Current custodian: ' + esc(script.current_custodian_name || "Assigned staff member") + '</p>';
         }
+        const scriptAttachments = (data.scriptAttachments || {})[script.id] || [];
+        const attachmentForm = '<form class="script-attachment-form" data-script-attachment="' + esc(script.id) + '">' +
+          '<label>Attach this script or receipt (PDF, PNG or JPEG; max 10 MB)' +
+          '<input type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required></label>' +
+          '<button type="submit" class="button secondary">Attach to script</button></form>';
         return '<div class="script-card"><div class="issue-top"><div><strong>' + esc(script.script_ref) +
           '</strong><div class="muted">' + esc(candidate.registration_number || "") + " · " + esc(candidate.full_name) +
           "</div></div>" + badge(script.status) + "</div><p class=\"muted\">Received " +
-          esc(script.received_at || "") + "</p>" + actions + "</div>";
+          esc(script.received_at || "") + "</p>" + actions +
+          '<div class="case-attachments"><strong>Script documents</strong>' +
+          renderEvidenceAttachmentList(scriptAttachments) + attachmentForm + '</div></div>';
       }).join("")
     : '<p class="muted">No candidate-linked scripts have been received in this session yet.</p>';
 
@@ -2041,9 +2058,16 @@ function renderEvidenceSession() {
         '" maxlength="1000" placeholder="Explain how identity was confirmed"></label></div>' +
         '<button type="button" class="button primary" data-link-script="' + esc(script.id) + '">Link verified candidate</button>'
       : '<p class="muted">A reviewer or exam-office officer must verify and link this script to a candidate.</p>';
+    const scriptAttachments = (data.scriptAttachments || {})[script.id] || [];
+    const attachmentForm = '<form class="script-attachment-form" data-script-attachment="' + esc(script.id) + '">' +
+      '<label>Attach this unidentified script or receipt (PDF, PNG or JPEG; max 10 MB)' +
+      '<input type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required></label>' +
+      '<button type="submit" class="button secondary">Attach to script</button></form>';
     return '<div class="script-card"><div class="issue-top"><div><strong>' + esc(script.script_ref) +
       '</strong><div class="muted">Candidate not identified · ' + esc(script.received_at) +
-      '</div></div>' + badge("FLAGGED") + "</div><p>" + esc(script.notes || "") + "</p>" + linkAction + "</div>";
+      '</div></div>' + badge("FLAGGED") + "</div><p>" + esc(script.notes || "") + "</p>" + linkAction +
+      '<div class="case-attachments"><strong>Script documents</strong>' +
+      renderEvidenceAttachmentList(scriptAttachments) + attachmentForm + '</div></div>';
   }).join("");
 
   root.innerHTML =
@@ -2090,6 +2114,28 @@ function renderEvidenceSession() {
     '<p class="muted">History entries are append-only. Corrections appear as new events rather than overwriting what happened previously.</p></div>' +
     '<div class="card"><div class="section-head compact"><div><p class="eyebrow">RECONCILIATION</p><h2>Exceptions to investigate</h2></div></div>' +
     issues + '</div>';
+
+  root.querySelectorAll(".script-attachment-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = form.querySelector('button[type="submit"]');
+      const file = form.querySelector('input[type="file"]').files[0];
+      try {
+        button.disabled = true;
+        const result = await uploadEvidenceAttachment(
+          "SCRIPT", form.dataset.scriptAttachment, file
+        );
+        toast(result.scan_status === "CLEAN"
+          ? "Script evidence attached and scanned clean."
+          : "Script evidence is quarantined until a clean malware scan completes.",
+          result.scan_status === "CLEAN" ? "success" : "error");
+        await loadEvidenceSession(session.id);
+      } catch (error) {
+        toast(error.message, "error");
+        button.disabled = false;
+      }
+    });
+  });
 
   $("#session-attachment-form").addEventListener("submit", async (event) => {
     event.preventDefault();
