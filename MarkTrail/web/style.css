@@ -1890,3 +1890,41 @@ footer {
     transition-duration: .01ms !important;
   }
 }
+
+
+/* Shared brand tokens also apply to the sign-in and first-login screens. */
+:root {
+  --site-forest: #123e32;
+  --site-forest-deep: #0b2c24;
+  --site-green: #176747;
+  --site-green-soft: #e9f0e9;
+  --site-gold: #e8c878;
+  --site-ivory: #f8f8f3;
+  --site-paper: #fffefa;
+  --site-ink: #1b2923;
+  --site-muted: #6b7770;
+  --site-line: #e3e8e1;
+}
+#password-change-screen {
+  display: grid;
+  place-items: center;
+}
+#password-change-screen .login-card {
+  width: min(460px, 100%);
+  padding: 36px;
+  border: 1px solid #dce4dc;
+  border-radius: 20px;
+  background: #fffefa;
+  box-shadow: 0 26px 90px rgba(13,48,35,.12);
+}
+#password-change-screen .login-card h1 {
+  color: #1d3529;
+  font-size: clamp(2rem, 6vw, 2.8rem);
+}
+#password-change-screen .login-card .brand-mark {
+  color: var(--site-forest);
+  background: var(--site-gold);
+}
+@media (max-width: 700px) {
+  #password-change-screen .login-card { padding: 28px 24px; }
+}
