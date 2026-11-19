@@ -13,6 +13,8 @@ const state = {
   evidenceAssessments: [],
   evidenceStaff: [],
   evidenceCases: [],
+  evidenceAttachments: [],
+  studentAttachments: [],
   evidenceSessions: [],
   evidenceSelectedAssessment: "",
   evidenceSelectedSession: "",
@@ -23,6 +25,50 @@ let bulkActivationCredentials = [];
 const $ = (selector) => document.querySelector(selector);
 
 // ── Theme ────────────────────────────────────────────────────
+async function evidenceFileBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 32768) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+  }
+  return btoa(binary);
+}
+
+async function uploadEvidenceAttachment(ownerType, ownerId, file) {
+  if (!file) throw new Error("Choose an evidence file first.");
+  if (file.size <= 0 || file.size > 10 * 1024 * 1024) {
+    throw new Error("Evidence files must be larger than zero and no bigger than 10 MB.");
+  }
+  return api("/api/evidence/attachments", {
+    method: "POST",
+    body: JSON.stringify({
+      owner_type: ownerType, owner_id: ownerId, filename: file.name,
+      content_base64: await evidenceFileBase64(file)
+    })
+  });
+}
+
+function renderEvidenceAttachmentList(items) {
+  if (!items || !items.length) return '<p class="muted">No documents attached yet.</p>';
+  return '<div class="evidence-attachment-list">' + items.map((item) => {
+    const scanLabel = item.scan_status === "CLEAN"
+      ? '<span class="badge success">Scanned · clean</span>'
+      : item.scan_status === "INFECTED"
+        ? '<span class="badge danger">Malware detected</span>'
+        : item.scan_status === "CORRUPT"
+          ? '<span class="badge danger">Integrity failure</span>'
+          : '<span class="badge warning">Quarantined · scan required</span>';
+    const download = item.scan_status === "CLEAN"
+      ? '<a class="button secondary evidence-download" href="/api/evidence/attachments/' + encodeURIComponent(item.id) + '/download">Download</a>'
+      : '<small class="muted">Download blocked until a clean scan succeeds.</small>';
+    return '<div class="evidence-attachment-row"><div><strong>' + esc(item.filename) + '</strong>' +
+      '<small class="muted">' + esc((item.byte_size / 1024).toFixed(1)) + ' KB · SHA-256 ' +
+      esc(item.sha256.slice(0, 16)) + '… · ' + esc(item.uploaded_by_name || "Staff") + ' · ' +
+      esc(item.created_at) + '</small></div><div class="evidence-attachment-actions">' +
+      scanLabel + download + '</div></div>';
+  }).join("") + "</div>";
+}
+
 function initTheme() {
   const saved = localStorage.getItem("marktrail-theme");
   const theme = saved || "light";
@@ -273,13 +319,15 @@ async function loadDashboard() {
 
 // ── Student ──────────────────────────────────────────────────
 async function loadStudent() {
-  const [marksData, reportsData, notificationData, progressData, readinessData] = await Promise.all([
+  const [marksData, reportsData, notificationData, progressData, readinessData, attachmentsData] = await Promise.all([
     api("/api/student/marks"),
     api("/api/student/reports"),
     api("/api/student/notifications"),
     api("/api/student/progress"),
-    api("/api/student/unit-readiness")
+    api("/api/student/unit-readiness"),
+    api("/api/evidence/attachments?owner_type=CASE")
   ]);
+  state.studentAttachments = attachmentsData.attachments || [];
   const notifications = notificationData.notifications;
   const unreadCount = notifications.filter((item) => !item.read_at).length;
   $("#student-notifications").innerHTML =
@@ -419,10 +467,20 @@ async function loadStudent() {
           ? '<span class="badge muted">Not entered</span>'
           : badge(item.mark_entry_status);
         const result = badge(item.result_status);
-        const evidenceCases = (item.cases || []).map((caseItem) =>
-          '<div class="student-case-status"><span>' + esc(evidenceCaseLabel(caseItem.category)) + '</span>' +
-          badge(caseItem.status) + '<small>' + esc(caseItem.id) + '</small></div>'
-        ).join("");
+        const evidenceCases = (item.cases || []).map((caseItem) => {
+          const attachments = state.studentAttachments.filter((file) =>
+            file.owner_type === "CASE" && file.owner_id === caseItem.id
+          );
+          const uploadForm = ["RESOLVED", "DISMISSED"].includes(caseItem.status)
+            ? '<small class="muted">This case has a final decision. Contact your department about an appeal or review.</small>'
+            : '<form class="student-case-attachment-form" data-case-attachment="' + esc(caseItem.id) + '">' +
+              '<label>Attach supporting evidence (PDF, PNG or JPEG; max 10 MB)' +
+              '<input type="file" name="evidence_file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required></label>' +
+              '<button class="button secondary" type="submit">Upload evidence</button></form>';
+          return '<div class="student-case-status"><span>' + esc(evidenceCaseLabel(caseItem.category)) + '</span>' +
+            badge(caseItem.status) + '<small>' + esc(caseItem.id) + '</small>' +
+            renderEvidenceAttachmentList(attachments) + uploadForm + '</div>';
+        }).join("");
         const lecturerCard = !item.session_id
           ? '<span class="muted">No exam session recorded</span>'
           : ["FINAL_EXAM", "SPECIAL_EXAM"].includes(item.session_type)
@@ -468,6 +526,26 @@ async function loadStudent() {
           '</article>';
       }).join("")
     : '<div class="card"><p class="muted">No assessments are linked to your student account yet. Contact your department if this does not look right.</p></div>';
+
+  progressRoot.querySelectorAll(".student-case-attachment-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = form.querySelector('input[type="file"]');
+      const button = form.querySelector('button[type="submit"]');
+      try {
+        button.disabled = true;
+        const result = await uploadEvidenceAttachment("CASE", form.dataset.caseAttachment, input.files[0]);
+        toast(result.scan_status === "CLEAN"
+          ? "Evidence uploaded, malware-scanned and stored privately."
+          : "Evidence uploaded into quarantine. Downloads stay blocked until a clean malware scan completes.",
+          result.scan_status === "CLEAN" ? "success" : "error");
+        await loadStudent();
+      } catch (error) {
+        toast(error.message, "error");
+        button.disabled = false;
+      }
+    });
+  });
 
   progressRoot.querySelectorAll(".student-evidence-report").forEach((form) => {
     form.addEventListener("submit", async (event) => {
@@ -1586,14 +1664,16 @@ function evidenceStaffOptions(selectedId) {
 }
 
 async function loadEvidence() {
-  const [assessmentData, staffData, caseData] = await Promise.all([
+  const [assessmentData, staffData, caseData, attachmentData] = await Promise.all([
     api("/api/evidence/assessments"),
     api("/api/evidence/staff"),
-    api("/api/evidence/cases")
+    api("/api/evidence/cases"),
+    api("/api/evidence/attachments?owner_type=CASE")
   ]);
   state.evidenceAssessments = assessmentData.assessments || [];
   state.evidenceStaff = staffData.staff || [];
   state.evidenceCases = caseData.cases || [];
+  state.evidenceAttachments = attachmentData.attachments || [];
   renderEvidenceCaseQueue();
 
   const select = $("#evidence-assessment");
@@ -1643,6 +1723,15 @@ function renderEvidenceCaseQueue() {
           '</span>' + (event.note ? '<small>' + esc(event.note) + '</small>' : '') +
           '</div>'
         ).join("");
+        const attachments = state.evidenceAttachments.filter((file) =>
+          file.owner_type === "CASE" && file.owner_id === item.id
+        );
+        const uploadForm = ["RESOLVED", "DISMISSED"].includes(item.status)
+          ? ""
+          : '<form class="staff-case-attachment-form" data-case-attachment="' + esc(item.id) + '">' +
+            '<label>Add supporting evidence (PDF, PNG or JPEG; max 10 MB)' +
+            '<input type="file" name="evidence_file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required></label>' +
+            '<button class="button secondary" type="submit">Attach evidence</button></form>';
         const canDecide = ["reviewer", "admin"].includes(state.user.role) &&
           ["OPEN", "EVIDENCE_CLEARED"].includes(item.status);
         const decision = canDecide
@@ -1660,9 +1749,31 @@ function renderEvidenceCaseQueue() {
             ? '<p class="muted">The source evidence no longer shows this exception. A reviewer must confirm the case outcome.</p>'
             : "") +
           (caseHistory ? '<div class="case-history"><strong>Case history</strong>' + caseHistory + '</div>' : '') +
+          '<div class="case-attachments"><strong>Supporting documents</strong>' +
+          renderEvidenceAttachmentList(attachments) + uploadForm + '</div>' +
           decision + '</article>';
       }).join("")
     : '<div class="card"><p class="muted">No evidence cases are currently assigned to this role or account.</p></div>';
+
+  root.querySelectorAll(".staff-case-attachment-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = form.querySelector('input[type="file"]');
+      const button = form.querySelector('button[type="submit"]');
+      try {
+        button.disabled = true;
+        const result = await uploadEvidenceAttachment("CASE", form.dataset.caseAttachment, input.files[0]);
+        toast(result.scan_status === "CLEAN"
+          ? "Supporting evidence attached and scanned clean."
+          : "Evidence is in quarantine; downloads remain blocked until a clean scan completes.",
+          result.scan_status === "CLEAN" ? "success" : "error");
+        await loadEvidenceCases();
+      } catch (error) {
+        toast(error.message, "error");
+        button.disabled = false;
+      }
+    });
+  });
 
   root.querySelectorAll("[data-case-decision]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -1697,8 +1808,12 @@ function renderEvidenceCaseQueue() {
 }
 
 async function loadEvidenceCases() {
-  const data = await api("/api/evidence/cases");
+  const [data, attachments] = await Promise.all([
+    api("/api/evidence/cases"),
+    api("/api/evidence/attachments?owner_type=CASE")
+  ]);
   state.evidenceCases = data.cases || [];
+  state.evidenceAttachments = attachments.attachments || [];
   renderEvidenceCaseQueue();
 }
 
@@ -1721,7 +1836,12 @@ async function loadEvidenceAssessment(assessmentId) {
 
 async function loadEvidenceSession(sessionId) {
   state.evidenceSelectedSession = sessionId;
-  state.evidenceDetail = await api("/api/evidence/sessions/" + encodeURIComponent(sessionId));
+  const [detail, attachments] = await Promise.all([
+    api("/api/evidence/sessions/" + encodeURIComponent(sessionId)),
+    api("/api/evidence/attachments?owner_type=SESSION&owner_id=" + encodeURIComponent(sessionId))
+  ]);
+  state.evidenceDetail = detail;
+  state.evidenceDetail.attachments = attachments.attachments || [];
   renderEvidenceSessions();
   renderEvidenceSession();
 }
@@ -1950,6 +2070,12 @@ function renderEvidenceSession() {
     '<div class="table-wrap"><table><thead><tr><th>Candidate</th><th>Attendance decision</th><th>Signature</th><th>Exam card check</th><th>Student ID</th><th>Lecturer card sign-off</th><th>Script</th><th>Marks</th><th>Incident note / action</th></tr></thead><tbody>' +
     (rosterRows || '<tr><td colspan="9">No candidates in the locked roster.</td></tr>') +
     "</tbody></table></div></div>" +
+    '<div class="card"><div class="section-head compact"><div><p class="eyebrow">SOURCE DOCUMENTS</p><h2>Scanned registers and examination records</h2></div></div>' +
+    renderEvidenceAttachmentList(data.attachments || []) +
+    '<form id="session-attachment-form" class="form-grid">' +
+    '<label>Choose a source document<input id="session-attachment-file" type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" required></label>' +
+    '<div class="actions"><button type="submit" class="button secondary">Upload source document</button></div></form>' +
+    '<p class="muted">PDF, PNG and JPEG only · 10 MB per file · Files are private and cannot be downloaded until malware scanning passes.</p></div>' +
     '<div class="card"><div class="section-head compact"><div><p class="eyebrow">SCRIPT INTAKE</p><h2>Record a collected script</h2></div></div>' +
     '<form id="evidence-script-form" class="form-grid">' +
     '<label>Candidate<select id="evidence-script-student"><option value="">Unidentified / needs review</option>' + candidateOptions + '</select></label>' +
@@ -1964,6 +2090,25 @@ function renderEvidenceSession() {
     '<p class="muted">History entries are append-only. Corrections appear as new events rather than overwriting what happened previously.</p></div>' +
     '<div class="card"><div class="section-head compact"><div><p class="eyebrow">RECONCILIATION</p><h2>Exceptions to investigate</h2></div></div>' +
     issues + '</div>';
+
+  $("#session-attachment-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    try {
+      button.disabled = true;
+      const result = await uploadEvidenceAttachment(
+        "SESSION", session.id, $("#session-attachment-file").files[0]
+      );
+      toast(result.scan_status === "CLEAN"
+        ? "Source document uploaded and scanned clean."
+        : "Document is quarantined until a clean malware scan completes.",
+        result.scan_status === "CLEAN" ? "success" : "error");
+      await loadEvidenceSession(session.id);
+    } catch (error) {
+      toast(error.message, "error");
+      button.disabled = false;
+    }
+  });
 
   const saveAllButton = $("#save-all-attendance");
   if (saveAllButton) saveAllButton.addEventListener("click", async () => {
