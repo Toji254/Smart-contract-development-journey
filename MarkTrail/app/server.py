@@ -10,12 +10,13 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http import cookies
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from .auth import clear_session_cookie, current_user, login, session_cookie, SESSION_COOKIE
 from .chain import ChainClient
 from .db import Database
 from .evidence import AssessmentEvidenceService
+from .attachments import EvidenceAttachmentService
 from .service import AppError, AppService
 
 
@@ -70,6 +71,10 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
     def evidence(self) -> AssessmentEvidenceService:
         return self.server.evidence  # type: ignore[attr-defined]
 
+    @property
+    def attachments(self) -> EvidenceAttachmentService:
+        return self.server.attachments  # type: ignore[attr-defined]
+
     def _send_json(self, payload, status: int = 200, extra_headers: dict | None = None):
         body = json.dumps(payload, default=str).encode("utf-8")
         self.send_response(status)
@@ -91,9 +96,12 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _body(self) -> dict:
-        length = int(self.headers.get("Content-Length", "0"))
-        if length > 2_000_000:
+    def _body(self, max_bytes: int = 2_000_000) -> dict:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as exc:
+            raise AppError("Invalid request content length.", 400) from exc
+        if length < 0 or length > max_bytes:
             raise AppError("Request body is too large.", 413)
         raw = self.rfile.read(length)
         if not raw:
@@ -203,6 +211,51 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
 
         if method == "GET" and path == "/api/evidence/cases":
             return self._send_json({"cases": self.evidence.list_evidence_cases(user_id)})
+
+        if method == "POST" and path == "/api/evidence/attachments":
+            body = self._body(max_bytes=14_000_000)
+            return self._send_json(
+                self.attachments.upload(
+                    user_id,
+                    str(body.get("owner_type", "")),
+                    str(body.get("owner_id", "")),
+                    str(body.get("filename", "")),
+                    str(body.get("content_base64", "")),
+                ),
+                201,
+            )
+
+        if method == "GET" and path == "/api/evidence/attachments":
+            query = parse_qs(parsed.query)
+            owner_type = (query.get("owner_type") or [""])[0]
+            owner_id = (query.get("owner_id") or [None])[0]
+            return self._send_json({
+                "attachments": self.attachments.list_attachments(user_id, owner_type, owner_id)
+            })
+
+        match = re.fullmatch(r"/api/evidence/attachments/([a-f0-9]{32})/download", path)
+        if method == "GET" and match:
+            attachment = self.attachments.read_attachment(user_id, match.group(1))
+            payload = attachment.pop("content")
+            encoded_name = quote(attachment["filename"], safe="")
+            fallback = "evidence-" + match.group(1)[:12]
+            self.send_response(200)
+            self.send_header("Content-Type", attachment["media_type"])
+            self.send_header(
+                "Content-Disposition",
+                f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded_name}",
+            )
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "private, no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", "default-src 'none'; sandbox")
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
+        match = re.fullmatch(r"/api/admin/evidence-attachments/([a-f0-9]{32})/rescan", path)
+        if method == "POST" and match:
+            return self._send_json(self.attachments.rescan(user_id, match.group(1)))
 
         match = re.fullmatch(r"/api/evidence/cases/([^/]+)/decision", path)
         if method == "POST" and match:
@@ -691,6 +744,7 @@ class MarkTrailServer(ThreadingHTTPServer):
         self.db = db
         self.service = service
         self.evidence = AssessmentEvidenceService(db, service)
+        self.attachments = EvidenceAttachmentService(db, service)
 
 
 def run(host: str | None = None, port: int | None = None):
