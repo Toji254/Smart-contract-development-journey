@@ -752,6 +752,39 @@ footer {
   flex-wrap: wrap;
 }
 .evidence-download { white-space: nowrap; }
+.evidence-document-analysis {
+  display: grid;
+  gap: 7px;
+  margin: 0 0 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  font-size: .84rem;
+}
+.document-analysis-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.evidence-document-analysis p { margin: 0; }
+.evidence-document-analysis pre {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-size: .76rem;
+}
+.evidence-document-analysis details summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+}
 .case-attachments {
   display: grid;
   gap: 8px;
