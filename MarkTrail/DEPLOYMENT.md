@@ -215,14 +215,57 @@ sudo ufw enable
 
 ---
 
-## 8. Automated SQLite Online Backups & Retention
+## 8. Private Evidence Storage and Malware Scanning
 
-MarkTrail includes `scripts/backup.sh` which uses SQLite's non-blocking `VACUUM INTO` command to generate clean, atomic snapshots of the live database without acquiring exclusive table locks or requiring service downtime.
+Evidence files are not served from the application web directory. Create a
+separate restricted storage directory:
 
-### Testing the Backup Script
+```bash
+sudo mkdir -p /opt/marktrail/data/private-evidence
+sudo chown marktrail:marktrail /opt/marktrail/data/private-evidence
+sudo chmod 700 /opt/marktrail/data/private-evidence
+```
+
+The default location is `private-evidence` beside the configured database.
+For a custom path, set `MARKTRAIL_EVIDENCE_DIR` in
+`/etc/marktrail/marktrail.env`, create the directory with mode 700, assign it
+to the service account, and add that exact path to `ReadWritePaths=` in the
+systemd unit. Place the volume on institution-approved encrypted storage and
+include it in monitoring and retention controls.
+
+Install ClamAV and ensure `clamscan` is available to the MarkTrail service
+account. MarkTrail fails closed: if the scanner is missing, times out or
+returns an error, the upload remains quarantined and no download is served.
+An administrator can request a rescan after scanner availability is restored:
+
+```text
+POST /api/admin/evidence-attachments/{attachment_id}/rescan
+```
+
+Supported uploads are PDF, PNG and JPEG up to 10 MB. Verify scan status and
+attachment history during the pilot. Do not manually change scan state or
+bypass quarantine. ClamAV is one defence layer, not proof that a document is
+safe or factually authentic.
+
+## 9. Automated Database + Evidence Backups and Retention
+
+MarkTrail's `scripts/backup.sh` creates two matching archives: an atomic
+SQLite snapshot (`marktrail_backup_<timestamp>.db.gz`) and a private file
+archive (`marktrail_evidence_<timestamp>.tar.gz`). They share the same UTC
+timestamp and must be retained, copied off-host and restored together.
+
+### Testing the Paired Backup
+
 ```bash
 sudo -u marktrail /opt/marktrail/scripts/backup.sh
+ls -lh /opt/marktrail/backups/marktrail_backup_*.db.gz
+ls -lh /opt/marktrail/backups/marktrail_evidence_*.tar.gz
 ```
+
+A successful backup produces one database archive and one evidence sidecar
+with the same timestamp. Copy both files as a pair. The evidence archive
+contains private documents and must have the same restricted access as the
+database backup.
 
 ### Setting up Automated Cron Schedule
 Schedule automatic backups daily at 02:00 UTC (and prune backups older than 14 days):
@@ -236,7 +279,14 @@ Add the following line:
 0 2 * * * /opt/marktrail/scripts/backup.sh >> /opt/marktrail/data/backup.log 2>&1
 ```
 
-### Database Restore Procedure
+### Paired Database and Evidence Restore
+
+Restore requires the matching evidence archive to sit beside the database
+archive. The script verifies database integrity, validates every evidence
+archive entry, rejects unsafe paths and refuses to restore an attachment
+database when the sidecar is missing. It also keeps a pre-restore copy of the
+database and the previous evidence directory.
+
 If recovery is ever required:
 
 ```bash
@@ -244,7 +294,7 @@ If recovery is ever required:
 sudo systemctl stop marktrail
 
 # 2. Run restore script (automatically performs pre-restore verification and backup)
-sudo -u marktrail /opt/marktrail/scripts/restore.sh /opt/marktrail/backups/marktrail_backup_20261023_020000Z.db.gz
+sudo -u marktrail /opt/marktrail/scripts/restore.sh /opt/marktrail/backups/marktrail_backup_20261119_020000Z.db.gz
 
 # 3. Restart application service
 sudo systemctl start marktrail
