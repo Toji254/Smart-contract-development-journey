@@ -107,14 +107,20 @@ Deliverables:
 - Support for numeric mark and approved non-numeric outcomes: ABSENT, NOT_SUBMITTED, EXCUSED, DEFERRED, WITHHELD_PENDING_PROCESS, NOT_APPLICABLE and other institution-approved codes.
 - Configurable validation of maximum marks, decimal precision, component weighting, required rows, duplicate registrations, unregistered students and unexplained omissions.
 - Preview showing included, omitted, duplicated, invalid and exception candidates before submission.
+- Student-facing unit component-completeness check across every assessment configured for a course. It distinguishes unsubmitted, missing in submission, review/office/Senate/portal holds, published numeric marks and official NO_MARK outcomes.
 - Explicit "no mark awarded" outcome requiring authorised reason and supporting evidence where policy requires.
 - Durable submission receipt, idempotency key, operation status and safe retry after network failure.
-- Lecturer workload/overdue dashboard and reassignment/handover for departed or unavailable staff.
+- Lecturer-facing unit-level missing-component and overdue dashboard, with reassignment/handover for departed or unavailable staff.
+- Institution-configured weighting/result scheme with explicit component weights, required/optional components, versioning and a calculated final unit result only after every required component has an official outcome.
 
 Exit criteria:
 - An incomplete batch cannot be submitted unless every missing candidate has an allowed, explicit, reason-coded outcome.
 - Retrying a timed-out submission cannot create a duplicate batch or overwrite an existing batch.
 - A lecturer can prove which exact batch version was submitted and when it was received.
+- Students and staff can identify each required component that is missing or awaiting a handoff without treating it as zero.
+- The unit result cannot be labelled complete until every required component has an official published outcome.
+- A NO_MARK outcome is distinct from a numeric mark and does not produce a guessed total.
+- Final weighted unit totals are calculated only from a Karatina-approved, versioned result scheme.
 
 ### Gate 4 — Review, exam-office, Senate and portal governance
 
@@ -266,16 +272,17 @@ Implemented in this branch as an initial vertical slice:
 - Deterministic exceptions for attendance/signature conflicts, missing scripts, missing sign-offs, custody gaps and mark-entry mismatches.
 - Authenticated evidence API and student-scoped read-only progress API.
 - Staff evidence workspace with activity timeline, atomic bulk attendance, card-signoff controls and role-scoped persistent evidence case queue.
-- Student exam-progress tab with privacy-safe case status and neutral notifications; staff receive assigned-case notifications.
+- Student exam-progress tab with privacy-safe case status, neutral notifications and student-submitted evidence reports; staff receive assigned-case notifications.
+- Unit component-readiness service and student view across all configured assessment components, including historical exam-roster fallback. It never exposes unpublished marks or calculates an unapproved unit total.
 - Case state transitions OPEN → EVIDENCE_CLEARED → RESOLVED/DISMISSED, with REOPENED events for recurring exceptions and immutable action history.
 - Legacy SQLite migration for unidentified scripts, identity-link events and session type, preserving existing records.
-- Dedicated regression tests for permissions, privacy, atomic updates, legacy migration, case ownership, human resolution and case reopening.
+- Dedicated regression tests for permissions, privacy, atomic updates, legacy migration, case ownership, human resolution, case reopening and unit-component completeness.
 
 Not yet implemented or independently verified:
 - Student-facing appeals, evidence-upload and case-progress improvements beyond the current read-only exam-progress view.
 - Evidence document attachments, scan/OCR, bulk register import and offline sync.
 - Team-teaching assignment and multi-marker support.
-- Unit component types/weighting and full result calculation.
+- Karatina-approved unit component scheme, weights, optional/required component rules, versioning and full weighted result calculation. Current readiness treats every configured assessment as required and does not calculate a total.
 - End-to-end automated integration with Karatina's official student portal; the app has a local portal-operator publication stage but no approved university portal adapter.
 - Configurable missing-mark case SLAs, escalation policy and institutional workload reporting beyond current role/user assignment and reviewer decisions.
 - Deterministic cross-system reconciliation across all workflow evidence.
@@ -283,7 +290,7 @@ Not yet implemented or independently verified:
 - Expanded blockchain event anchoring and production-grade signing custody.
 - Institutional SSO, DPIA, independent security review, production hosting, backups and disaster recovery.
 - Karatina's current internal process validation and pilot approval.
-- CI verification for the newest evidence-case UI and backend integration commits, plus browser usability testing on the current branch build.
+- CI verification for the latest student-report and unit-readiness code head (run #155 passed Python/application, JavaScript, shell and Foundry/Solidity checks); browser usability testing on the current branch build remains outstanding.
 
 ## Engineering rules
 
