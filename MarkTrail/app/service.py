@@ -643,6 +643,8 @@ class AppService:
             overall = {
                 "components": 0,
                 "complete": 0,
+                "numeric": 0,
+                "no_mark": 0,
                 "missing": 0,
                 "not_submitted": 0,
                 "awaiting": 0,
@@ -674,6 +676,8 @@ class AppService:
                 course_counts = {
                     "components": 0,
                     "complete": 0,
+                    "numeric": 0,
+                    "no_mark": 0,
                     "missing": 0,
                     "not_submitted": 0,
                     "awaiting": 0,
@@ -748,6 +752,8 @@ class AppService:
                     component_counts = {
                         "total": 0,
                         "complete": 0,
+                        "numeric": 0,
+                        "no_mark": 0,
                         "missing": 0,
                         "not_submitted": 0,
                         "awaiting": 0,
@@ -799,6 +805,10 @@ class AppService:
                         component_counts["total"] += 1
                         if status in {"RECORDED", "NO_MARK"}:
                             component_counts["complete"] += 1
+                            if status == "RECORDED":
+                                component_counts["numeric"] += 1
+                            else:
+                                component_counts["no_mark"] += 1
                         elif status in {"MISSING", "MISSING_IN_SUBMISSION"}:
                             component_counts["missing"] += 1
                         elif status == "NOT_SUBMITTED":
@@ -811,8 +821,8 @@ class AppService:
                     course_counts["components"] += component_counts["total"]
                     overall["components"] += component_counts["total"]
                     for key in (
-                        "complete", "missing", "not_submitted",
-                        "awaiting", "policy_unclassified",
+                        "complete", "numeric", "no_mark", "missing",
+                        "not_submitted", "awaiting", "policy_unclassified",
                     ):
                         course_counts[key] += component_counts[key]
                         overall[key] += component_counts[key]
@@ -848,7 +858,11 @@ class AppService:
                 elif course_counts["not_submitted"] or course_counts["awaiting"]:
                     readiness = "AWAITING_COMPONENTS"
                 elif course_counts["components"] and course_counts["complete"] == course_counts["components"]:
-                    readiness = "ALL_COMPONENTS_PUBLISHED"
+                    readiness = (
+                        "OFFICIAL_NO_MARK_OUTCOME"
+                        if course_counts["no_mark"]
+                        else "ALL_COMPONENTS_PUBLISHED"
+                    )
                 else:
                     readiness = "NO_STUDENT_COMPONENTS"
 

@@ -354,6 +354,79 @@ class MarkTrailTests(unittest.TestCase):
             self.service.staff_unit_completeness(reviewer_id)
         self.assertEqual(reviewer_error.exception.status, 403)
 
+    def test_staff_unit_completeness_distinguishes_official_no_mark_outcome(self):
+        now = utc_now()
+        lecturer_id = int(self.lecturer["id"])
+        student_id = int(self.student["id"])
+        reviewer_id = int(self.reviewer["id"])
+
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO courses (id, code, title, lecturer_id, created_at)
+                VALUES ('course-no-mark', 'NMRK 101', 'Official no-mark test', ?, ?)
+                """,
+                (lecturer_id, now),
+            )
+            conn.execute(
+                """
+                INSERT INTO enrollments (course_id, student_id, created_at)
+                VALUES ('course-no-mark', ?, ?)
+                """,
+                (student_id, now),
+            )
+            conn.execute(
+                """
+                INSERT INTO assessments
+                    (id, course_id, name, max_mark, release_policy, created_at)
+                VALUES ('assessment-no-mark', 'course-no-mark', 'Final assessment',
+                        100, 'DIRECT', ?)
+                """,
+                (now,),
+            )
+            conn.execute(
+                """
+                INSERT INTO batches
+                    (id, assessment_id, submitted_by, status, student_count,
+                     marks_hash, commitment_salt, revision, chain_state, submitted_at,
+                     verified_by, verified_at, pipeline_stage, senate_status)
+                VALUES
+                    ('batch-no-mark', 'assessment-no-mark', ?, 'VERIFIED', 1,
+                     ?, 'test-salt', 1, 'LOCAL_ONLY', ?, ?, ?, 'PUBLISHED',
+                     'NOT_REQUIRED')
+                """,
+                (
+                    lecturer_id,
+                    "0x" + "ab" * 32,
+                    now,
+                    reviewer_id,
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO assessment_marks
+                    (assessment_id, student_id, candidate_mark, candidate_status,
+                     published_mark, published_status, batch_id, updated_at)
+                VALUES
+                    ('assessment-no-mark', ?, NULL, 'NO_MARK', NULL, 'NO_MARK',
+                     'batch-no-mark', ?)
+                """,
+                (student_id, now),
+            )
+
+        view = self.service.staff_unit_completeness(lecturer_id)
+        course = next(
+            item for item in view["courses"]
+            if item["course_id"] == "course-no-mark"
+        )
+        self.assertEqual(course["readiness"], "OFFICIAL_NO_MARK_OUTCOME")
+        self.assertEqual(course["counts"]["components"], 1)
+        self.assertEqual(course["counts"]["complete"], 1)
+        self.assertEqual(course["counts"]["numeric"], 0)
+        self.assertEqual(course["counts"]["no_mark"], 1)
+        self.assertEqual(course["assessments"][0]["counts"]["no_mark"], 1)
+
     def test_admin_can_schedule_expiry_and_disable_user_access(self):
         student_id = int(self.student["id"])
         tomorrow = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()

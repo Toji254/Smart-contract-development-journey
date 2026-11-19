@@ -519,10 +519,18 @@ async function loadStudent() {
 }
 
 
+function staffCompletenessCategory(status) {
+  if (["MISSING", "MISSING_IN_SUBMISSION"].includes(status)) return "missing";
+  if (status === "NOT_SUBMITTED") return "not_submitted";
+  if (status === "POLICY_UNCLASSIFIED") return "policy";
+  if (["RECORDED", "NO_MARK"].includes(status)) return "complete";
+  return "awaiting";
+}
+
 function staffCompletenessBadge(status) {
   const labels = {
-    RECORDED: ["success", "Published"],
-    NO_MARK: ["warning", "Official no-mark"],
+    RECORDED: ["success", "Published mark"],
+    NO_MARK: ["warning", "Official NO_MARK"],
     MISSING: ["danger", "Published as missing"],
     MISSING_IN_SUBMISSION: ["danger", "Missing in submission"],
     NOT_SUBMITTED: ["muted", "Not submitted"],
@@ -532,7 +540,14 @@ function staffCompletenessBadge(status) {
     AWAITING_DEPARTMENT_REVIEW: ["muted", "Department review"],
     AWAITING_EXAM_OFFICE: ["muted", "Exam office"],
     AWAITING_PORTAL_PUBLICATION: ["muted", "Portal publication"],
-    AWAITING_PUBLICATION: ["muted", "Awaiting publication"]
+    AWAITING_PUBLICATION: ["muted", "Awaiting publication"],
+    ALL_COMPONENTS_PUBLISHED: ["success", "All components published"],
+    OFFICIAL_NO_MARK_OUTCOME: ["warning", "Official NO_MARK outcome"],
+    MISSING_COMPONENTS: ["danger", "Missing components"],
+    AWAITING_COMPONENTS: ["warning", "Awaiting components"],
+    CONFIGURATION_REQUIRED: ["warning", "Policy setup required"],
+    NO_ASSESSMENTS_CONFIGURED: ["muted", "No assessments configured"],
+    NO_STUDENT_COMPONENTS: ["muted", "No candidate components"]
   };
   const [kind, label] = labels[status] || ["muted", status || "Unknown"];
   return '<span class="badge ' + kind + '">' + esc(label) + "</span>";
@@ -542,36 +557,93 @@ function renderStaffCompleteness(data, targetSelector) {
   const target = $(targetSelector);
   if (!target) return;
   const courses = data?.courses || [];
-  if (!courses.length) {
-    target.innerHTML = '<div class="card"><p class="muted">No courses are currently in scope. Course assignments and enrolments appear here once configured.</p></div>';
-    return;
-  }
+  const generatedAt = data?.generated_at
+    ? new Date(data.generated_at).toLocaleString()
+    : "time unavailable";
 
   target.innerHTML =
-    '<p class="muted">' + esc(data.unit_total_note || "") +
-    " · Scope: " + esc(data.scope === "ALL_COURSES" ? "All institution courses" : "Your assigned courses") +
+    '<div class="staff-completeness-toolbar">' +
+      '<label class="staff-completeness-filter">Find a course, assessment or student' +
+        '<input type="search" data-staff-search placeholder="Search course, assessment, name or registration number" autocomplete="off">' +
+      '</label>' +
+      '<label class="staff-completeness-filter">Candidate status' +
+        '<select data-staff-status>' +
+          '<option value="all">All statuses</option>' +
+          '<option value="missing">Missing</option>' +
+          '<option value="not_submitted">Not submitted</option>' +
+          '<option value="policy">Release policy needs setup</option>' +
+          '<option value="awaiting">Awaiting handoff</option>' +
+          '<option value="complete">Published outcomes</option>' +
+        '</select>' +
+      '</label>' +
+      '<div class="staff-completeness-refresh" data-staff-results role="status" aria-live="polite"></div>' +
+    '</div>' +
+    '<p class="muted staff-completeness-note">' +
+      esc(data?.unit_total_note || "This view reports component status only; it does not calculate a unit total.") +
+      " Scope: " +
+      esc(data?.scope === "ALL_COURSES" ? "All institution courses" : "Your assigned courses") +
+      " · Last refreshed " + esc(generatedAt) +
     "</p>" +
-    courses.map((course) => {
-      const counts = course.counts || {};
-      const metrics =
-        '<div class="staff-completeness-metrics">' +
-        '<div><strong>' + esc(counts.complete || 0) + '</strong><span>Published outcomes</span></div>' +
-        '<div><strong>' + esc(counts.missing || 0) + '</strong><span>Missing</span></div>' +
-        '<div><strong>' + esc(counts.not_submitted || 0) + '</strong><span>Not submitted</span></div>' +
-        '<div><strong>' + esc(counts.awaiting || 0) + '</strong><span>Awaiting handoff</span></div>' +
-        '<div><strong>' + esc(counts.policy_unclassified || 0) + '</strong><span>Policy unclassified</span></div>' +
-        "</div>";
+    '<div class="staff-completeness-list" data-staff-course-results></div>';
+
+  const searchInput = target.querySelector("[data-staff-search]");
+  const statusSelect = target.querySelector("[data-staff-status]");
+  const resultsNode = target.querySelector("[data-staff-results]");
+  const listNode = target.querySelector("[data-staff-course-results]");
+
+  function paint() {
+    const query = searchInput.value.trim().toLocaleLowerCase();
+    const selectedStatus = statusSelect.value;
+    let visibleCourses = 0;
+    let visibleAssessments = 0;
+    let visibleCandidates = 0;
+
+    const cards = courses.map((course) => {
+      const courseText = [course.course, course.course_title].join(" ").toLocaleLowerCase();
+      const courseMatches = Boolean(query) && courseText.includes(query);
       const assessments = (course.assessments || []).map((assessment) => {
-        const c = assessment.counts || {};
-        const students = [...(assessment.students || [])].sort((a, b) => {
-          const priority = (status) => (
-            ["MISSING", "MISSING_IN_SUBMISSION", "POLICY_UNCLASSIFIED"].includes(status) ? 0 :
-            status === "NOT_SUBMITTED" ? 1 :
-            ["RECORDED", "NO_MARK"].includes(status) ? 3 : 2
-          );
-          return priority(a.status) - priority(b.status) ||
-            String(a.registration_number || a.full_name).localeCompare(String(b.registration_number || b.full_name));
-        });
+        const assessmentText = [
+          assessment.assessment,
+          assessment.release_policy,
+          assessment.pipeline_stage
+        ].join(" ").toLocaleLowerCase();
+        const assessmentMatches = Boolean(query) && assessmentText.includes(query);
+        const searchMatchesScope = !query || courseMatches || assessmentMatches;
+        const sourceStudents = assessment.students || [];
+        const students = sourceStudents
+          .filter((student) => {
+            const categoryMatches =
+              selectedStatus === "all" ||
+              staffCompletenessCategory(student.status) === selectedStatus;
+            const studentText = [
+              student.full_name,
+              student.registration_number
+            ].join(" ").toLocaleLowerCase();
+            return categoryMatches &&
+              (searchMatchesScope || studentText.includes(query));
+          })
+          .sort((a, b) => {
+            const priority = (status) => (
+              ["MISSING", "MISSING_IN_SUBMISSION"].includes(status) ? 0 :
+              status === "POLICY_UNCLASSIFIED" ? 1 :
+              status === "NOT_SUBMITTED" ? 2 :
+              ["RECORDED", "NO_MARK"].includes(status) ? 4 : 3
+            );
+            return priority(a.status) - priority(b.status) ||
+              String(a.registration_number || a.full_name).localeCompare(
+                String(b.registration_number || b.full_name)
+              );
+          });
+
+        const emptyAssessmentMatches =
+          sourceStudents.length === 0 &&
+          selectedStatus === "all" &&
+          (!query || searchMatchesScope);
+        if (!students.length && !emptyAssessmentMatches) return "";
+
+        visibleAssessments += 1;
+        visibleCandidates += students.length;
+        const counts = assessment.counts || {};
         const table = students.length
           ? '<div class="table-wrap"><table><thead><tr><th>Student</th><th>Registration number</th><th>Component status</th></tr></thead><tbody>' +
             students.map((student) =>
@@ -580,30 +652,64 @@ function renderStaffCompleteness(data, targetSelector) {
               staffCompletenessBadge(student.status) + "</td></tr>"
             ).join("") + "</tbody></table></div>"
           : '<p class="muted">No students are enrolled or present on this assessment’s locked examination roster.</p>';
+
+        const shouldOpen = Boolean(query) || selectedStatus !== "all";
         return (
-          '<details class="staff-assessment-detail"><summary><span><strong>' +
+          '<details class="staff-assessment-detail"' + (shouldOpen ? " open" : "") + '><summary><span><strong>' +
           esc(assessment.assessment) + '</strong><small>' +
           esc(assessment.release_policy || "UNCLASSIFIED") + " · " +
           esc(assessment.pipeline_stage || "NOT SUBMITTED") +
           '</small></span><span class="staff-assessment-counts">' +
-          esc(c.complete || 0) + "/" + esc(c.total || 0) + " complete · " +
-          esc(c.missing || 0) + " missing · " +
-          esc(c.not_submitted || 0) + " not submitted</span></summary>" +
+          esc(students.length) + "/" + esc(counts.total || 0) + " shown · " +
+          esc(counts.missing || 0) + " missing · " +
+          esc(counts.no_mark || 0) + " official NO_MARK</span></summary>" +
           table +
           "</details>"
         );
       }).join("");
+
+      const hasNoAssessments = !(course.assessments || []).length &&
+        selectedStatus === "all" &&
+        (!query || courseMatches);
+      if (!assessments.trim() && !hasNoAssessments) return "";
+
+      visibleCourses += 1;
+      const counts = course.counts || {};
+      const metrics = [
+        ["complete", "Official outcomes"],
+        ["numeric", "Numeric marks"],
+        ["no_mark", "Official NO_MARK"],
+        ["missing", "Missing"],
+        ["not_submitted", "Not submitted"],
+        ["awaiting", "Awaiting handoff"],
+        ["policy_unclassified", "Policy unclassified"]
+      ].map(([key, label]) =>
+        '<div><strong>' + esc(counts[key] || 0) + '</strong><span>' + label + "</span></div>"
+      ).join("");
+
       return (
         '<article class="staff-completeness-course"><div class="staff-completeness-course-head"><div><p class="eyebrow">' +
         esc(course.course) + '</p><h3>' + esc(course.course_title) +
         '</h3><p class="muted">' + esc(course.student_count) + " students · " +
         esc(course.assessment_count) + " configured components</p></div>" +
         staffCompletenessBadge(course.readiness) +
-        '</div>' + metrics +
+        '</div><div class="staff-completeness-metrics">' + metrics + "</div>" +
         (assessments || '<p class="muted">No assessments are configured for this course yet.</p>') +
         "</article>"
       );
     }).join("");
+
+    listNode.innerHTML = cards ||
+      '<div class="card staff-completeness-empty"><p>No records match the current search and status filter.</p><p class="muted">Try a different registration number, course or status.</p></div>';
+    resultsNode.textContent =
+      "Showing " + visibleCourses + " of " + courses.length + " courses · " +
+      visibleAssessments + " assessment components · " +
+      visibleCandidates + " candidate statuses";
+  }
+
+  searchInput.addEventListener("input", paint);
+  statusSelect.addEventListener("change", paint);
+  paint();
 }
 
 // ── Lecturer ─────────────────────────────────────────────────
