@@ -123,7 +123,19 @@ function badge(value) {
     RELEASE_POLICY_UNCLASSIFIED: ["warning", "Release policy not classified"],
     DIRECT: ["success", "Direct release"],
     SENATE: ["info", "Senate approval required"],
-    UNCLASSIFIED: ["warning", "Unclassified"]
+    UNCLASSIFIED: ["warning", "Unclassified"],
+    NOT_SUBMITTED: ["warning", "Not submitted"],
+    POLICY_UNCLASSIFIED: ["warning", "Policy needs classification"],
+    MISSING_IN_SUBMISSION: ["warning", "Missing in submitted batch"],
+    AWAITING_DEPARTMENT_REVIEW: ["info", "Awaiting department review"],
+    AWAITING_EXAM_OFFICE: ["info", "Awaiting exam office"],
+    AWAITING_PORTAL_PUBLICATION: ["info", "Awaiting portal publication"],
+    NO_ASSESSMENTS_CONFIGURED: ["warning", "No assessments configured"],
+    CONFIGURATION_REQUIRED: ["warning", "Configuration required"],
+    MISSING_COMPONENTS: ["error", "Missing component marks"],
+    AWAITING_COMPONENTS: ["info", "Components still in progress"],
+    OFFICIAL_NO_MARK_OUTCOME: ["warning", "Official no-mark outcome"],
+    ALL_COMPONENTS_PUBLISHED: ["success", "All components published"]
   };
   const stages = {
     DEPARTMENT_REVIEW: ["warning", "Awaiting department review"],
@@ -259,11 +271,12 @@ async function loadDashboard() {
 
 // ── Student ──────────────────────────────────────────────────
 async function loadStudent() {
-  const [marksData, reportsData, notificationData, progressData] = await Promise.all([
+  const [marksData, reportsData, notificationData, progressData, readinessData] = await Promise.all([
     api("/api/student/marks"),
     api("/api/student/reports"),
     api("/api/student/notifications"),
-    api("/api/student/progress")
+    api("/api/student/progress"),
+    api("/api/student/unit-readiness")
   ]);
   const notifications = notificationData.notifications;
   const unreadCount = notifications.filter((item) => !item.read_at).length;
@@ -352,6 +365,41 @@ async function loadStudent() {
       }
     });
   });
+
+  const readinessRoot = $("#student-unit-readiness");
+  const readinessMessages = {
+    ALL_COMPONENTS_PUBLISHED: "Every assessment currently configured for this unit has an official numeric mark. This is a completeness check only; MarkTrail is not calculating a final unit total or assuming CAT/final-exam weighting.",
+    OFFICIAL_NO_MARK_OUTCOME: "Every configured assessment has an official outcome, but at least one component is explicitly recorded as NO_MARK. There is no numeric total to calculate from this set of outcomes.",
+    MISSING_COMPONENTS: "At least one assessment component is missing from the submitted or published marks. The unit result is not complete.",
+    AWAITING_COMPONENTS: "One or more assessment components are still awaiting submission, review, Senate approval or portal publication.",
+    CONFIGURATION_REQUIRED: "At least one assessment still has an unclassified release policy. The department administrator must classify it before the result workflow can continue.",
+    NO_ASSESSMENTS_CONFIGURED: "No assessments are configured for this unit in MarkTrail. Contact your department if you expected to see CATs or a final examination."
+  };
+  readinessRoot.innerHTML = readinessData.courses.length
+    ? readinessData.courses.map((course) => {
+        const componentRows = course.components.map((component) => {
+          const mark = component.status === "RECORDED" && component.published_mark !== null
+            ? Number(component.published_mark).toFixed(
+                Number(component.published_mark) % 1 ? 2 : 0
+              ) + "/" + component.max_mark
+            : component.status === "NO_MARK"
+              ? "No mark awarded"
+              : "—";
+          return "<tr><td>" + esc(component.assessment) + "</td><td>" +
+            badge(component.status) + "</td><td><strong>" + esc(mark) + "</strong></td></tr>";
+        }).join("");
+        return '<article class="unit-readiness-card"><div class="issue-top"><div><p class="eyebrow">' +
+          esc(course.course) + '</p><h3>' + esc(course.course_title) + '</h3></div>' +
+          badge(course.readiness) + '</div><p class="muted">' +
+          esc(readinessMessages[course.readiness] || "Review the component statuses below.") +
+          '</p><div class="unit-readiness-count">' +
+          esc(course.complete_component_count) + " of " + esc(course.component_count) +
+          " components have an official outcome</div>" +
+          '<div class="table-wrap"><table><thead><tr><th>Assessment component</th><th>Status</th><th>Published mark</th></tr></thead><tbody>' +
+          (componentRows || '<tr><td colspan="3">No assessment components have been configured.</td></tr>') +
+          '</tbody></table></div><small class="muted">' + esc(course.total_note) + '</small></article>';
+      }).join("")
+    : '<div class="card"><p class="muted">No unit result components are linked to your account yet.</p></div>';
 
   const progressRoot = $("#student-progress");
   progressRoot.innerHTML = progressData.progress.length
