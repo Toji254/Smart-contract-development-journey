@@ -1,28 +1,21 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# MarkTrail — Database Restore Script
-# Safely restores a MarkTrail database backup after verifying integrity.
-# Uses Python's built-in sqlite3 engine (no external sqlite3 CLI required).
-# ==============================================================================
+# Paired database + private evidence restore. Both archives are validated
+# before the live database or evidence directory is replaced.
 set -euo pipefail
 
 usage() {
-    echo "Usage: $0 <path-to-backup-file> [--force]"
-    echo ""
-    echo "Examples:"
-    echo "  $0 /opt/marktrail/backups/marktrail_backup_20261023_120000Z.db.gz"
-    echo "  $0 /opt/marktrail/backups/marktrail_backup_20261023_120000Z.db.gz --force"
+    echo "Usage: $0 <path-to-database-backup.db.gz> [--force]"
+    echo "A matching marktrail_evidence_<timestamp>.tar.gz sidecar is required"
+    echo "when the database contains the evidence_attachments table."
     exit 1
 }
-
-if [ $# -lt 1 ]; then
-    usage
-fi
+if [ $# -lt 1 ]; then usage; fi
 
 BACKUP_FILE="$1"
 FORCE="${2:-}"
 DB_PATH="${MARKTRAIL_DB_PATH:-/opt/marktrail/data/marktrail.db}"
 DB_DIR="$(dirname "$DB_PATH")"
+EVIDENCE_DIR="${MARKTRAIL_EVIDENCE_DIR:-${DB_DIR}/private-evidence}"
 TIMESTAMP="$(date -u +"%Y%m%d_%H%M%SZ")"
 
 sqlite_exec() {
@@ -30,46 +23,96 @@ sqlite_exec() {
     local sql_cmd="$2"
     python3 -c "import sqlite3, sys; conn = sqlite3.connect(sys.argv[1]); res = conn.execute(sys.argv[2]).fetchall(); [print(r[0]) for r in res if r]; conn.commit(); conn.close()" "$db_file" "$sql_cmd"
 }
-
 if [ ! -f "$BACKUP_FILE" ]; then
-    echo "ERROR: Specified backup file does not exist: ${BACKUP_FILE}"
+    echo "ERROR: Database backup does not exist: ${BACKUP_FILE}"
+    exit 1
+fi
+if [[ "$BACKUP_FILE" != *.db.gz ]]; then
+    echo "ERROR: Expected a .db.gz MarkTrail database backup."
     exit 1
 fi
 
+BACKUP_NAME="$(basename "$BACKUP_FILE")"
+BACKUP_STAMP="${BACKUP_NAME#marktrail_backup_}"
+BACKUP_STAMP="${BACKUP_STAMP%.db.gz}"
+EVIDENCE_BACKUP="$(dirname "$BACKUP_FILE")/marktrail_evidence_${BACKUP_STAMP}.tar.gz"
+
 echo "=========================================================="
-echo " MarkTrail Database Restore"
+echo " MarkTrail Paired Database + Evidence Restore"
 echo "=========================================================="
 echo "Target database : ${DB_PATH}"
-echo "Source backup   : ${BACKUP_FILE}"
+echo "Target evidence : ${EVIDENCE_DIR}"
+echo "Source database : ${BACKUP_FILE}"
+echo "Source evidence : ${EVIDENCE_BACKUP}"
 echo ""
 
-# 1. Unpack backup to temporary directory and test integrity
 TEMP_DIR="$(mktemp -d /tmp/marktrail_restore_XXXXXX)"
 trap 'rm -rf "$TEMP_DIR"' EXIT
-
 RESTORE_STAGING="${TEMP_DIR}/staging.db"
+STAGED_EVIDENCE="${TEMP_DIR}/private-evidence"
+mkdir -m 700 "$STAGED_EVIDENCE"
 
-if [[ "$BACKUP_FILE" == *.gz ]]; then
-    echo "[1/5] Decompressing backup..."
-    gzip -dc "$BACKUP_FILE" > "$RESTORE_STAGING"
-else
-    echo "[1/5] Copying backup to staging..."
-    cp "$BACKUP_FILE" "$RESTORE_STAGING"
-fi
+echo "[1/6] Decompressing database backup..."
+gzip -dc "$BACKUP_FILE" > "$RESTORE_STAGING"
 
-echo "[2/5] Verifying staged database integrity..."
-STAGE_CHECK=$(sqlite_exec "$RESTORE_STAGING" "PRAGMA integrity_check;" 2>&1)
+echo "[2/6] Verifying staged database integrity..."
+STAGE_CHECK="$(sqlite_exec "$RESTORE_STAGING" "PRAGMA integrity_check;" 2>&1)"
 if [ "$STAGE_CHECK" != "ok" ]; then
     echo "ERROR: Staged database failed integrity check: ${STAGE_CHECK}"
-    echo "Aborting restore to protect existing database."
     exit 2
 fi
-echo "      Integrity check passed (ok)."
+HAS_ATTACHMENT_TABLE="$(sqlite_exec "$RESTORE_STAGING" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='evidence_attachments';")"
 
-# 2. Safety confirmation
+if [ -f "$EVIDENCE_BACKUP" ]; then
+    echo "[3/6] Validating and safely extracting private evidence archive..."
+    python3 - "$EVIDENCE_BACKUP" "$STAGED_EVIDENCE" <<'PY'
+import os
+import re
+import sys
+import tarfile
+
+archive_path, destination = sys.argv[1], sys.argv[2]
+allowed = re.compile(r"^[a-f0-9]{32}\.(?:pdf|png|jpg|jpeg)$")
+total = 0
+with tarfile.open(archive_path, "r:gz") as archive:
+    for member in archive.getmembers():
+        name = member.name
+        if name in (".", "./"):
+            continue
+        if name.startswith("./"):
+            name = name[2:]
+        if not member.isfile() or "/" in name or not allowed.fullmatch(name):
+            raise SystemExit(f"Unsafe evidence archive entry rejected: {member.name!r}")
+        if member.size <= 0 or member.size > 10 * 1024 * 1024:
+            raise SystemExit(f"Invalid evidence file size in archive: {member.name!r}")
+        source = archive.extractfile(member)
+        if source is None:
+            raise SystemExit(f"Could not read evidence archive entry: {member.name!r}")
+        target = os.path.join(destination, name)
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as output, source:
+            while True:
+                chunk = source.read(1024 * 1024)
+                if not chunk:
+                    break
+                output.write(chunk)
+                total += len(chunk)
+        if os.path.getsize(target) != member.size:
+            raise SystemExit(f"Evidence archive entry was truncated: {member.name!r}")
+print(f"Verified and extracted {len(os.listdir(destination))} private evidence file(s), {total} bytes.")
+PY
+elif [ "$HAS_ATTACHMENT_TABLE" = "1" ]; then
+    echo "ERROR: Database has evidence attachment records but the matching evidence archive is missing:"
+    echo "       ${EVIDENCE_BACKUP}"
+    echo "Refusing to restore records that would point to missing files."
+    exit 3
+else
+    echo "[3/6] Legacy database has no attachment table; preparing an empty evidence directory."
+fi
+
 if [ "$FORCE" != "--force" ]; then
     echo ""
-    echo "WARNING: Restoring will overwrite the current live database!"
+    echo "WARNING: Restoring overwrites the current database and private evidence directory."
     read -r -p "Are you sure you want to proceed? [y/N] " CONFIRM
     if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
         echo "Restore cancelled by operator."
@@ -77,34 +120,63 @@ if [ "$FORCE" != "--force" ]; then
     fi
 fi
 
-# 3. Create pre-restore safety copy of the current live database
+mkdir -p "$DB_DIR" "$(dirname "$EVIDENCE_DIR")"
 if [ -f "$DB_PATH" ]; then
-    PRE_RESTORE_COPY="${DB_DIR}/marktrail.db.pre_restore_${TIMESTAMP}.bak"
-    echo "[3/5] Saving pre-restore backup of live database to ${PRE_RESTORE_COPY}..."
-    sqlite_exec "$DB_PATH" "VACUUM INTO '${PRE_RESTORE_COPY}';" || cp "$DB_PATH" "$PRE_RESTORE_COPY"
-    chmod 600 "$PRE_RESTORE_COPY"
+    PRE_RESTORE_DB="${DB_DIR}/marktrail.db.pre_restore_${TIMESTAMP}.bak"
+    echo "[4/6] Creating pre-restore database safety copy..."
+    sqlite_exec "$DB_PATH" "VACUUM INTO '$PRE_RESTORE_DB';" || cp "$DB_PATH" "$PRE_RESTORE_DB"
+    chmod 600 "$PRE_RESTORE_DB"
 fi
 
-# 4. Atomic replacement
-echo "[4/5] Restoring database file..."
-mkdir -p "$DB_DIR"
-cp "$RESTORE_STAGING" "${DB_PATH}.tmp"
+NEW_EVIDENCE="${EVIDENCE_DIR}.restore_${TIMESTAMP}"
+PRE_RESTORE_EVIDENCE="${EVIDENCE_DIR}.pre_restore_${TIMESTAMP}"
+if [ -e "$NEW_EVIDENCE" ] || [ -e "$PRE_RESTORE_EVIDENCE" ]; then
+    echo "ERROR: Restore safety path already exists; refusing to overwrite it."
+    exit 4
+fi
+mkdir -m 700 "$NEW_EVIDENCE"
+cp -a "$STAGED_EVIDENCE/." "$NEW_EVIDENCE/"
+chmod 700 "$NEW_EVIDENCE"
+find "$NEW_EVIDENCE" -type f -exec chmod 600 {} +
+
+EVIDENCE_MOVED=0
+if [ -d "$EVIDENCE_DIR" ]; then
+    mv "$EVIDENCE_DIR" "$PRE_RESTORE_EVIDENCE"
+    EVIDENCE_MOVED=1
+fi
+if ! mv "$NEW_EVIDENCE" "$EVIDENCE_DIR"; then
+    if [ "$EVIDENCE_MOVED" = "1" ]; then mv "$PRE_RESTORE_EVIDENCE" "$EVIDENCE_DIR"; fi
+    echo "ERROR: Could not install restored evidence directory; previous evidence was kept."
+    exit 5
+fi
+
+echo "[5/6] Replacing database..."
+if ! cp "$RESTORE_STAGING" "${DB_PATH}.tmp"; then
+    rm -rf "$EVIDENCE_DIR"
+    if [ "$EVIDENCE_MOVED" = "1" ]; then mv "$PRE_RESTORE_EVIDENCE" "$EVIDENCE_DIR"; fi
+    echo "ERROR: Could not stage database; previous evidence was restored."
+    exit 6
+fi
 chmod 600 "${DB_PATH}.tmp"
 mv -f "${DB_PATH}.tmp" "$DB_PATH"
 
-# Set ownership if running as root
 if [ "$(id -u)" -eq 0 ] && id "marktrail" &>/dev/null; then
     chown marktrail:marktrail "$DB_PATH"
+    chown -R marktrail:marktrail "$EVIDENCE_DIR"
 fi
+chmod 700 "$EVIDENCE_DIR"
+find "$EVIDENCE_DIR" -type f -exec chmod 600 {} +
 
-# 5. Final integrity check on the installed file
-echo "[5/5] Running final integrity verification on restored database..."
-FINAL_CHECK=$(sqlite_exec "$DB_PATH" "PRAGMA integrity_check;" 2>&1)
+echo "[6/6] Running final integrity verification..."
+FINAL_CHECK="$(sqlite_exec "$DB_PATH" "PRAGMA integrity_check;" 2>&1)"
 if [ "$FINAL_CHECK" != "ok" ]; then
-    echo "CRITICAL ERROR: Restored database failed integrity check: ${FINAL_CHECK}"
-    exit 3
+    echo "CRITICAL ERROR: Restored database failed final integrity check: ${FINAL_CHECK}"
+    echo "Pre-restore safety copies remain available for operator recovery."
+    exit 7
 fi
 
 echo ""
-echo "SUCCESS: Database restored successfully to ${DB_PATH}."
-echo "If the MarkTrail service was stopped, restart it now via: systemctl restart marktrail"
+echo "SUCCESS: database and matching private evidence archive restored."
+if [ -n "${PRE_RESTORE_DB:-}" ]; then echo "Previous database: ${PRE_RESTORE_DB}"; fi
+if [ "$EVIDENCE_MOVED" = "1" ]; then echo "Previous evidence: ${PRE_RESTORE_EVIDENCE}"; fi
+echo "Restart MarkTrail when ready: systemctl restart marktrail"
