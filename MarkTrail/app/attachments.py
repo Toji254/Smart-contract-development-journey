@@ -444,7 +444,31 @@ class EvidenceAttachmentService:
                     """,
                     (owner_id,),
                 ).fetchall()
-            return [self._public_row(row) for row in rows]
+            result = []
+            for row in rows:
+                item = self._public_row(row)
+                events = conn.execute(
+                    """
+                    SELECT event.event_type, event.note, event.created_at,
+                           actor.full_name AS actor_name
+                    FROM evidence_attachment_events event
+                    LEFT JOIN users actor ON actor.id = event.actor_id
+                    WHERE event.attachment_id = ?
+                    ORDER BY event.id
+                    """,
+                    (row["id"],),
+                ).fetchall()
+                item["history"] = [
+                    {
+                        "event_type": event["event_type"],
+                        "note": event["note"],
+                        "actor_name": event["actor_name"] or "System",
+                        "created_at": event["created_at"],
+                    }
+                    for event in events
+                ]
+                result.append(item)
+            return result
         finally:
             conn.close()
 
