@@ -113,11 +113,17 @@ authenticated, re-authorise the case/session/script owner, use attachment
 disposition and nosniff headers, and never serve a quarantined file.
 
 A clean ClamAV scan is required before download. Missing scanner, timeout or
-scanner error fails closed into quarantine. Every download verifies stored
-byte size and SHA-256. A mismatch marks the record CORRUPT and blocks delivery.
-Metadata is immutable and event history is append-only. Database backups are
-paired with a private evidence archive; restore validates archive paths and
-refuses a database with attachment records when the sidecar is absent.
+scanner error fails closed into quarantine. Administrators can request a rescan
+from the staff UI, but a rescan never bypasses the scanner's verdict. Every
+download uses a bounded regular-file read without following a final symlink,
+then verifies the decrypted byte size and SHA-256. Missing, oversized,
+symlinked or altered objects are marked CORRUPT and blocked. Legacy plaintext
+records are not downloadable until the configured key migrates them. Metadata
+is immutable and event history is append-only. Database backups are paired
+with a private evidence archive; backup and restore both verify that every
+database attachment reference maps to a valid file with its expected stored
+size. Restore refuses to replace live data if any referenced file is absent
+or invalid.
 
 Remaining production controls include encrypted storage volumes and backups,
 institution-approved retention/deletion, scanner signature updates, monitoring
