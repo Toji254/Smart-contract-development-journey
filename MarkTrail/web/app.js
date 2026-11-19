@@ -156,7 +156,7 @@ function showView(view) {
   const role = state.user.role;
   const panelMap = {
     student: { home: "student-panel", marks: "student-panel", progress: "student-panel", reports: "student-panel", audit: "audit-panel" },
-    lecturer: { home: "lecturer-panel", batches: "lecturer-panel", reports: "lecturer-panel", evidence: "evidence-panel", audit: "audit-panel" },
+    lecturer: { home: "lecturer-panel", completeness: "lecturer-panel", batches: "lecturer-panel", reports: "lecturer-panel", evidence: "evidence-panel", audit: "audit-panel" },
     reviewer: { home: "reviewer-panel", verify: "reviewer-panel", evidence: "evidence-panel", audit: "audit-panel" },
     exam_office: { home: "exam-office-panel", process: "exam-office-panel", evidence: "evidence-panel", audit: "audit-panel" },
     portal_operator: { home: "portal-operator-panel", import: "portal-operator-panel", audit: "audit-panel" },
