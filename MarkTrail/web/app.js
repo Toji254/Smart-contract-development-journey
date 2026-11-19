@@ -2534,6 +2534,7 @@ $("#login-form").addEventListener("submit", async (event) => {
 
     if (result.must_change_password) {
       // Show password change screen
+      $("#public-site").classList.add("hidden");
       $("#login-screen").classList.add("hidden");
       $("#password-change-screen").classList.remove("hidden");
       $("#pw-current").value = "";
@@ -2542,6 +2543,7 @@ $("#login-form").addEventListener("submit", async (event) => {
       return;
     }
 
+    $("#public-site").classList.add("hidden");
     $("#login-screen").classList.add("hidden");
     $("#app-shell").classList.remove("hidden");
     await loadDashboard();
@@ -2576,6 +2578,8 @@ $("#password-change-form").addEventListener("submit", async (event) => {
       })
     });
     toast("Password updated. You are now signed in.");
+    $("#public-site").classList.add("hidden");
+    $("#login-screen").classList.add("hidden");
     $("#password-change-screen").classList.add("hidden");
     $("#app-shell").classList.remove("hidden");
     await loadDashboard();
@@ -2872,23 +2876,56 @@ document.querySelectorAll("[data-refresh]").forEach((button) => {
 });
 
 // ── Boot ─────────────────────────────────────────────────────
+function openLoginScreen() {
+  $("#public-site").classList.add("hidden");
+  $("#login-screen").classList.remove("hidden");
+  $("#login-username").focus();
+}
+
+function returnToPublicSite() {
+  $("#login-screen").classList.add("hidden");
+  $("#public-site").classList.remove("hidden");
+}
+
+document.querySelectorAll("[data-open-login]").forEach((link) => {
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    openLoginScreen();
+  });
+});
+
+document.querySelectorAll("[data-back-to-site]").forEach((link) => {
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    returnToPublicSite();
+  });
+});
+
+const siteYear = $("#site-year");
+if (siteYear) siteYear.textContent = String(new Date().getFullYear());
+
+// ── Boot ─────────────────────────────────────────────────────
 async function boot() {
   try {
     const me = await api("/api/me");
     state.user = me.user;
 
     if (me.must_change_password) {
+      $("#public-site").classList.add("hidden");
       $("#login-screen").classList.add("hidden");
       $("#password-change-screen").classList.remove("hidden");
       return;
     }
 
+    $("#public-site").classList.add("hidden");
     $("#login-screen").classList.add("hidden");
     $("#app-shell").classList.remove("hidden");
     await loadDashboard();
     await loadCurrentView();
   } catch {
-    $("#login-screen").classList.remove("hidden");
+    $("#public-site").classList.remove("hidden");
+    $("#login-screen").classList.add("hidden");
+    $("#password-change-screen").classList.add("hidden");
     $("#app-shell").classList.add("hidden");
   }
 }
