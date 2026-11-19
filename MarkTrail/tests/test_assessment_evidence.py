@@ -400,6 +400,87 @@ class AssessmentEvidenceTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_admin_can_rescan_quarantined_attachment_and_other_roles_cannot(self):
+        session_id = self.create_session()
+        quarantined = EvidenceAttachmentService(
+            self.db, self.app,
+            storage_dir=Path(self.tmp.name) / "private-evidence",
+            scanner=lambda _path: ("QUARANTINED", "scanner unavailable"),
+            encryption_key=self.encryption_key,
+        )
+        payload = b"%PDF-1.7\nRescan after scanner recovery.\n%%EOF"
+        uploaded = quarantined.upload(
+            self.users["lecturer"], "SESSION", session_id,
+            "rescan-register.pdf", base64.b64encode(payload).decode("ascii"),
+        )
+        with self.assertRaises(AppError) as denied:
+            self.attachments.rescan(self.users["student"], uploaded["id"])
+        self.assertEqual(denied.exception.status, 403)
+        rescanned = self.attachments.rescan(self.users["admin"], uploaded["id"])
+        self.assertEqual(rescanned["scan_status"], "CLEAN")
+        self.assertEqual(
+            self.attachments.read_attachment(self.users["lecturer"], uploaded["id"])["content"],
+            payload,
+        )
+
+    def test_missing_private_file_is_marked_corrupt_and_never_reported_as_clean(self):
+        session_id = self.create_session()
+        payload = b"%PDF-1.7\nSource register.\n%%EOF"
+        uploaded = self.attachments.upload(
+            self.users["lecturer"], "SESSION", session_id,
+            "missing-register.pdf", base64.b64encode(payload).decode("ascii"),
+        )
+        (Path(self.tmp.name) / "private-evidence" / (uploaded["id"] + ".pdf")).unlink()
+        with self.assertRaises(AppError) as unavailable:
+            self.attachments.read_attachment(self.users["lecturer"], uploaded["id"])
+        self.assertEqual(unavailable.exception.status, 409)
+        listed = self.attachments.list_attachments(self.users["lecturer"], "SESSION", session_id)
+        self.assertEqual(listed[0]["scan_status"], "CORRUPT")
+        self.assertIn("INTEGRITY_FAILED", [event["event_type"] for event in listed[0]["history"]])
+
+    def test_symlinked_private_file_is_quarantined_before_read(self):
+        session_id = self.create_session()
+        payload = b"%PDF-1.7\nOriginal source record.\n%%EOF"
+        uploaded = self.attachments.upload(
+            self.users["lecturer"], "SESSION", session_id,
+            "source-register.pdf", base64.b64encode(payload).decode("ascii"),
+        )
+        target = Path(self.tmp.name) / "private-evidence" / (uploaded["id"] + ".pdf")
+        target.unlink()
+        target.symlink_to(Path(self.tmp.name) / "private-evidence" / "unrelated.pdf")
+        with self.assertRaises(AppError) as unavailable:
+            self.attachments.read_attachment(self.users["lecturer"], uploaded["id"])
+        self.assertEqual(unavailable.exception.status, 409)
+        listed = self.attachments.list_attachments(self.users["lecturer"], "SESSION", session_id)
+        self.assertEqual(listed[0]["scan_status"], "CORRUPT")
+
+    def test_legacy_plaintext_attachment_is_not_downloadable_without_encryption_key(self):
+        session_id = self.create_session()
+        payload = b"%PDF-1.7\nLegacy plaintext register.\n%%EOF"
+        uploaded = self.attachments.upload(
+            self.users["lecturer"], "SESSION", session_id,
+            "legacy-plaintext.pdf", base64.b64encode(payload).decode("ascii"),
+        )
+        target = Path(self.tmp.name) / "private-evidence" / (uploaded["id"] + ".pdf")
+        target.write_bytes(payload)
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE evidence_attachments SET encryption_version = 0, encryption_key_id = NULL WHERE id = ?",
+                (uploaded["id"],),
+            )
+        no_key = EvidenceAttachmentService(
+            self.db, self.app,
+            storage_dir=Path(self.tmp.name) / "private-evidence",
+            scanner=lambda _path: ("CLEAN", "test scanner"),
+            encryption_key=None,
+        )
+        with self.assertRaises(AppError) as blocked:
+            no_key.read_attachment(self.users["lecturer"], uploaded["id"])
+        self.assertEqual(blocked.exception.status, 503)
+        listed = no_key.list_attachments(self.users["lecturer"], "SESSION", session_id)
+        self.assertEqual(listed[0]["scan_status"], "CLEAN")
+        self.assertFalse(listed[0]["encrypted_at_rest"])
+
     def test_session_locks_candidate_roster_snapshot(self):
         session_id = self.create_session()
         before = self.roster(session_id)
