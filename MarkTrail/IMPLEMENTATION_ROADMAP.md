@@ -277,12 +277,13 @@ Implemented in this branch as an initial vertical slice:
 - Case state transitions OPEN → EVIDENCE_CLEARED → RESOLVED/DISMISSED, with REOPENED events for recurring exceptions and immutable action history.
 - Legacy SQLite migration for unidentified scripts, identity-link events and session type, preserving existing records.
 - Private evidence attachments for student-owned cases and staff-managed sessions/scripts; generated storage keys, 10 MB PDF/PNG/JPEG validation, AES-256-GCM encryption at rest, ClamAV fail-closed quarantine, SHA-256 integrity checks, append-only attachment history, owner-scoped downloads and administrator rescan.
+- Optional local document intelligence: staff-triggered Tesseract OCR, bounded Poppler PDF rendering, encrypted extraction results, heuristic document-type/reference/date suggestions, append-only analysis history and explicit human-review-only semantics.
 - Paired SQLite/evidence backups with database-to-archive reference validation, safe archive extraction and a restore refusal path that preserves live data when any referenced evidence file is missing.
-- Dedicated regression tests for permissions, privacy, atomic updates, legacy migration, case ownership, human resolution, case reopening, attachment integrity/rescan, backup/restore consistency and unit-component completeness.
+- Dedicated regression tests for permissions, privacy, atomic updates, legacy migration, case ownership, human resolution, case reopening, attachment integrity/rescan, OCR suggestion scope/encryption, backup/restore consistency and unit-component completeness.
 
 Not yet implemented or independently verified:
 - Student-facing appeals and expanded case-progress workflows beyond the current read-only status view and evidence upload to the student's own open case.
-- Document OCR, bulk register import and offline sync.
+- OCR for languages beyond English, automatic attendance-table reconstruction, bulk register import and offline sync.
 - Team-teaching assignment and multi-marker support.
 - Karatina-approved unit component scheme, weights, optional/required component rules, versioning and full weighted result calculation. Current readiness treats every configured assessment as required and does not calculate a total.
 - End-to-end automated integration with Karatina's official student portal; the app has a local portal-operator publication stage but no approved university portal adapter.
