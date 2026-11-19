@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import base64
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
 from app.db import Database
 from app.evidence import AssessmentEvidenceService
+from app.attachments import EvidenceAttachmentService
 from app.service import AppError, AppService
 
 
@@ -16,6 +19,12 @@ class AssessmentEvidenceTests(unittest.TestCase):
         self.db.init(seed_demo=True)
         self.app = AppService(self.db)
         self.evidence = AssessmentEvidenceService(self.db, self.app)
+        self.attachments = EvidenceAttachmentService(
+            self.db,
+            self.app,
+            storage_dir=Path(self.tmp.name) / "private-evidence",
+            scanner=lambda _path: ("CLEAN", "test-scanner: clean"),
+        )
 
         conn = self.db.connect()
         try:
@@ -57,6 +66,118 @@ class AssessmentEvidenceTests(unittest.TestCase):
             })
         self.evidence.record_attendance(self.users["lecturer"], session_id, items)
         return candidates
+
+    def test_private_attachment_upload_download_and_append_only_history(self):
+        session_id = self.create_session()
+        report = self.evidence.student_report_evidence_issue(
+            self.users["student"], session_id, "ATTENDANCE",
+            "I attended and need the signed register checked.",
+        )
+        payload = b"%PDF-1.7\nSynthetic attendance register scan.\n%%EOF"
+        uploaded = self.attachments.upload(
+            self.users["student"], "CASE", report["case_id"],
+            "attendance-register.pdf", base64.b64encode(payload).decode("ascii"),
+        )
+        self.assertEqual(uploaded["scan_status"], "CLEAN")
+        self.assertTrue(uploaded["downloadable"])
+        self.assertEqual(uploaded["sha256"], __import__("hashlib").sha256(payload).hexdigest())
+
+        listed = self.attachments.list_attachments(self.users["student"], "CASE")
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["filename"], "attendance-register.pdf")
+        self.assertNotIn("storage_key", listed[0])
+        self.assertNotIn("path", listed[0])
+        self.assertEqual(
+            self.attachments.read_attachment(self.users["student"], uploaded["id"])["content"],
+            payload,
+        )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            with self.db.transaction() as conn:
+                conn.execute(
+                    "UPDATE evidence_attachments SET original_name = 'changed.pdf' WHERE id = ?",
+                    (uploaded["id"],),
+                )
+        with self.assertRaises(sqlite3.IntegrityError):
+            with self.db.transaction() as conn:
+                conn.execute(
+                    "DELETE FROM evidence_attachment_events WHERE attachment_id = ?",
+                    (uploaded["id"],),
+                )
+
+    def test_attachment_authorization_prevents_cross_student_case_access(self):
+        session_id = self.create_session()
+        candidates = self.roster(session_id)
+        report = self.evidence.student_report_evidence_issue(
+            candidates[0]["student_id"], session_id, "OTHER",
+            "Please check the supporting examination evidence.",
+        )
+        payload = b"%PDF-1.7\nPrivate document.\n%%EOF"
+        uploaded = self.attachments.upload(
+            candidates[0]["student_id"], "CASE", report["case_id"],
+            "support.pdf", base64.b64encode(payload).decode("ascii"),
+        )
+        with self.assertRaises(AppError) as upload_error:
+            self.attachments.upload(
+                candidates[1]["student_id"], "CASE", report["case_id"],
+                "other.pdf", base64.b64encode(payload).decode("ascii"),
+            )
+        self.assertEqual(upload_error.exception.status, 403)
+        with self.assertRaises(AppError) as read_error:
+            self.attachments.read_attachment(candidates[1]["student_id"], uploaded["id"])
+        self.assertEqual(read_error.exception.status, 403)
+
+    def test_attachment_file_type_and_size_are_checked_before_storage(self):
+        session_id = self.create_session()
+        report = self.evidence.student_report_evidence_issue(
+            self.users["student"], session_id, "OTHER",
+            "Please check this examination evidence record.",
+        )
+        with self.assertRaisesRegex(AppError, "extension does not match"):
+            self.attachments.upload(
+                self.users["student"], "CASE", report["case_id"],
+                "fake.pdf", base64.b64encode(b"not a PDF").decode("ascii"),
+            )
+        too_large = b"%PDF-" + b"x" * (10 * 1024 * 1024)
+        with self.assertRaises(AppError) as size_error:
+            self.attachments.upload(
+                self.users["student"], "CASE", report["case_id"],
+                "too-large.pdf", base64.b64encode(too_large).decode("ascii"),
+            )
+        self.assertEqual(size_error.exception.status, 413)
+
+    def test_unscanned_attachment_is_quarantined_and_cannot_be_downloaded(self):
+        unavailable = EvidenceAttachmentService(
+            self.db, self.app, storage_dir=Path(self.tmp.name) / "no-scanner",
+        )
+        session_id = self.create_session()
+        payload = b"%PDF-1.7\nQuarantined evidence.\n%%EOF"
+        uploaded = unavailable.upload(
+            self.users["lecturer"], "SESSION", session_id,
+            "exam-card.pdf", base64.b64encode(payload).decode("ascii"),
+        )
+        self.assertEqual(uploaded["scan_status"], "QUARANTINED")
+        with self.assertRaises(AppError) as blocked:
+            unavailable.read_attachment(self.users["lecturer"], uploaded["id"])
+        self.assertEqual(blocked.exception.status, 409)
+
+    def test_download_detects_storage_tampering_and_quarantines_file(self):
+        session_id = self.create_session()
+        payload = b"%PDF-1.7\nOriginal evidence.\n%%EOF"
+        uploaded = self.attachments.upload(
+            self.users["lecturer"], "SESSION", session_id,
+            "attendance.pdf", base64.b64encode(payload).decode("ascii"),
+        )
+        (Path(self.tmp.name) / "private-evidence" / (uploaded["id"] + ".pdf")).write_bytes(
+            b"%PDF-1.7\nTampered evidence.\n%%EOF"
+        )
+        with self.assertRaises(AppError) as integrity_error:
+            self.attachments.read_attachment(self.users["lecturer"], uploaded["id"])
+        self.assertEqual(integrity_error.exception.status, 409)
+        stored = self.attachments.list_attachments(
+            self.users["lecturer"], "SESSION", session_id
+        )
+        self.assertEqual(stored[0]["scan_status"], "CORRUPT")
 
     def test_session_locks_candidate_roster_snapshot(self):
         session_id = self.create_session()
