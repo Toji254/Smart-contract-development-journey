@@ -170,6 +170,17 @@
           <strong>Lecturer workspace</strong>
           <p>Upload marks for your assessments, then follow each batch through review and publication. Resolve student missing-mark reports from Issues.</p>
         </div>
+        <div data-role-view="completeness">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">ACADEMIC OVERSIGHT</p>
+              <h2>Unit component completeness</h2>
+              <p class="muted">Find missing components by course, assessment and student. Student rows show status only, not unpublished marks.</p>
+            </div>
+            <button class="button secondary" data-refresh type="button">Refresh</button>
+          </div>
+          <div id="lecturer-completeness" class="staff-completeness-list"></div>
+        </div>
         <div data-role-view="batches">
         <div class="section-head">
           <div>
@@ -300,6 +311,17 @@
         <div class="callout" data-role-view="home">
           <strong>Institution administration</strong>
           <p>Create and manage approved accounts, courses, enrolments, and assessments. Set account end dates and disable accounts when access should stop.</p>
+        </div>
+        <div data-role-view="completeness">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">INSTITUTION-WIDE OVERSIGHT</p>
+              <h2>Unit component completeness</h2>
+              <p class="muted">Review missing and delayed components across all configured courses. This is a status dashboard, not a marks calculation or academic decision.</p>
+            </div>
+            <button class="button secondary" data-refresh type="button">Refresh</button>
+          </div>
+          <div id="admin-completeness" class="staff-completeness-list"></div>
         </div>
         <div data-role-view="setup">
         <div class="section-head">
