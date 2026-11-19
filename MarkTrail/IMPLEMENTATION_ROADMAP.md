@@ -110,7 +110,7 @@ Deliverables:
 - Student-facing unit component-completeness check across every assessment configured for a course. It distinguishes unsubmitted, missing in submission, review/office/Senate/portal holds, published numeric marks and official NO_MARK outcomes.
 - Explicit "no mark awarded" outcome requiring authorised reason and supporting evidence where policy requires.
 - Durable submission receipt, idempotency key, operation status and safe retry after network failure.
-- Lecturer-facing unit-level missing-component and overdue dashboard, with reassignment/handover for departed or unavailable staff.
+- Read-only lecturer-facing (assigned courses) and admin-facing (institution-wide) unit component-completeness dashboard. It drills from course and assessment to student status, distinguishes published, official no-mark, missing, not submitted, unclassified-policy and office-handoff states, and never returns unpublished mark values or calculates a unit total.
 - Institution-configured weighting/result scheme with explicit component weights, required/optional components, versioning and a calculated final unit result only after every required component has an official outcome.
 
 Exit criteria:
