@@ -290,6 +290,70 @@ class MarkTrailTests(unittest.TestCase):
         self.assertLess(missing["complete_component_count"], missing["component_count"])
         self.assertIsNone(missing["unit_total"])
 
+    def test_staff_unit_completeness_is_scoped_and_never_returns_mark_values(self):
+        lecturer_id = int(self.lecturer["id"])
+        admin_id = int(self.admin["id"])
+        reviewer_id = int(self.reviewer["id"])
+
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO courses (id, code, title, lecturer_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("course-reviewer-owned", "REV 101", "Reviewer-owned course", reviewer_id, utc_now()),
+            )
+
+        lecturer_view = self.service.staff_unit_completeness(lecturer_id)
+        admin_view = self.service.staff_unit_completeness(admin_id)
+
+        self.assertEqual(lecturer_view["scope"], "ASSIGNED_COURSES")
+        self.assertEqual(admin_view["scope"], "ALL_COURSES")
+        self.assertIn(
+            "course-csc201",
+            {course["course_id"] for course in lecturer_view["courses"]},
+        )
+        self.assertNotIn(
+            "course-reviewer-owned",
+            {course["course_id"] for course in lecturer_view["courses"]},
+        )
+        self.assertIn(
+            "course-reviewer-owned",
+            {course["course_id"] for course in admin_view["courses"]},
+        )
+        self.assertFalse(lecturer_view["mark_values_included"])
+        self.assertIsNone(lecturer_view.get("unit_total"))
+
+        csc201 = next(
+            course for course in lecturer_view["courses"]
+            if course["course_id"] == "course-csc201"
+        )
+        self.assertGreater(csc201["assessment_count"], 0)
+        self.assertGreater(csc201["student_count"], 0)
+        self.assertEqual(
+            csc201["counts"]["components"],
+            sum(item["counts"]["total"] for item in csc201["assessments"]),
+        )
+        for assessment in csc201["assessments"]:
+            self.assertEqual(
+                assessment["counts"]["total"],
+                len(assessment["students"]),
+            )
+            for candidate in assessment["students"]:
+                self.assertIn("full_name", candidate)
+                self.assertIn("status", candidate)
+                self.assertNotIn("candidate_mark", candidate)
+                self.assertNotIn("published_mark", candidate)
+                self.assertNotIn("mark", candidate)
+
+        with self.assertRaises(AppError) as student_error:
+            self.service.staff_unit_completeness(int(self.student["id"]))
+        self.assertEqual(student_error.exception.status, 403)
+
+        with self.assertRaises(AppError) as reviewer_error:
+            self.service.staff_unit_completeness(reviewer_id)
+        self.assertEqual(reviewer_error.exception.status, 403)
+
     def test_admin_can_schedule_expiry_and_disable_user_access(self):
         student_id = int(self.student["id"])
         tomorrow = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
