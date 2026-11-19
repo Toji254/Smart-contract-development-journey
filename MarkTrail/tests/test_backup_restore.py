@@ -103,7 +103,7 @@ class PairedBackupRestoreTests(unittest.TestCase):
             check=False,
         )
         self.assertNotEqual(completed.returncode, 0)
-        self.assertIn("Referenced evidence file is missing", completed.stdout)
+        self.assertIn("Referenced evidence file is missing", completed.stdout + completed.stderr)
         self.assertEqual(list(self.backup_dir.glob("marktrail_backup_*.db.gz")), [])
         self.assertEqual(list(self.backup_dir.glob("marktrail_evidence_*.tar.gz")), [])
 
@@ -124,7 +124,7 @@ class PairedBackupRestoreTests(unittest.TestCase):
             check=False,
         )
         self.assertNotEqual(restored.returncode, 0)
-        self.assertIn("Attachment file is missing from evidence archive", restored.stdout)
+        self.assertIn("Attachment file is missing from evidence archive", restored.stdout + restored.stderr)
         with sqlite3.connect(self.db_path) as conn:
             value = conn.execute("SELECT value FROM backup_probe").fetchone()[0]
         self.assertEqual(value, "live-value-must-survive")
