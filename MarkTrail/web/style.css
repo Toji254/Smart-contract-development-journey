@@ -719,3 +719,45 @@ footer {
 .case-history-item > small {
   overflow-wrap: anywhere;
 }
+
+
+/* ── Unit assessment component readiness ───────────────────── */
+.unit-readiness-intro {
+  display: grid;
+  gap: 14px;
+}
+.unit-readiness-list {
+  display: grid;
+  gap: 14px;
+}
+.unit-readiness-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+}
+.unit-readiness-card h3 {
+  margin: 2px 0 0;
+}
+.unit-readiness-card > p {
+  margin: 0;
+  line-height: 1.5;
+}
+.unit-readiness-count {
+  color: var(--ink-muted);
+  font-size: .82rem;
+  font-weight: 650;
+}
+.unit-readiness-card .table-wrap {
+  margin: 0;
+}
+.unit-readiness-card table {
+  min-width: 520px;
+}
+@media (max-width: 800px) {
+  .unit-readiness-card {
+    padding: 14px;
+  }
+}
