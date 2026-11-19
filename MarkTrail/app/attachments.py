@@ -414,16 +414,6 @@ class EvidenceAttachmentService:
                 )
 
 
-        conn.execute(
-            """
-            INSERT INTO evidence_attachment_events
-                (attachment_id, event_type, actor_id, note, metadata_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (attachment_id, event_type, actor_id, str(note or "")[:1000],
-             json.dumps(metadata, sort_keys=True), now),
-        )
-
     def _authorize_owner(self, conn, user_id, owner_type, owner_id, *, for_upload=False):
         actor = conn.execute(
             "SELECT id, role, active FROM users WHERE id = ?", (user_id,)
