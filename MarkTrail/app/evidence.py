@@ -1947,6 +1947,17 @@ class AssessmentEvidenceService:
         try:
             rows = conn.execute(
                 """
+                WITH student_assessments AS (
+                    SELECT e.course_id, e.student_id
+                    FROM enrollments e
+                    WHERE e.student_id = ?
+                    UNION
+                    SELECT a.course_id, candidate.student_id
+                    FROM exam_session_candidates candidate
+                    JOIN exam_sessions session ON session.id = candidate.session_id
+                    JOIN assessments a ON a.id = session.assessment_id
+                    WHERE candidate.student_id = ?
+                )
                 SELECT
                     a.id AS assessment_id,
                     a.name AS assessment,
@@ -1972,7 +1983,7 @@ class AssessmentEvidenceService:
                     COALESCE(m.published_status, 'MISSING') AS published_status,
                     COALESCE(b.pipeline_stage, 'NOT_SUBMITTED') AS pipeline_stage,
                     COALESCE(b.senate_status, 'NOT_REQUIRED') AS senate_status
-                FROM enrollments e
+                FROM student_assessments e
                 JOIN courses c ON c.id = e.course_id
                 JOIN assessments a ON a.course_id = c.id
                 LEFT JOIN (
@@ -2011,7 +2022,7 @@ class AssessmentEvidenceService:
                 WHERE e.student_id = ?
                 ORDER BY c.code, a.created_at, x.exam_at
                 """,
-                (user_id,),
+                (user_id, user_id, user_id),
             ).fetchall()
             result = []
             for row in rows:
@@ -2113,15 +2124,12 @@ class AssessmentEvidenceService:
                 """,
                 (session_id, user_id),
             ).fetchone()
-            enrolment = conn.execute(
-                """
-                SELECT 1 FROM enrollments
-                WHERE student_id = ? AND course_id = ?
-                """,
-                (user_id, session["course_id"]),
-            ).fetchone()
-            if not candidate or not enrolment:
-                raise AppError("You can only report an examination session linked to your own registered unit.", 403)
+            # The locked examination roster is the authoritative snapshot of
+            # who was scheduled for that sitting. Do not require a live
+            # enrolment row: withdrawal or later course changes must not erase
+            # a student's ability to report an issue about a past examination.
+            if not candidate:
+                raise AppError("You can only report an examination session linked to your own locked exam roster.", 403)
 
             issue_code = "STUDENT_REPORTED_" + category
             subject_key = f"student:{user_id}"
