@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import base64
 import io
 import sqlite3
 import tempfile
@@ -8,6 +9,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
+import openpyxl
 
 from app.chain import ChainError, bytes32_hash
 from app.db import Database, utc_now, verify_password
@@ -1148,6 +1150,20 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(preview["submitted_count"], 1)
         self.assertEqual(preview["missing_count"], 1)
 
+    def test_lecturer_batch_preview_accepts_registration_number_and_marks_headers(self):
+        preview = self.service.preview_batch(
+            self.lecturer["id"],
+            "assessment-cat2",
+            "Registration Number,Marks\nSCT/001/2025,17\nSCT/002/2025,16\n",
+        )
+
+        self.assertTrue(preview["valid"])
+        self.assertEqual(preview["submitted_count"], 2)
+        self.assertEqual(
+            [row["registration_number"] for row in preview["rows"]],
+            ["SCT/001/2025", "SCT/002/2025"],
+        )
+
     def test_demo_seed_has_an_unsubmitted_assessment_for_lecturer(self):
         assessments = self.service.lecturer_assessments(self.lecturer["id"])
         available = [assessment for assessment in assessments if not assessment["batch_id"]]
@@ -2089,6 +2105,104 @@ class PortalChainReconcileTests(unittest.TestCase):
         self.assertTrue(result["match"])
         self.assertFalse(result["on_chain"])
         self.assertIn("No independent on-chain anchor", result["reason"])
+
+class MarkTrailPortalFeatureTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = Database(Path(self.tmp.name) / "portal.db")
+        self.db.init(seed_demo=True)
+        self.service = AppService(self.db, FakeChain())
+        conn = self.db.connect()
+        self.lecturer_id = conn.execute(
+            "SELECT id FROM users WHERE username='lecturer'"
+        ).fetchone()["id"]
+        self.student_id = conn.execute(
+            "SELECT id FROM users WHERE username='student'"
+        ).fetchone()["id"]
+        self.other_student_id = conn.execute(
+            "SELECT id FROM users WHERE username='student2'"
+        ).fetchone()["id"]
+        self.registry_id = conn.execute(
+            "SELECT id FROM users WHERE username='registry'"
+        ).fetchone()["id"]
+        conn.close()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_workbook_is_roster_locked_and_accepts_zero_separately_from_blank(self):
+        generated = self.service.generate_roster_workbook(
+            int(self.lecturer_id), "assessment-demo-upload"
+        )
+        content = base64.b64decode(generated["xlsx_base64"])
+        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=False)
+        ws = wb["Official Marks Sheet"]
+        ws["C12"] = 0
+        ws["C13"] = None
+        ws["D13"] = "ABSENT"
+        edited = io.BytesIO()
+        wb.save(edited)
+        preview = self.service.preview_roster_workbook(
+            int(self.lecturer_id),
+            "assessment-demo-upload",
+            base64.b64encode(edited.getvalue()).decode("ascii"),
+        )
+        self.assertTrue(preview["valid"])
+        self.assertEqual(preview["rows"][0]["mark"], 0.0)
+        self.assertEqual(preview["rows"][1]["status"], "ABSENT")
+
+    def test_registration_exception_requires_registry_decision_and_is_audited(self):
+        created = self.service.create_registration_exception(
+            int(self.lecturer_id),
+            int(self.other_student_id),
+            "course-csc201",
+            "assessment-cat1",
+            "LATE_REGISTRATION",
+            "Student attended while registration is being verified.",
+        )
+        decided = self.service.decide_registration_exception(
+            int(self.registry_id),
+            created["id"],
+            "APPROVED",
+            "Registry found an approved late-registration record.",
+        )
+        self.assertEqual(decided["status"], "APPROVED")
+        conn = self.db.connect()
+        enrolled = conn.execute(
+            "SELECT 1 FROM enrollments WHERE course_id=? AND student_id=?",
+            ("course-csc201", int(self.other_student_id)),
+        ).fetchone()
+        audit = conn.execute(
+            "SELECT 1 FROM audit_events WHERE entity_type='REGISTRATION_EXCEPTION' "
+            "AND entity_id=?",
+            (created["id"],),
+        ).fetchone()
+        conn.close()
+        self.assertIsNotNone(enrolled)
+        self.assertIsNotNone(audit)
+
+    def test_student_can_create_and_only_view_their_own_case(self):
+        created = self.service.create_examination_case(
+            int(self.student_id),
+            "MISSING_CAT_MARK",
+            "My CAT 1 mark is missing.",
+            "course-csc201",
+            "assessment-cat1",
+        )
+        own = self.service.student_examination_cases(int(self.student_id))
+        other = self.service.student_examination_cases(int(self.other_student_id))
+        self.assertTrue(any(case["id"] == created["id"] for case in own))
+        self.assertFalse(any(case["id"] == created["id"] for case in other))
+
+        with self.assertRaises(AppError):
+            self.service.update_examination_case(
+                int(self.student_id),
+                created["id"],
+                "RESOLVED",
+                "Student cannot close this case.",
+                "Resolved",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

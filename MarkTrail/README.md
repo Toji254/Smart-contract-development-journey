@@ -147,6 +147,22 @@ It is:
 
 That question should drive the next version.
 
+## MarkTrail examination query and workbook pilot
+
+The runnable application now also provides:
+
+- individual lecturer accounts and course/co-lecturer authorization;
+- immutable roster snapshots and protected `.xlsx` marks workbooks;
+- server-side workbook validation for identity, duplicates, unknown candidates,
+  missing candidates, numeric ranges, formulas and explicit outcomes;
+- Academic Registry registration exceptions with registry-only decisions;
+- student-owned examination query cases and staff assignment queues;
+- audit events and in-app notifications for registration and case decisions;
+- role-scoped staff and student APIs, with standalone demo accounts for local use.
+
+This is a pilot implementation. KarU SSO, official registration feeds and
+production email/SMS providers are integration boundaries and are not enabled.
+
 
 ## Project path
 
@@ -635,7 +651,9 @@ admin / admin123
 The demo course includes a fresh assessment named `CAT 3 (Ready to upload)` so
 the lecturer can try CSV validation and batch submission immediately. CSV files
 use the headers `registration_number,mark`; students omitted from a valid CSV
-are recorded as missing.
+are recorded as missing. Common exports using `Registration Number,Marks` are
+also accepted. Registration numbers must match students enrolled in the selected
+course; names are not required in the marks CSV.
 
 Assessments have an explicit result-release policy:
 - `DIRECT` is for CATs/coursework that the university authorises for direct release.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import base64
 import hashlib
 import io
 import json
@@ -12,6 +13,8 @@ from typing import Any
 
 from .chain import ChainClient, ChainError, ChainPendingError, bytes32_hash
 from .db import Database, utc_now
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Protection
 
 
 class AppError(Exception):
@@ -34,6 +37,27 @@ class AppService:
     def __init__(self, db: Database, chain: ChainClient | None = None) -> None:
         self.db = db
         self.chain = chain or ChainClient()
+
+    def student_academic_notices(self, user_id: int) -> list[dict]:
+        self.require_role(user_id, {"student"})
+        conn = self.db.connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT n.*
+                FROM academic_notices n
+                JOIN users u ON u.id = ?
+                WHERE n.scope_type='ALL'
+                   OR (n.scope_type='STUDENT' AND n.scope_id=?)
+                   OR (n.scope_type='YEAR' AND n.academic_year IS NOT NULL)
+                ORDER BY n.created_at DESC
+                LIMIT 100
+                """,
+                (user_id, str(user_id)),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
 
     def user(self, user_id: int):
         conn = self.db.connect()
@@ -617,10 +641,16 @@ class AppService:
                     """
                     SELECT c.id, c.code, c.title
                     FROM courses c
-                    WHERE c.lecturer_id = ?
+                    WHERE (
+                        c.lecturer_id = ?
+                        OR EXISTS (
+                            SELECT 1 FROM course_lecturers cl
+                            WHERE cl.course_id = c.id AND cl.lecturer_id = ? AND cl.active = 1
+                        )
+                    )
                     ORDER BY c.code
                     """,
-                    (user_id,),
+                    (user_id, user_id),
                 ).fetchall()
                 scope = "ASSIGNED_COURSES"
             else:
@@ -1182,17 +1212,640 @@ class AppService:
                 JOIN courses c ON c.id = a.course_id
                 LEFT JOIN enrollments e ON e.course_id = c.id
                 LEFT JOIN batches b ON b.assessment_id = a.id
-                WHERE c.lecturer_id = ?
+                WHERE (
+                    c.lecturer_id = ?
+                    OR EXISTS (
+                        SELECT 1 FROM course_lecturers cl
+                        WHERE cl.course_id = c.id AND cl.lecturer_id = ? AND cl.active = 1
+                    )
+                )
                 GROUP BY
                     a.id, c.code, c.title, b.id, b.status, b.revision,
                     b.chain_state, b.pipeline_stage
                 ORDER BY c.code, a.created_at
                 """,
-                (user_id,),
+                (user_id, user_id),
             ).fetchall()
             return [dict(row) for row in rows]
         finally:
             conn.close()
+
+    def lecturer_units(self, user_id: int) -> list[dict]:
+        self.require_role(user_id, {"lecturer"})
+        conn = self.db.connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT c.id, c.code, c.title,
+                       COUNT(DISTINCT e.student_id) AS enrolled_count
+                FROM courses c
+                LEFT JOIN enrollments e ON e.course_id = c.id
+                WHERE c.lecturer_id = ?
+                   OR EXISTS (
+                       SELECT 1 FROM course_lecturers cl
+                       WHERE cl.course_id = c.id AND cl.lecturer_id = ? AND cl.active = 1
+                   )
+                GROUP BY c.id, c.code, c.title
+                ORDER BY c.code
+                """,
+                (user_id, user_id),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def generate_roster_workbook(self, user_id: int, assessment_id: str) -> dict:
+        assessment, students = self._batch_context(user_id, assessment_id)
+        conn = self.db.connect()
+        try:
+            latest = conn.execute(
+                """
+                SELECT version FROM roster_snapshots
+                WHERE assessment_id = ? ORDER BY version DESC LIMIT 1
+                """,
+                (assessment_id,),
+            ).fetchone()
+            version = int(latest["version"]) + 1 if latest else 1
+            snapshot_id = "RS-" + uuid.uuid4().hex[:12].upper()
+            canonical_roster = [
+                {
+                    "student_id": int(s["id"]),
+                    "registration_number": (s["reg_number"] or "").strip().upper(),
+                    "full_name": s["full_name"],
+                }
+                for s in sorted(students, key=lambda item: int(item["id"]))
+            ]
+            source_hash = "sha256:" + hashlib.sha256(
+                json.dumps(canonical_roster, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            now = utc_now()
+            conn.execute(
+                """
+                INSERT INTO roster_snapshots
+                (id, course_id, assessment_id, version, source_hash, created_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (snapshot_id, assessment["course_id"], assessment_id, version, source_hash, user_id, now),
+            )
+            conn.executemany(
+                """
+                INSERT INTO roster_snapshot_candidates
+                (snapshot_id, student_id, registration_number, full_name)
+                VALUES (?, ?, ?, ?)
+                """,
+                [
+                    (
+                        snapshot_id,
+                        item["student_id"],
+                        item["registration_number"],
+                        item["full_name"],
+                    )
+                    for item in canonical_roster
+                ],
+            )
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Official Marks Sheet"
+            ws["A1"] = "MarkTrail Official Marks Workbook"
+            ws["A2"] = "Institution/System"
+            ws["B2"] = "MarkTrail"
+            ws["A3"] = "Template ID"
+            ws["A4"] = "Roster Snapshot ID"
+            ws["A5"] = "Roster Version"
+            ws["A6"] = "Course"
+            ws["A7"] = "Assessment"
+            ws["A8"] = "Maximum Mark"
+            ws["A9"] = "Generation Date"
+            ws["A10"] = "Instructions"
+            template_id = "MT-" + uuid.uuid4().hex[:12].upper()
+            ws["B3"] = template_id
+            ws["B4"] = snapshot_id
+            ws["B5"] = version
+            ws["B6"] = f"{assessment['course_code']} - {assessment['course_title']}"
+            ws["B7"] = assessment["name"]
+            ws["B8"] = float(assessment["max_mark"])
+            ws["B9"] = now
+            ws["B10"] = "Do not alter registration numbers or names. Enter one numeric mark OR one approved outcome. Blank mark and zero are different."
+            ws.append(["Registration Number", "Student Name", "Mark", "Outcome"])
+            for student in canonical_roster:
+                ws.append([student["registration_number"], student["full_name"], "", ""])
+
+            for row in ws.iter_rows(min_row=12):
+                row[0].protection = Protection(locked=True)
+                row[1].protection = Protection(locked=True)
+                row[2].protection = Protection(locked=False)
+                row[3].protection = Protection(locked=False)
+            ws.freeze_panes = "A12"
+            ws.auto_filter.ref = f"A11:D{11 + len(canonical_roster)}"
+            ws.protection.sheet = True
+            ws.protection.insertRows = False
+            ws.protection.deleteRows = False
+
+            stream = io.BytesIO()
+            wb.save(stream)
+            content = stream.getvalue()
+            workbook_sha = hashlib.sha256(content).hexdigest()
+            conn.execute(
+                """
+                INSERT INTO workbook_templates
+                (id, assessment_id, snapshot_id, generated_by, sha256, generated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (template_id, assessment_id, snapshot_id, user_id, workbook_sha, now),
+            )
+            conn.commit()
+            return {
+                "template_id": template_id,
+                "roster_snapshot_id": snapshot_id,
+                "roster_version": version,
+                "candidate_count": len(canonical_roster),
+                "filename": f"{assessment['course_code'].replace(' ', '-')}-{assessment['name'].replace(' ', '-')}-marks.xlsx",
+                "xlsx_base64": base64.b64encode(content).decode("ascii"),
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def preview_roster_workbook(self, user_id: int, assessment_id: str, xlsx_base64: str) -> dict:
+        self.require_role(user_id, {"lecturer"})
+        try:
+            content = base64.b64decode(xlsx_base64, validate=True)
+        except Exception as exc:
+            raise AppError("Workbook must be valid base64-encoded XLSX data.", 400) from exc
+        if len(content) > 12 * 1024 * 1024:
+            raise AppError("Workbook exceeds the 12 MB upload limit.", 413)
+        if not content.startswith(b"PK"):
+            raise AppError("Only .xlsx workbook format is supported.", 400)
+
+        try:
+            wb = load_workbook(io.BytesIO(content), read_only=False, data_only=False)
+        except Exception as exc:
+            raise AppError("Workbook is malformed or is not a supported XLSX file.", 400) from exc
+        if wb.sheetnames != ["Official Marks Sheet"]:
+            raise AppError("Unexpected workbook structure or hidden sheets are not allowed.", 400)
+        ws = wb["Official Marks Sheet"]
+        if ws.sheet_state != "visible":
+            raise AppError("The official marks worksheet must remain visible.", 400)
+
+        template_id = str(ws["B3"].value or "").strip()
+        snapshot_id = str(ws["B4"].value or "").strip()
+        conn = self.db.connect()
+        try:
+            template = conn.execute(
+                """
+                SELECT t.*, s.version
+                FROM workbook_templates t
+                JOIN roster_snapshots s ON s.id = t.snapshot_id
+                WHERE t.id = ? AND t.assessment_id = ?
+                """,
+                (template_id, assessment_id),
+            ).fetchone()
+            if not template or template["snapshot_id"] != snapshot_id:
+                raise AppError("The workbook template or roster snapshot is not recognized.", 404)
+
+            latest = conn.execute(
+                """
+                SELECT id, version FROM roster_snapshots
+                WHERE assessment_id = ? ORDER BY version DESC LIMIT 1
+                """,
+                (assessment_id,),
+            ).fetchone()
+            stale = bool(latest and latest["id"] != snapshot_id)
+
+            snapshot_candidates = conn.execute(
+                """
+                SELECT student_id, registration_number, full_name
+                FROM roster_snapshot_candidates
+                WHERE snapshot_id = ?
+                """,
+                (snapshot_id,),
+            ).fetchall()
+            roster = {
+                str(row["registration_number"]).strip().upper(): dict(row)
+                for row in snapshot_candidates
+            }
+
+            assessment, _ = self._batch_context(user_id, assessment_id)
+            errors: list[str] = []
+            if stale:
+                errors.append("This template is outdated; generate a current roster workbook.")
+            rows: list[dict] = []
+            seen: set[str] = set()
+            outcomes = {
+                "ABSENT", "EXCUSED", "DEFERRED", "EXEMPT",
+                "NOT_ELIGIBLE", "PENDING_INVESTIGATION",
+            }
+            for excel_row in range(12, ws.max_row + 1):
+                reg = str(ws.cell(excel_row, 1).value or "").strip().upper()
+                name = str(ws.cell(excel_row, 2).value or "").strip()
+                mark_cell = ws.cell(excel_row, 3)
+                outcome = str(ws.cell(excel_row, 4).value or "").strip().upper()
+                if not reg and mark_cell.value is None and not outcome:
+                    continue
+                if not reg:
+                    errors.append(f"Row {excel_row}: registration number is empty.")
+                    continue
+                if reg in seen:
+                    errors.append(f"Row {excel_row}: duplicate registration number {reg}.")
+                    continue
+                seen.add(reg)
+                if reg not in roster:
+                    errors.append(f"Row {excel_row}: unknown registration number {reg}.")
+                    continue
+                official = roster[reg]
+                if name != official["full_name"].strip():
+                    errors.append(f"Row {excel_row}: student name does not match the official roster.")
+                if mark_cell.data_type == "f":
+                    errors.append(f"Row {excel_row}: spreadsheet formulas are not allowed.")
+                    continue
+                mark_value = mark_cell.value
+                if mark_value is not None and outcome:
+                    errors.append(f"Row {excel_row}: provide a mark or outcome, not both.")
+                    continue
+                if mark_value is not None:
+                    if isinstance(mark_value, bool) or not isinstance(mark_value, (int, float)):
+                        errors.append(f"Row {excel_row}: mark must be numeric.")
+                        continue
+                    mark = float(mark_value)
+                    if mark < 0 or mark > float(assessment["max_mark"]):
+                        errors.append(
+                            f"Row {excel_row}: mark must be between 0 and {assessment['max_mark']}."
+                        )
+                        continue
+                    status = "RECORDED"
+                    outcome = ""
+                elif outcome:
+                    if outcome not in outcomes:
+                        errors.append(f"Row {excel_row}: invalid outcome {outcome}.")
+                        continue
+                    mark = None
+                    status = outcome
+                else:
+                    errors.append(f"Row {excel_row}: mark or explicit outcome is required.")
+                    continue
+                rows.append({
+                    "student_id": int(official["student_id"]),
+                    "registration_number": reg,
+                    "mark": mark,
+                    "status": status,
+                })
+
+            missing = [
+                {
+                    "student_id": int(candidate["student_id"]),
+                    "registration_number": str(candidate["registration_number"]).strip().upper(),
+                    "full_name": candidate["full_name"],
+                }
+                for candidate in snapshot_candidates
+                if str(candidate["registration_number"]).strip().upper() not in seen
+            ]
+            for item in missing:
+                errors.append(f"Missing candidate: {item['registration_number']} {item['full_name']}.")
+
+            workbook_hash = hashlib.sha256(content).hexdigest()
+            attempt_id = "WU-" + uuid.uuid4().hex[:12].upper()
+            valid = not errors
+            preview = {
+                "valid": valid,
+                "template_status": "OUTDATED" if stale else "CURRENT",
+                "roster_snapshot_id": snapshot_id,
+                "roster_version": int(template["version"]),
+                "official_roster_count": len(snapshot_candidates),
+                "recognized_candidates": len(rows),
+                "missing_count": len(missing),
+                "unknown_candidate_count": sum(
+                    1 for e in errors if "unknown registration number" in e
+                ),
+                "duplicate_candidate_count": sum(
+                    1 for e in errors if "duplicate registration number" in e
+                ),
+                "invalid_mark_count": sum(
+                    1 for e in errors if "mark" in e.lower() or "outcome" in e.lower()
+                ),
+                "missing_students": missing,
+                "errors": errors,
+                "rows": rows,
+            }
+            conn.execute(
+                """
+                INSERT INTO workbook_upload_attempts
+                (id, template_id, uploaded_by, sha256, valid, preview_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    attempt_id,
+                    template_id,
+                    user_id,
+                    workbook_hash,
+                    1 if valid else 0,
+                    json.dumps(preview, sort_keys=True),
+                    utc_now(),
+                ),
+            )
+            conn.commit()
+            preview["attempt_id"] = attempt_id
+            return preview
+        finally:
+            conn.close()
+
+    def create_registration_exception(
+        self,
+        user_id: int,
+        student_id: int,
+        course_id: str,
+        assessment_id: str,
+        exception_type: str,
+        description: str,
+    ) -> dict:
+        self.require_role(user_id, {"lecturer","admin"})
+        if not description.strip():
+            raise AppError("A description is required.", 400)
+        allowed = {
+            "LATE_REGISTRATION", "UNIT_CHANGE", "COURSE_TRANSFER",
+            "WITHDRAWAL", "DUPLICATE_RECORD", "INCORRECT_REG_NUMBER",
+            "IDENTITY_CORRECTION", "PENDING_FEE_VERIFICATION",
+        }
+        if exception_type not in allowed:
+            raise AppError("Invalid registration exception type.", 400)
+        with self.db.transaction() as conn:
+            course = conn.execute(
+                "SELECT id, lecturer_id FROM courses WHERE id = ?",
+                (course_id,),
+            ).fetchone()
+            if not course:
+                raise AppError("Course not found.", 404)
+            assigned = conn.execute(
+                "SELECT 1 FROM course_lecturers WHERE course_id=? AND lecturer_id=? AND active=1",
+                (course_id, user_id),
+            ).fetchone()
+            if course["lecturer_id"] != user_id and not assigned and conn.execute(
+                "SELECT role FROM users WHERE id=?", (user_id,)
+            ).fetchone()["role"] != "admin":
+                raise AppError("You are not authorized for this course.", 403)
+            exception_id = "RE-" + uuid.uuid4().hex[:12].upper()
+            conn.execute(
+                """
+                INSERT INTO registration_exceptions
+                (id, student_id, course_id, assessment_id, exception_type, description,
+                 status, evidence_preserved, opened_by, created_at)
+                VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, 'PENDING', 1, ?, ?)
+                """,
+                (exception_id, student_id, course_id, assessment_id, exception_type, description.strip(), user_id, utc_now()),
+            )
+            self._audit(conn, "REGISTRATION_EXCEPTION", exception_id, user_id,
+                        "REGISTRATION_EXCEPTION_OPENED",
+                        {"course_id": course_id, "student_id": student_id, "type": exception_type})
+            conn.execute(
+                """
+                INSERT INTO notifications
+                (user_id, event_type, title, body, created_at)
+                SELECT id, 'REGISTRATION_PENDING', 'Registration verification pending',
+                       ?, ? FROM users WHERE id = ?
+                """,
+                (
+                    f"Your registration for {course_id} is under verification. Reference: {exception_id}.",
+                    utc_now(),
+                    student_id,
+                ),
+            )
+        return {"id": exception_id, "status": "PENDING"}
+
+    def registry_registration_exceptions(self, user_id: int) -> list[dict]:
+        self.require_role(user_id, {"registry","admin"})
+        conn = self.db.connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT r.*, u.full_name AS student_name, u.reg_number,
+                       c.code AS course_code, c.title AS course_title
+                FROM registration_exceptions r
+                JOIN users u ON u.id = r.student_id
+                JOIN courses c ON c.id = r.course_id
+                ORDER BY r.created_at DESC
+                """,
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def decide_registration_exception(
+        self,
+        user_id: int,
+        exception_id: str,
+        decision: str,
+        reason: str,
+    ) -> dict:
+        self.require_role(user_id, {"registry","admin"})
+        if decision not in {"APPROVED","REJECTED"} or not reason.strip():
+            raise AppError("A decision and reason are required.", 400)
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT * FROM registration_exceptions WHERE id = ?",
+                (exception_id,),
+            ).fetchone()
+            if not row:
+                raise AppError("Registration exception not found.", 404)
+            if row["status"] != "PENDING":
+                raise AppError("This registration exception has already been decided.", 409)
+            conn.execute(
+                """
+                UPDATE registration_exceptions
+                SET status=?, decided_by=?, decision_reason=?, decided_at=?
+                WHERE id=?
+                """,
+                (decision, user_id, reason.strip(), utc_now(), exception_id),
+            )
+            if decision == "APPROVED":
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO enrollments
+                    (course_id, student_id, created_at) VALUES (?, ?, ?)
+                    """,
+                    (row["course_id"], row["student_id"], utc_now()),
+                )
+            self._audit(
+                conn, "REGISTRATION_EXCEPTION", exception_id, user_id,
+                f"REGISTRATION_EXCEPTION_{decision}",
+                {"reason": reason.strip()},
+            )
+            self._notify(
+                conn, int(row["student_id"]), "REGISTRATION_DECISION",
+                "Registration verification decision",
+                f"Your registration exception {exception_id} was {decision.lower()}. Reason: {reason.strip()}",
+            )
+        return {"id": exception_id, "status": decision}
+
+    def create_examination_case(
+        self,
+        user_id: int,
+        category: str,
+        description: str,
+        course_id: str = "",
+        assessment_id: str = "",
+    ) -> dict:
+        self.require_role(user_id, {"student"})
+        if not description.strip():
+            raise AppError("A case description is required.", 400)
+        allowed_categories = {
+            "MISSING_CAT_MARK","MISSING_ASSIGNMENT_MARK","MISSING_EXAM_MARK",
+            "INCORRECT_MARK","UNIT_REGISTRATION","ATTENDANCE_DISPUTE",
+            "EXAMINATION_CARD","SUPPLEMENTARY_SPECIAL","PUBLICATION_DELAY",
+            "INCORRECT_IDENTITY","OTHER",
+        }
+        if category not in allowed_categories:
+            raise AppError("Invalid examination query category.", 400)
+        with self.db.transaction() as conn:
+            now = utc_now()
+            case_id = "MT-" + str(secrets.randbelow(900000) + 100000)
+            owner_role = "lecturer"
+            if category in {"UNIT_REGISTRATION","INCORRECT_IDENTITY"}:
+                owner_role = "registry"
+            elif category in {"ATTENDANCE_DISPUTE","EXAMINATION_CARD","SUPPLEMENTARY_SPECIAL"}:
+                owner_role = "exam_office"
+            elif category in {"PUBLICATION_DELAY"}:
+                owner_role = "portal_operator"
+            owner = conn.execute(
+                "SELECT id FROM users WHERE role=? AND active=1 ORDER BY id LIMIT 1",
+                (owner_role,),
+            ).fetchone()
+            conn.execute(
+                """
+                INSERT INTO examination_cases
+                (id, student_id, course_id, assessment_id, category, description,
+                 status, owner_id, created_at, updated_at)
+                VALUES (?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, 'RECEIVED', ?, ?, ?)
+                """,
+                (
+                    case_id, user_id, course_id, assessment_id, category,
+                    description.strip(), int(owner["id"]) if owner else None, now, now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO examination_case_events
+                (case_id, actor_id, action, details, created_at)
+                VALUES (?, ?, 'RECEIVED', 'Student submitted examination query.', ?)
+                """,
+                (case_id, user_id, now),
+            )
+            self._audit(conn, "EXAMINATION_CASE", case_id, user_id, "CASE_CREATED",
+                        {"category": category, "owner_role": owner_role})
+        return {"id": case_id, "status": "RECEIVED"}
+
+    def student_examination_cases(self, user_id: int) -> list[dict]:
+        self.require_role(user_id, {"student"})
+        conn = self.db.connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT c.*, u.full_name AS owner_name
+                FROM examination_cases c
+                LEFT JOIN users u ON u.id = c.owner_id
+                WHERE c.student_id = ?
+                ORDER BY c.created_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+            result = []
+            for row in rows:
+                item = dict(row)
+                item["events"] = [
+                    dict(event) for event in conn.execute(
+                        """
+                        SELECT action, details, created_at
+                        FROM examination_case_events
+                        WHERE case_id = ? ORDER BY created_at, id
+                        """,
+                        (row["id"],),
+                    ).fetchall()
+                ]
+                result.append(item)
+            return result
+        finally:
+            conn.close()
+
+    def staff_examination_cases(self, user_id: int) -> list[dict]:
+        user = self.require_role(
+            user_id,
+            {"lecturer","registry","exam_office","portal_operator","reviewer","admin"},
+        )
+        conn = self.db.connect()
+        try:
+            if user["role"] == "admin":
+                rows = conn.execute(
+                    "SELECT * FROM examination_cases ORDER BY created_at DESC"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM examination_cases WHERE owner_id=? ORDER BY created_at DESC",
+                    (user_id,),
+                ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def update_examination_case(
+        self,
+        user_id: int,
+        case_id: str,
+        status: str,
+        details: str,
+        resolution_reason: str = "",
+    ) -> dict:
+        allowed_statuses = {
+            "AWAITING_ACKNOWLEDGEMENT","UNDER_INVESTIGATION",
+            "AWAITING_STUDENT_INFORMATION","REFERRED_TO_ACADEMIC_REGISTRY",
+            "REFERRED_TO_LECTURER","REFERRED_TO_EXAM_OFFICE",
+            "ESCALATED","RESOLVED","REJECTED",
+        }
+        if status not in allowed_statuses:
+            raise AppError("Invalid examination case status.", 400)
+        if status in {"RESOLVED","REJECTED"} and not resolution_reason.strip():
+            raise AppError("A resolution reason is required to close this case.", 400)
+        user = self.require_role(
+            user_id,
+            {"lecturer","registry","exam_office","portal_operator","reviewer","admin"},
+        )
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT * FROM examination_cases WHERE id=?",
+                (case_id,),
+            ).fetchone()
+            if not row:
+                raise AppError("Examination case not found.", 404)
+            if user["role"] != "admin" and row["owner_id"] != user_id:
+                raise AppError("This case is not assigned to you.", 403)
+            now = utc_now()
+            conn.execute(
+                """
+                UPDATE examination_cases
+                SET status=?, resolution_reason=NULLIF(?, ''), updated_at=?
+                WHERE id=?
+                """,
+                (status, resolution_reason.strip(), now, case_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO examination_case_events
+                (case_id, actor_id, action, details, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (case_id, user_id, status, details.strip(), now),
+            )
+            self._audit(
+                conn, "EXAMINATION_CASE", case_id, user_id, f"CASE_{status}",
+                {"details": details.strip(), "resolution_reason": resolution_reason.strip()},
+            )
+            if status in {"RESOLVED","REJECTED"}:
+                self._notify(
+                    conn, int(row["student_id"]), "CASE_UPDATE",
+                    f"Examination case {case_id} updated",
+                    f"The case status is {status.lower()}. {resolution_reason.strip()}",
+                )
+        return {"id": case_id, "status": status}
 
     def lecturer_batches(self, user_id: int) -> list[dict]:
         self.require_role(user_id, {"lecturer"})
@@ -1926,17 +2579,25 @@ class AppService:
         reader = csv.DictReader(io.StringIO(csv_text.strip()))
         if not reader.fieldnames:
             raise AppError("CSV must include headers: registration_number,mark.")
-        normalized = {h.strip().lower(): h for h in reader.fieldnames if h}
-        # Accept registration_number, reg_number, or student_id for backwards compat
+        normalized = {
+            "_".join(h.strip().lower().replace("-", " ").split()): h
+            for h in reader.fieldnames
+            if h
+        }
+        # Accept common roster-export labels as well as the canonical API headers.
         reg_header = (
             normalized.get("registration_number")
             or normalized.get("reg_number")
+            or normalized.get("registration_no")
             or normalized.get("student_id")
             or normalized.get("student")
         )
-        mark_header = normalized.get("mark")
+        mark_header = normalized.get("mark") or normalized.get("marks")
         if not reg_header or not mark_header:
-            raise AppError("CSV headers must include registration_number and mark.")
+            raise AppError(
+                "CSV headers must include a registration number and mark column "
+                "(for example: Registration Number,Marks)."
+            )
 
         rows: list[dict[str, str]] = []
         for row in reader:
@@ -1965,8 +2626,15 @@ class AppService:
             if not row:
                 raise AppError("Assessment not found.", 404)
 
-            if row["lecturer_id"] != user_id:
-                raise AppError("You are not the lecturer for this course.", 403)
+            assigned = conn.execute(
+                """
+                SELECT 1 FROM course_lecturers
+                WHERE course_id = ? AND lecturer_id = ? AND active = 1
+                """,
+                (row["course_id"], user_id),
+            ).fetchone()
+            if row["lecturer_id"] != user_id and not assigned:
+                raise AppError("You are not authorized to submit marks for this course.", 403)
 
             students = conn.execute(
                 """
@@ -3563,7 +4231,7 @@ class AppService:
             raise AppError("Username and full name are required.")
         if role not in {
             "student", "lecturer", "reviewer", "exam_office",
-            "portal_operator", "senate_office", "admin",
+            "portal_operator", "senate_office", "registry", "admin",
         }:
             raise AppError("Invalid role.")
         if len(password) < 8:
@@ -3748,6 +4416,46 @@ class AppService:
                 raise AppError("Course code already exists.")
             raise
         return {"id": course_id}
+
+    def admin_assign_course_lecturer(
+        self,
+        user_id: int,
+        course_id: str,
+        lecturer_id: int,
+        active: bool = True,
+    ) -> dict:
+        self.require_role(user_id, {"admin"})
+        with self.db.transaction() as conn:
+            course = conn.execute(
+                "SELECT id FROM courses WHERE id = ?",
+                (course_id,),
+            ).fetchone()
+            lecturer = conn.execute(
+                "SELECT id FROM users WHERE id=? AND role='lecturer' AND active=1",
+                (lecturer_id,),
+            ).fetchone()
+            if not course:
+                raise AppError("Course not found.", 404)
+            if not lecturer:
+                raise AppError("Lecturer not found or inactive.", 404)
+            conn.execute(
+                """
+                INSERT INTO course_lecturers
+                (course_id, lecturer_id, active, assigned_at, assigned_by)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(course_id, lecturer_id) DO UPDATE SET
+                    active=excluded.active,
+                    assigned_at=excluded.assigned_at,
+                    assigned_by=excluded.assigned_by
+                """,
+                (course_id, lecturer_id, 1 if active else 0, utc_now(), user_id),
+            )
+            self._audit(
+                conn, "COURSE", course_id, user_id,
+                "COURSE_LECTURER_ASSIGNED" if active else "COURSE_LECTURER_SUSPENDED",
+                {"lecturer_id": lecturer_id},
+            )
+        return {"course_id": course_id, "lecturer_id": lecturer_id, "active": active}
 
     def admin_enroll(
         self,

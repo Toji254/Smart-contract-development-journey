@@ -6,6 +6,19 @@
 
 ## 1. System Overview & Pilot Target
 
+### Workbook and portal dependency
+
+Install the Python dependencies before starting the service:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+Workbook uploads are limited to 12 MB and XLSX is the accepted format. Production
+deployments must retain HTTPS session cookies, restricted database permissions,
+backup coverage for the new roster/case tables, and a process for migrating
+existing databases before restart.
+
 This guide covers the deployment of MarkTrail for a small, blockchain-enabled university pilot targeting:
 - **Scope**: Single institution-approved VPS/VM for 1 course with ~30 enrolled students, plus the course lecturer, department reviewer, exam-office staff, portal operator, and system administrator.
 - **Access Model**: Public web access is strictly HTTPS-only. The database, secrets, and local backend port (`127.0.0.1:8000`) are non-routable and never exposed directly to the internet.

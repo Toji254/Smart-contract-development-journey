@@ -32,6 +32,15 @@ MarkTrail API
         EVM contract
 ~~~
 
+### Workbook and student-case integrity
+
+Excel cell protection is a convenience only. Every generated workbook is tied
+to a server-created roster snapshot and template record. Upload validation
+independently checks template, snapshot, roster identity, candidate
+completeness, duplicates, formulas and mark/outcome values. Unknown candidates
+are never enrolled or added silently. Registration exceptions require registry
+authorization; students can only read and create their own examination cases.
+
 The browser is untrusted.
 
 The application enforces institutional authorization.

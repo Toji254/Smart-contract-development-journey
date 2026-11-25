@@ -76,6 +76,7 @@ class Database:
             if users_sql and (
                 "'portal_operator'" not in users_sql["sql"]
                 or "'senate_office'" not in users_sql["sql"]
+                or "'registry'" not in users_sql["sql"]
             ):
                 existing_user_columns = {
                     row["name"]
@@ -103,7 +104,7 @@ class Database:
                         role TEXT NOT NULL CHECK (
                             role IN (
                                 'student','lecturer','reviewer','exam_office',
-                                'portal_operator','senate_office','admin'
+                                'portal_operator','senate_office','registry','admin'
                             )
                         ),
                         password_salt TEXT NOT NULL,
@@ -143,6 +144,23 @@ class Database:
                     conn.execute(
                         "ALTER TABLE users ADD COLUMN access_until TEXT"
                     )
+
+            notification_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(notifications)").fetchall()
+            }
+            if notification_cols:
+                for name, definition in (
+                    ("lifecycle_status", "TEXT NOT NULL DEFAULT 'CREATED'"),
+                    ("deduplication_key", "TEXT"),
+                    ("delivered_at", "TEXT"),
+                    ("acknowledged_at", "TEXT"),
+                    ("failure_reason", "TEXT"),
+                ):
+                    if name not in notification_cols:
+                        conn.execute(
+                            f"ALTER TABLE notifications ADD COLUMN {name} {definition}"
+                        )
 
             reports_sql = conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'missing_reports'"
@@ -296,7 +314,7 @@ class Database:
                     role TEXT NOT NULL CHECK (
                         role IN (
                             'student','lecturer','reviewer','exam_office',
-                            'portal_operator','senate_office','admin'
+                            'portal_operator','senate_office','registry','admin'
                         )
                     ),
                     password_salt TEXT NOT NULL,
@@ -445,7 +463,129 @@ class Database:
                     title TEXT NOT NULL,
                     body TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    read_at TEXT
+                    read_at TEXT,
+                    lifecycle_status TEXT NOT NULL DEFAULT 'CREATED',
+                    deduplication_key TEXT,
+                    delivered_at TEXT,
+                    acknowledged_at TEXT,
+                    failure_reason TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS course_lecturers (
+                    course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+                    lecturer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    assigned_at TEXT NOT NULL,
+                    assigned_by INTEGER REFERENCES users(id),
+                    PRIMARY KEY (course_id, lecturer_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS assessment_components (
+                    id TEXT PRIMARY KEY,
+                    assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+                    component_name TEXT NOT NULL,
+                    component_type TEXT NOT NULL,
+                    max_mark REAL NOT NULL CHECK (max_mark > 0),
+                    weight_percent REAL NOT NULL DEFAULT 0 CHECK (weight_percent >= 0),
+                    weighted INTEGER NOT NULL DEFAULT 0,
+                    release_policy TEXT NOT NULL DEFAULT 'UNCLASSIFIED',
+                    academic_year TEXT,
+                    semester TEXT,
+                    deadline TEXT,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS roster_snapshots (
+                    id TEXT PRIMARY KEY,
+                    course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+                    assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+                    version INTEGER NOT NULL,
+                    source_hash TEXT NOT NULL,
+                    created_by INTEGER NOT NULL REFERENCES users(id),
+                    created_at TEXT NOT NULL,
+                    UNIQUE (course_id, assessment_id, version)
+                );
+
+                CREATE TABLE IF NOT EXISTS roster_snapshot_candidates (
+                    snapshot_id TEXT NOT NULL REFERENCES roster_snapshots(id) ON DELETE CASCADE,
+                    student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    registration_number TEXT NOT NULL,
+                    full_name TEXT NOT NULL,
+                    PRIMARY KEY (snapshot_id, student_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS workbook_templates (
+                    id TEXT PRIMARY KEY,
+                    assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+                    snapshot_id TEXT NOT NULL REFERENCES roster_snapshots(id) ON DELETE RESTRICT,
+                    generated_by INTEGER NOT NULL REFERENCES users(id),
+                    sha256 TEXT NOT NULL,
+                    generated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS workbook_upload_attempts (
+                    id TEXT PRIMARY KEY,
+                    template_id TEXT NOT NULL REFERENCES workbook_templates(id) ON DELETE RESTRICT,
+                    uploaded_by INTEGER NOT NULL REFERENCES users(id),
+                    sha256 TEXT NOT NULL,
+                    valid INTEGER NOT NULL,
+                    preview_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS registration_exceptions (
+                    id TEXT PRIMARY KEY,
+                    student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+                    assessment_id TEXT REFERENCES assessments(id) ON DELETE SET NULL,
+                    exception_type TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'PENDING' CHECK (
+                        status IN ('PENDING','APPROVED','REJECTED','WITHDRAWN')
+                    ),
+                    evidence_preserved INTEGER NOT NULL DEFAULT 1,
+                    opened_by INTEGER NOT NULL REFERENCES users(id),
+                    decided_by INTEGER REFERENCES users(id),
+                    decision_reason TEXT,
+                    created_at TEXT NOT NULL,
+                    decided_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS examination_cases (
+                    id TEXT PRIMARY KEY,
+                    student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    course_id TEXT REFERENCES courses(id) ON DELETE SET NULL,
+                    assessment_id TEXT REFERENCES assessments(id) ON DELETE SET NULL,
+                    category TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'RECEIVED',
+                    owner_id INTEGER REFERENCES users(id),
+                    resolution_reason TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS examination_case_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    case_id TEXT NOT NULL REFERENCES examination_cases(id) ON DELETE CASCADE,
+                    actor_id INTEGER REFERENCES users(id),
+                    action TEXT NOT NULL,
+                    details TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS academic_notices (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    scope_type TEXT NOT NULL DEFAULT 'ALL',
+                    scope_id TEXT,
+                    academic_year TEXT,
+                    semester TEXT,
+                    publish_at TEXT,
+                    expires_at TEXT,
+                    created_by INTEGER NOT NULL REFERENCES users(id),
+                    created_at TEXT NOT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS senate_decisions (
@@ -609,6 +749,7 @@ class Database:
             add_user("exam_office", "Academic Office", "exam_office", "office123")
             add_user("senate_office", "University Senate Secretariat", "senate_office", "senate123")
             add_user("portal_operator", "Portal Operator", "portal_operator", "portal123")
+            add_user("registry", "Academic Registry", "registry", "registry123")
 
             course_id = "course-csc201"
             conn.execute(
@@ -617,6 +758,14 @@ class Database:
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 (course_id, "CSC 201", "Smart Contract Fundamentals", lecturer_id, utc_now()),
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO course_lecturers
+                (course_id, lecturer_id, active, assigned_at)
+                VALUES (?, ?, 1, ?)
+                """,
+                (course_id, lecturer_id, utc_now()),
             )
 
             conn.execute(

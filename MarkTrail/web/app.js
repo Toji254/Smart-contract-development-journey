@@ -276,6 +276,15 @@ function showView(view) {
 }
 
 function updatePageHeading(view) {
+  const homeTitles = {
+    student: ["My academic record", "Marks, examination issues and progress in one place."],
+    lecturer: ["Teaching workspace", "Your assessment submissions and student requests."],
+    reviewer: ["Department review", "Batches awaiting departmental review."],
+    exam_office: ["Examination operations", "Approved marks and examination evidence in progress."],
+    portal_operator: ["Results publication", "Results ready for import and publication."],
+    senate_office: ["Senate decisions", "Results requiring an authorised Senate decision."],
+    admin: ["Institution overview", "Account and academic workflow administration."]
+  };
   const titles = {
     home: ["Dashboard", "The current state of your marks workflow."],
     marks: ["My marks", "See what's published and what still needs attention."],
@@ -291,9 +300,20 @@ function updatePageHeading(view) {
     evidence: ["Assessment evidence", "Track attendance, scripts, custody and marking before marks are submitted."],
     audit: ["Batch history", "Follow the handoffs and see what changed."]
   };
-  const item = titles[view] || titles.home;
+  const item = view === "home"
+    ? homeTitles[state.user?.role] || titles.home
+    : titles[view] || titles.home;
   $("#page-title").textContent = item[0];
   $("#page-subtitle").textContent = item[1];
+}
+
+function bindHomeNavigation(root) {
+  root.querySelectorAll("[data-home-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      showView(button.dataset.homeView);
+      loadCurrentView();
+    });
+  });
 }
 
 function buildNav() {
@@ -373,6 +393,34 @@ async function loadStudent() {
   state.studentAttachments = attachmentsData.attachments || [];
   const notifications = notificationData.notifications;
   const unreadCount = notifications.filter((item) => !item.read_at).length;
+  const attentionStatuses = new Set([
+    "MISSING", "OVERDUE", "AWAITING_PUBLICATION", "NOT_SUBMITTED"
+  ]);
+  const attentionCount = marksData.marks.filter((mark) =>
+    attentionStatuses.has(mark.status)
+  ).length;
+  const publishedCount = marksData.marks.filter((mark) =>
+    mark.pipeline_stage === "PUBLISHED"
+  ).length;
+  const openReportCount = reportsData.reports.filter((report) =>
+    !["RESOLVED", "REJECTED"].includes(report.status)
+  ).length;
+  const homeSummary = $("#student-home-summary");
+  homeSummary.innerHTML =
+    '<div class="home-brief-primary"><p class="eyebrow">MY ACADEMIC RECORD</p>' +
+    "<h2>" + (attentionCount
+      ? attentionCount + (attentionCount === 1 ? " record to check" : " records to check")
+      : "Your record is up to date") + "</h2>" +
+    "<p>" + (attentionCount
+      ? "Review the assessment statuses below. A missing or unpublished result is not a judgment about your eligibility."
+      : "Check your marks and exam progress whenever you need a clear status.") + "</p>" +
+    '<button type="button" class="button primary" data-home-view="marks">Open my marks</button></div>' +
+    '<dl class="home-brief-facts">' +
+    "<div><dt>Published components</dt><dd>" + esc(publishedCount) + "</dd></div>" +
+    "<div><dt>Open reports</dt><dd>" + esc(openReportCount) + "</dd></div>" +
+    "<div><dt>Unread updates</dt><dd>" + esc(unreadCount) + "</dd></div>" +
+    "</dl>";
+  bindHomeNavigation(homeSummary);
   $("#student-notifications").innerHTML =
     '<div class="section-head compact"><div><p class="eyebrow">UPDATES</p><h2>Notifications' +
     (unreadCount ? " · " + unreadCount + " new" : "") +
@@ -849,6 +897,43 @@ async function loadLecturer() {
   state.reports = reportsData.reports;
 
   const availableAssessments = state.assessments.filter((assessment) => !assessment.batch_id);
+  const openReports = state.reports.filter((report) =>
+    !["RESOLVED", "REJECTED"].includes(report.status)
+  );
+  const departmentQueue = state.batches.filter((batch) =>
+    batch.pipeline_stage === "DEPARTMENT_REVIEW"
+  );
+  const homeTarget = openReports.length ? "reports" : "batches";
+  const homeLabel = openReports.length
+    ? "Review student requests"
+    : "Open marks submissions";
+  const recentBatch = state.batches[0];
+  $("#lecturer-home-summary").innerHTML =
+    '<div class="home-brief-primary"><p class="eyebrow">TEACHING WORKSPACE</p>' +
+    "<h2>" + (openReports.length
+      ? openReports.length + (openReports.length === 1
+        ? " student request needs attention"
+        : " student requests need attention")
+      : availableAssessments.length
+        ? "Marks are ready for your next submission"
+        : "Your assessment queue is clear") + "</h2>" +
+    "<p>" + (openReports.length
+      ? "Review each missing-mark report and record a reasoned resolution."
+      : availableAssessments.length
+        ? "Choose an assigned assessment, validate the roster, and follow its batch through review."
+        : "Submitted batches remain available in your history while they move through review and publication.") + "</p>" +
+    '<button type="button" class="button primary" data-home-view="' + homeTarget + '">' +
+    homeLabel + "</button></div>" +
+    '<dl class="home-brief-facts">' +
+    "<div><dt>Unsubmitted assessments</dt><dd>" + esc(availableAssessments.length) + "</dd></div>" +
+    "<div><dt>Department review</dt><dd>" + esc(departmentQueue.length) + "</dd></div>" +
+    "<div><dt>Student requests</dt><dd>" + esc(openReports.length) + "</dd></div>" +
+    (recentBatch
+      ? "<div><dt>Latest submission</dt><dd>" +
+        esc(recentBatch.course + " · " + recentBatch.assessment) + "</dd></div>"
+      : "") +
+    "</dl>";
+  bindHomeNavigation($("#lecturer-home-summary"));
   $("#lecturer-assessment").innerHTML = availableAssessments.length
     ? '<option value="">Choose an unsubmitted assessment</option>' +
       availableAssessments

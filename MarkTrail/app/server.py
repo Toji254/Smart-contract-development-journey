@@ -391,6 +391,11 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                 {"courses": self.service.student_unit_readiness(user_id)}
             )
 
+        if method == "GET" and path == "/api/student/notices":
+            return self._send_json(
+                {"notices": self.service.student_academic_notices(user_id)}
+            )
+
         if method == "GET" and path == "/api/student/progress":
             return self._send_json({"progress": self.evidence.student_progress(user_id)})
 
@@ -441,6 +446,48 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                 {"assessments": self.service.lecturer_assessments(user_id)}
             )
 
+        if method == "GET" and path == "/api/lecturer/units":
+            return self._send_json(
+                {"units": self.service.lecturer_units(user_id)}
+            )
+
+        if method == "POST" and path == "/api/lecturer/workbooks/generate":
+            body = self._body()
+            return self._send_json(
+                self.service.generate_roster_workbook(
+                    user_id,
+                    str(body.get("assessment_id", "")),
+                )
+            )
+
+        if method == "POST" and path == "/api/lecturer/workbooks/preview":
+            body = self._body(max_bytes=14_000_000)
+            return self._send_json(
+                self.service.preview_roster_workbook(
+                    user_id,
+                    str(body.get("assessment_id", "")),
+                    str(body.get("xlsx_base64", "")),
+                )
+            )
+
+        if method == "POST" and path == "/api/lecturer/registration-exceptions":
+            body = self._body()
+            try:
+                student_id = int(body.get("student_id"))
+            except (TypeError, ValueError) as exc:
+                raise AppError("student_id must be numeric.", 400) from exc
+            return self._send_json(
+                self.service.create_registration_exception(
+                    user_id,
+                    student_id,
+                    str(body.get("course_id", "")),
+                    str(body.get("assessment_id", "")),
+                    str(body.get("exception_type", "")),
+                    str(body.get("description", "")),
+                ),
+                201,
+            )
+
         if method == "GET" and path == "/api/lecturer/batches":
             return self._send_json(
                 {"batches": self.service.lecturer_batches(user_id)}
@@ -449,6 +496,59 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/api/lecturer/reports":
             return self._send_json(
                 {"reports": self.service.lecturer_reports(user_id)}
+            )
+
+        if method == "GET" and path == "/api/registry/registration-exceptions":
+            return self._send_json(
+                {"exceptions": self.service.registry_registration_exceptions(user_id)}
+            )
+
+        match = re.fullmatch(r"/api/registry/registration-exceptions/([^/]+)/decision", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.service.decide_registration_exception(
+                    user_id,
+                    match.group(1),
+                    str(body.get("decision", "")).upper(),
+                    str(body.get("reason", "")),
+                )
+            )
+
+        if method == "GET" and path == "/api/student/examination-cases":
+            return self._send_json(
+                {"cases": self.service.student_examination_cases(user_id)}
+            )
+
+        if method == "POST" and path == "/api/student/examination-cases":
+            body = self._body()
+            return self._send_json(
+                self.service.create_examination_case(
+                    user_id,
+                    str(body.get("category", "")),
+                    str(body.get("description", "")),
+                    str(body.get("course_id", "")),
+                    str(body.get("assessment_id", "")),
+                ),
+                201,
+            )
+
+        if method == "GET" and path == "/api/staff/examination-cases":
+            return self._send_json(
+                {"cases": self.service.staff_examination_cases(user_id)}
+            )
+
+        match = re.fullmatch(r"/api/staff/examination-cases/([^/]+)/update", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.service.update_examination_case(
+                    user_id,
+                    match.group(1),
+                    str(body.get("status", "")).upper(),
+                    str(body.get("details", "")),
+                    str(body.get("resolution_reason", "")),
+                )
             )
 
         if method == "POST" and path == "/api/lecturer/batches/preview":
@@ -642,6 +742,22 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     lecturer_id,
                 ),
                 201,
+            )
+
+        match = re.fullmatch(r"/api/admin/courses/([^/]+)/lecturers", path)
+        if method == "POST" and match:
+            body = self._body()
+            try:
+                lecturer_id = int(body.get("lecturer_id"))
+            except (TypeError, ValueError) as exc:
+                raise AppError("lecturer_id must be a numeric user ID.", 400) from exc
+            return self._send_json(
+                self.service.admin_assign_course_lecturer(
+                    user_id,
+                    match.group(1),
+                    lecturer_id,
+                    body.get("active", True) is not False,
+                )
             )
 
         match = re.fullmatch(r"/api/admin/courses/([^/]+)/enroll", path)

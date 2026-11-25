@@ -2,6 +2,7 @@
 
 Version: 1.0  
 Status: active build plan  
+Implementation status: executable pilot for workbook validation, registry exceptions and examination cases; KarU SSO and external providers remain pending.
 Working branch: agent-copy/marktrail-z2  
 Product goal: prevent avoidable missing marks, localise unavoidable exceptions quickly, and give students and staff a fair, traceable route to resolution.
 
