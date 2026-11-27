@@ -52,10 +52,10 @@ class Database:
         return conn
 
     @contextmanager
-    def transaction(self, immediate: bool = False) -> Iterator[sqlite3.Connection]:
+    def transaction(self) -> Iterator[sqlite3.Connection]:
         conn = self.connect()
         try:
-            conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+            conn.execute("BEGIN")
             yield conn
             conn.commit()
         except Exception:
@@ -73,7 +73,28 @@ class Database:
             users_sql = conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'"
             ).fetchone()
-            if users_sql and "'portal_operator'" not in users_sql["sql"]:
+            if users_sql and (
+                "'portal_operator'" not in users_sql["sql"]
+                or "'senate_office'" not in users_sql["sql"]
+                or "'registry'" not in users_sql["sql"]
+            ):
+                existing_user_columns = {
+                    row["name"]
+                    for row in conn.execute("PRAGMA table_info(users)").fetchall()
+                }
+                source_columns = [
+                    "id",
+                    "username",
+                    "full_name",
+                    "role",
+                    "password_salt",
+                    "password_hash",
+                    "active" if "active" in existing_user_columns else "1",
+                    "must_change_password" if "must_change_password" in existing_user_columns else "0",
+                    "reg_number" if "reg_number" in existing_user_columns else "NULL",
+                    "access_until" if "access_until" in existing_user_columns else "NULL",
+                    "created_at",
+                ]
                 conn.execute(
                     """
                     CREATE TABLE users_new (
@@ -83,26 +104,63 @@ class Database:
                         role TEXT NOT NULL CHECK (
                             role IN (
                                 'student','lecturer','reviewer','exam_office',
-                                'portal_operator','admin'
+                                'portal_operator','senate_office','registry','admin'
                             )
                         ),
                         password_salt TEXT NOT NULL,
                         password_hash TEXT NOT NULL,
                         active INTEGER NOT NULL DEFAULT 1,
+                        must_change_password INTEGER NOT NULL DEFAULT 0,
+                        reg_number TEXT,
+                        access_until TEXT,
                         created_at TEXT NOT NULL
                     )
                     """
                 )
                 conn.execute(
-                    """
-                    INSERT INTO users_new
-                    (id, username, full_name, role, password_salt, password_hash, active, created_at)
-                    SELECT id, username, full_name, role, password_salt, password_hash, active, created_at
-                    FROM users
-                    """
+                    "INSERT INTO users_new "
+                    "(id, username, full_name, role, password_salt, password_hash, "
+                    "active, must_change_password, reg_number, access_until, created_at) "
+                    "SELECT " + ", ".join(source_columns) + " FROM users"
                 )
                 conn.execute("DROP TABLE users")
                 conn.execute("ALTER TABLE users_new RENAME TO users")
+
+            # Add must_change_password column to existing portal_operator-aware users tables
+            users_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(users)").fetchall()
+            }
+            if users_cols:  # table exists
+                if "must_change_password" not in users_cols:
+                    conn.execute(
+                        "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0"
+                    )
+                if "reg_number" not in users_cols:
+                    conn.execute(
+                        "ALTER TABLE users ADD COLUMN reg_number TEXT"
+                    )
+                if "access_until" not in users_cols:
+                    conn.execute(
+                        "ALTER TABLE users ADD COLUMN access_until TEXT"
+                    )
+
+            notification_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(notifications)").fetchall()
+            }
+            if notification_cols:
+                for name, definition in (
+                    ("lifecycle_status", "TEXT NOT NULL DEFAULT 'CREATED'"),
+                    ("deduplication_key", "TEXT"),
+                    ("delivered_at", "TEXT"),
+                    ("acknowledged_at", "TEXT"),
+                    ("failure_reason", "TEXT"),
+                ):
+                    if name not in notification_cols:
+                        conn.execute(
+                            f"ALTER TABLE notifications ADD COLUMN {name} {definition}"
+                        )
 
             reports_sql = conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'missing_reports'"
@@ -161,40 +219,80 @@ class Database:
                     """
                 )
 
-            reports_table = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'missing_reports'"
-            ).fetchone()
-            if reports_table:
+            # Add submission_deadline to assessments if missing
+            assess_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(assessments)").fetchall()
+            }
+            if assess_cols and "submission_deadline" not in assess_cols:
+                conn.execute(
+                    "ALTER TABLE assessments ADD COLUMN submission_deadline TEXT"
+                )
+            if assess_cols and "release_policy" not in assess_cols:
                 conn.execute(
                     """
-                    UPDATE missing_reports
-                    SET status = 'REJECTED',
-                        lecturer_note = CASE
-                            WHEN lecturer_note IS NULL OR lecturer_note = ''
-                            THEN 'Automatically closed during migration because another active report exists.'
-                            ELSE lecturer_note || ' | Automatically closed during migration because another active report exists.'
-                        END
-                    WHERE id IN (
-                        SELECT id FROM (
-                            SELECT id,
-                                   ROW_NUMBER() OVER (
-                                       PARTITION BY assessment_id, student_id
-                                       ORDER BY opened_at, id
-                                   ) AS active_position
-                            FROM missing_reports
-                            WHERE status IN ('OPEN','PENDING_REVIEW')
+                    ALTER TABLE assessments
+                    ADD COLUMN release_policy TEXT NOT NULL DEFAULT 'UNCLASSIFIED'
+                    CHECK (release_policy IN ('DIRECT','SENATE','UNCLASSIFIED'))
+                    """
+                )
+
+            batch_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(batches)").fetchall()
+            }
+            if batch_cols and "senate_status" not in batch_cols:
+                conn.execute(
+                    """
+                    ALTER TABLE batches
+                    ADD COLUMN senate_status TEXT NOT NULL DEFAULT 'NOT_REQUIRED'
+                    CHECK (
+                        senate_status IN (
+                            'NOT_REQUIRED','PENDING','DEFERRED','APPROVED'
                         )
-                        WHERE active_position > 1
                     )
                     """
                 )
+
+            senate_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(senate_decisions)").fetchall()
+            }
+            if senate_columns and "revision" not in senate_columns:
+                conn.execute(
+                    "ALTER TABLE senate_decisions ADD COLUMN revision INTEGER NOT NULL DEFAULT 0"
+                )
                 conn.execute(
                     """
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_missing_reports_one_active
-                    ON missing_reports(assessment_id, student_id)
-                    WHERE status IN ('OPEN','PENDING_REVIEW')
+                    UPDATE batches
+                    SET senate_status = 'PENDING'
+                    WHERE senate_status IN ('APPROVED','DEFERRED')
+                      AND id IN (
+                        SELECT d.batch_id
+                        FROM senate_decisions d
+                        WHERE d.revision = 0
+                      )
+                      AND EXISTS (
+                        SELECT 1 FROM assessments a
+                        WHERE a.id = batches.assessment_id
+                          AND a.release_policy = 'SENATE'
+                      )
                     """
                 )
+
+            revisions_cols = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(batch_revisions)").fetchall()
+            }
+            if revisions_cols:
+                if "commitment_salt" not in revisions_cols:
+                    conn.execute(
+                        "ALTER TABLE batch_revisions ADD COLUMN commitment_salt TEXT"
+                    )
+                if "canonical_marks" not in revisions_cols:
+                    conn.execute(
+                        "ALTER TABLE batch_revisions ADD COLUMN canonical_marks TEXT"
+                    )
 
             conn.commit()
         except Exception:
@@ -216,12 +314,15 @@ class Database:
                     role TEXT NOT NULL CHECK (
                         role IN (
                             'student','lecturer','reviewer','exam_office',
-                            'portal_operator','admin'
+                            'portal_operator','senate_office','registry','admin'
                         )
                     ),
                     password_salt TEXT NOT NULL,
                     password_hash TEXT NOT NULL,
                     active INTEGER NOT NULL DEFAULT 1,
+                    must_change_password INTEGER NOT NULL DEFAULT 0,
+                    reg_number TEXT,
+                    access_until TEXT,
                     created_at TEXT NOT NULL
                 );
 
@@ -251,6 +352,9 @@ class Database:
                     course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
                     name TEXT NOT NULL,
                     max_mark REAL NOT NULL CHECK (max_mark > 0),
+                    submission_deadline TEXT,
+                    release_policy TEXT NOT NULL DEFAULT 'UNCLASSIFIED'
+                        CHECK (release_policy IN ('DIRECT','SENATE','UNCLASSIFIED')),
                     created_at TEXT NOT NULL
                 );
 
@@ -274,6 +378,9 @@ class Database:
                         pipeline_stage IN (
                             'DEPARTMENT_REVIEW','EXAM_OFFICE','PORTAL_IMPORT','PUBLISHED'
                         )
+                    ),
+                    senate_status TEXT NOT NULL DEFAULT 'NOT_REQUIRED' CHECK (
+                        senate_status IN ('NOT_REQUIRED','PENDING','DEFERRED','APPROVED')
                     )
                 );
 
@@ -282,6 +389,8 @@ class Database:
                     revision INTEGER NOT NULL,
                     marks_hash TEXT NOT NULL,
                     reason_hash TEXT NOT NULL,
+                    commitment_salt TEXT,
+                    canonical_marks TEXT,
                     kind TEXT NOT NULL CHECK (kind IN ('SUBMISSION','AMENDMENT')),
                     actor_id INTEGER NOT NULL REFERENCES users(id),
                     chain_state TEXT NOT NULL,
@@ -354,18 +463,164 @@ class Database:
                     title TEXT NOT NULL,
                     body TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    read_at TEXT
+                    read_at TEXT,
+                    lifecycle_status TEXT NOT NULL DEFAULT 'CREATED',
+                    deduplication_key TEXT,
+                    delivered_at TEXT,
+                    acknowledged_at TEXT,
+                    failure_reason TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS course_lecturers (
+                    course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+                    lecturer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    assigned_at TEXT NOT NULL,
+                    assigned_by INTEGER REFERENCES users(id),
+                    PRIMARY KEY (course_id, lecturer_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS assessment_components (
+                    id TEXT PRIMARY KEY,
+                    assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+                    component_name TEXT NOT NULL,
+                    component_type TEXT NOT NULL,
+                    max_mark REAL NOT NULL CHECK (max_mark > 0),
+                    weight_percent REAL NOT NULL DEFAULT 0 CHECK (weight_percent >= 0),
+                    weighted INTEGER NOT NULL DEFAULT 0,
+                    release_policy TEXT NOT NULL DEFAULT 'UNCLASSIFIED',
+                    academic_year TEXT,
+                    semester TEXT,
+                    deadline TEXT,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS roster_snapshots (
+                    id TEXT PRIMARY KEY,
+                    course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+                    assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+                    version INTEGER NOT NULL,
+                    source_hash TEXT NOT NULL,
+                    created_by INTEGER NOT NULL REFERENCES users(id),
+                    created_at TEXT NOT NULL,
+                    UNIQUE (course_id, assessment_id, version)
+                );
+
+                CREATE TABLE IF NOT EXISTS roster_snapshot_candidates (
+                    snapshot_id TEXT NOT NULL REFERENCES roster_snapshots(id) ON DELETE CASCADE,
+                    student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    registration_number TEXT NOT NULL,
+                    full_name TEXT NOT NULL,
+                    PRIMARY KEY (snapshot_id, student_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS workbook_templates (
+                    id TEXT PRIMARY KEY,
+                    assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
+                    snapshot_id TEXT NOT NULL REFERENCES roster_snapshots(id) ON DELETE RESTRICT,
+                    generated_by INTEGER NOT NULL REFERENCES users(id),
+                    sha256 TEXT NOT NULL,
+                    generated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS workbook_upload_attempts (
+                    id TEXT PRIMARY KEY,
+                    template_id TEXT NOT NULL REFERENCES workbook_templates(id) ON DELETE RESTRICT,
+                    uploaded_by INTEGER NOT NULL REFERENCES users(id),
+                    sha256 TEXT NOT NULL,
+                    valid INTEGER NOT NULL,
+                    preview_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS registration_exceptions (
+                    id TEXT PRIMARY KEY,
+                    student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+                    assessment_id TEXT REFERENCES assessments(id) ON DELETE SET NULL,
+                    exception_type TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'PENDING' CHECK (
+                        status IN ('PENDING','APPROVED','REJECTED','WITHDRAWN')
+                    ),
+                    evidence_preserved INTEGER NOT NULL DEFAULT 1,
+                    opened_by INTEGER NOT NULL REFERENCES users(id),
+                    decided_by INTEGER REFERENCES users(id),
+                    decision_reason TEXT,
+                    created_at TEXT NOT NULL,
+                    decided_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS examination_cases (
+                    id TEXT PRIMARY KEY,
+                    student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    course_id TEXT REFERENCES courses(id) ON DELETE SET NULL,
+                    assessment_id TEXT REFERENCES assessments(id) ON DELETE SET NULL,
+                    category TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'RECEIVED',
+                    owner_id INTEGER REFERENCES users(id),
+                    resolution_reason TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS examination_case_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    case_id TEXT NOT NULL REFERENCES examination_cases(id) ON DELETE CASCADE,
+                    actor_id INTEGER REFERENCES users(id),
+                    action TEXT NOT NULL,
+                    details TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS academic_notices (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    scope_type TEXT NOT NULL DEFAULT 'ALL',
+                    scope_id TEXT,
+                    academic_year TEXT,
+                    semester TEXT,
+                    publish_at TEXT,
+                    expires_at TEXT,
+                    created_by INTEGER NOT NULL REFERENCES users(id),
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS senate_decisions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id TEXT NOT NULL REFERENCES batches(id) ON DELETE RESTRICT,
+                    decision_number INTEGER NOT NULL,
+                    revision INTEGER NOT NULL CHECK (revision > 0),
+                    decision TEXT NOT NULL CHECK (decision IN ('APPROVED','DEFERRED')),
+                    meeting_reference TEXT NOT NULL,
+                    reason TEXT NOT NULL DEFAULT '',
+                    actor_id INTEGER NOT NULL REFERENCES users(id),
+                    created_at TEXT NOT NULL,
+                    UNIQUE (batch_id, decision_number)
+                );
+
+                CREATE TRIGGER IF NOT EXISTS senate_decisions_no_update
+                BEFORE UPDATE ON senate_decisions
+                BEGIN
+                    SELECT RAISE(ABORT, 'Senate decision history is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS senate_decisions_no_delete
+                BEFORE DELETE ON senate_decisions
+                BEGIN
+                    SELECT RAISE(ABORT, 'Senate decision history is append-only');
+                END;
+
+                CREATE INDEX IF NOT EXISTS idx_senate_decisions_batch
+                    ON senate_decisions(batch_id, decision_number);
 
                 CREATE INDEX IF NOT EXISTS idx_assessment_marks_student
                     ON assessment_marks(student_id);
 
                 CREATE INDEX IF NOT EXISTS idx_reports_assessment_status
                     ON missing_reports(assessment_id, status);
-
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_missing_reports_one_active
-                    ON missing_reports(assessment_id, student_id)
-                    WHERE status IN ('OPEN','PENDING_REVIEW');
 
                 CREATE INDEX IF NOT EXISTS idx_audit_entity
                     ON audit_events(entity_type, entity_id, created_at);
@@ -375,8 +630,91 @@ class Database:
                 """
             )
 
+        self._backfill_current_revision_commitments()
+
         if seed_demo:
             self.seed_demo()
+
+    def _backfill_current_revision_commitments(self) -> None:
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                """
+                SELECT r.batch_id, r.revision, r.marks_hash, b.commitment_salt
+                FROM batch_revisions r
+                JOIN batches b ON b.id = r.batch_id AND b.revision = r.revision
+                WHERE r.commitment_salt IS NULL OR r.canonical_marks IS NULL
+                """
+            ).fetchall()
+            for revision in rows:
+                marks = conn.execute(
+                    """
+                    SELECT m.student_id, m.candidate_mark AS mark,
+                           m.candidate_status AS status, u.reg_number
+                    FROM assessment_marks m
+                    JOIN users u ON u.id = m.student_id
+                    WHERE m.batch_id = ?
+                    ORDER BY m.student_id
+                    """,
+                    (revision["batch_id"],),
+                ).fetchall()
+                candidate_snapshots = [
+                    [
+                        {
+                            "student_id": int(mark["student_id"]),
+                            "mark": mark["mark"],
+                            "status": mark["status"],
+                        }
+                        for mark in marks
+                    ],
+                    [
+                        {
+                            "student_id": int(mark["student_id"]),
+                            "registration_number": (mark["reg_number"] or "").strip().upper(),
+                            "mark": mark["mark"],
+                            "status": mark["status"],
+                        }
+                        if mark["status"] == "RECORDED"
+                        else {
+                            "student_id": int(mark["student_id"]),
+                            "mark": mark["mark"],
+                            "status": mark["status"],
+                        }
+                        for mark in marks
+                    ],
+                ]
+                for candidate in candidate_snapshots:
+                    canonical = json.dumps(
+                        candidate,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    computed_hash = "0x" + hashlib.sha256(
+                        (revision["commitment_salt"] + "|" + canonical).encode("utf-8")
+                    ).hexdigest()
+                    if computed_hash.lower() != revision["marks_hash"].lower():
+                        continue
+                    conn.execute(
+                        """
+                        UPDATE batch_revisions
+                        SET commitment_salt = ?, canonical_marks = ?
+                        WHERE batch_id = ? AND revision = ?
+                        """,
+                        (
+                            revision["commitment_salt"],
+                            canonical,
+                            revision["batch_id"],
+                            revision["revision"],
+                        ),
+                    )
+                    break
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def seed_demo(self) -> None:
         with self.transaction() as conn:
@@ -384,25 +722,34 @@ class Database:
             if existing:
                 return
 
-            def add_user(username: str, full_name: str, role: str, password: str) -> int:
+            def add_user(
+                username: str,
+                full_name: str,
+                role: str,
+                password: str,
+                reg_number: str | None = None,
+            ) -> int:
                 salt, digest = hash_password(password)
                 cur = conn.execute(
                     """
                     INSERT INTO users
-                    (username, full_name, role, password_salt, password_hash, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (username, full_name, role, password_salt, password_hash,
+                     must_change_password, reg_number, created_at)
+                    VALUES (?, ?, ?, ?, ?, 0, ?, ?)
                     """,
-                    (username, full_name, role, salt, digest, utc_now()),
+                    (username, full_name, role, salt, digest, reg_number, utc_now()),
                 )
                 return int(cur.lastrowid)
 
             admin_id = add_user("admin", "MarkTrail Admin", "admin", "admin123")
             lecturer_id = add_user("lecturer", "Dr. Alex Njoroge", "lecturer", "lecturer123")
             reviewer_id = add_user("reviewer", "Prof. Grace Wambui", "reviewer", "reviewer123")
-            student_id = add_user("student", "Jane Doe", "student", "student123")
-            add_user("student2", "Brian Otieno", "student", "student123")
+            student_id = add_user("student", "Jane Doe", "student", "student123", "SCT/001/2025")
+            add_user("student2", "Brian Otieno", "student", "student123", "SCT/002/2025")
             add_user("exam_office", "Academic Office", "exam_office", "office123")
+            add_user("senate_office", "University Senate Secretariat", "senate_office", "senate123")
             add_user("portal_operator", "Portal Operator", "portal_operator", "portal123")
+            add_user("registry", "Academic Registry", "registry", "registry123")
 
             course_id = "course-csc201"
             conn.execute(
@@ -411,6 +758,14 @@ class Database:
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 (course_id, "CSC 201", "Smart Contract Fundamentals", lecturer_id, utc_now()),
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO course_lecturers
+                (course_id, lecturer_id, active, assigned_at)
+                VALUES (?, ?, 1, ?)
+                """,
+                (course_id, lecturer_id, utc_now()),
             )
 
             conn.execute(
@@ -422,18 +777,20 @@ class Database:
             )
 
             assessments = [
-                ("assessment-cat1", "CAT 1", 20),
-                ("assessment-cat2", "CAT 2", 20),
-                ("assessment-exam", "Final Exam", 60),
+                ("assessment-cat1", "CAT 1", 20, "DIRECT"),
+                ("assessment-cat2", "CAT 2", 20, "DIRECT"),
+                ("assessment-exam", "Final Exam", 60, "SENATE"),
+                ("assessment-demo-upload", "CAT 3 (Ready to upload)", 20, "DIRECT"),
             ]
 
-            for assessment_id, name, max_mark in assessments:
+            for assessment_id, name, max_mark, release_policy in assessments:
                 conn.execute(
                     """
-                    INSERT INTO assessments (id, course_id, name, max_mark, created_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO assessments
+                    (id, course_id, name, max_mark, release_policy, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (assessment_id, course_id, name, max_mark, utc_now()),
+                    (assessment_id, course_id, name, max_mark, release_policy, utc_now()),
                 )
 
             self._seed_verified_batch(
@@ -506,13 +863,21 @@ class Database:
         ).hexdigest()
 
         now = utc_now()
+        assessment_policy = conn.execute(
+            "SELECT release_policy FROM assessments WHERE id = ?",
+            (assessment_id,),
+        ).fetchone()["release_policy"]
+        senate_status = "APPROVED" if assessment_policy == "SENATE" else "NOT_REQUIRED"
+        senate_actor = conn.execute(
+            "SELECT id FROM users WHERE role = 'senate_office' ORDER BY id LIMIT 1"
+        ).fetchone()
         conn.execute(
             """
             INSERT INTO batches
             (id, assessment_id, submitted_by, status, student_count, marks_hash,
              commitment_salt, revision, chain_state, submitted_at, verified_by,
-             verified_at, pipeline_stage)
-            VALUES (?, ?, ?, 'VERIFIED', ?, ?, ?, 1, 'LOCAL_ONLY', ?, ?, ?, 'PUBLISHED')
+             verified_at, pipeline_stage, senate_status)
+            VALUES (?, ?, ?, 'VERIFIED', ?, ?, ?, 1, 'LOCAL_ONLY', ?, ?, ?, 'PUBLISHED', ?)
             """,
             (
                 batch_id,
@@ -524,18 +889,32 @@ class Database:
                 now,
                 lecturer_id,
                 now,
+                senate_status,
             ),
         )
+        if senate_status == "APPROVED":
+            if not senate_actor:
+                raise RuntimeError("Demo Senate account is required for Senate-gated seed assessments.")
+            conn.execute(
+                """
+                INSERT INTO senate_decisions
+                (batch_id, decision_number, revision, decision, meeting_reference, reason, actor_id, created_at)
+                VALUES (?, 1, 1, 'APPROVED', 'DEMO-SENATE-MEETING-001',
+                        'Synthetic demo approval for a pre-published sample result.', ?, ?)
+                """,
+                (batch_id, int(senate_actor["id"]), now),
+            )
 
         reason_hash = "0x" + hashlib.sha256(reason.encode("utf-8")).hexdigest()
         conn.execute(
             """
             INSERT INTO batch_revisions
-            (batch_id, revision, marks_hash, reason_hash, kind, actor_id,
+            (batch_id, revision, marks_hash, reason_hash, commitment_salt,
+             canonical_marks, kind, actor_id,
              chain_state, created_at)
-            VALUES (?, 1, ?, ?, 'SUBMISSION', ?, 'LOCAL_ONLY', ?)
+            VALUES (?, 1, ?, ?, ?, ?, 'SUBMISSION', ?, 'LOCAL_ONLY', ?)
             """,
-            (batch_id, marks_hash, reason_hash, lecturer_id, now),
+            (batch_id, marks_hash, reason_hash, salt, canonical, lecturer_id, now),
         )
 
         for sid, (mark, status) in marks.items():
@@ -554,7 +933,7 @@ class Database:
             for row in conn.execute(
                 """
                 SELECT id, username FROM users
-                WHERE username IN ('reviewer', 'exam_office', 'portal_operator')
+                WHERE username IN ('reviewer', 'exam_office', 'senate_office', 'portal_operator')
                 """
             ).fetchall()
         }
@@ -563,11 +942,15 @@ class Database:
             (stage_actors.get("reviewer", lecturer_id), "BATCH_VERIFIED", {"published": False}),
         ]
         if "exam_office" in stage_actors and "portal_operator" in stage_actors:
-            seed_events.extend(
-                [
-                    (stage_actors["exam_office"], "EXAM_OFFICE_PROCESSED", {}),
-                    (stage_actors["portal_operator"], "PORTAL_IMPORTED", {"published": True}),
-                ]
+            seed_events.append((stage_actors["exam_office"], "EXAM_OFFICE_PROCESSED", {}))
+            if senate_status == "APPROVED" and "senate_office" in stage_actors:
+                seed_events.append((
+                    stage_actors["senate_office"],
+                    "SENATE_APPROVED",
+                    {"meeting_reference": "DEMO-SENATE-MEETING-001"},
+                ))
+            seed_events.append(
+                (stage_actors["portal_operator"], "PORTAL_IMPORTED", {"published": True})
             )
         for actor_id, action, metadata in seed_events:
             conn.execute(
@@ -615,6 +998,7 @@ class Database:
                 FROM sessions s
                 JOIN users u ON u.id = s.user_id
                 WHERE s.id = ? AND s.expires_at >= ? AND u.active = 1
+                  AND (u.access_until IS NULL OR date(u.access_until) >= date('now'))
                 """,
                 (session_id, utc_now()),
             ).fetchone()

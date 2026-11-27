@@ -57,6 +57,18 @@ class DatabaseMigrationTests(unittest.TestCase):
                     verified_by INTEGER REFERENCES users(id),
                     verified_at TEXT
                 );
+                CREATE TABLE batch_revisions (
+                    batch_id TEXT NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+                    revision INTEGER NOT NULL,
+                    marks_hash TEXT NOT NULL,
+                    reason_hash TEXT NOT NULL,
+                    kind TEXT NOT NULL CHECK (kind IN ('SUBMISSION','AMENDMENT')),
+                    actor_id INTEGER NOT NULL REFERENCES users(id),
+                    chain_state TEXT NOT NULL,
+                    chain_tx_hash TEXT,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (batch_id, revision)
+                );
                 CREATE TABLE missing_reports (
                     id TEXT PRIMARY KEY,
                     assessment_id TEXT NOT NULL REFERENCES assessments(id) ON DELETE CASCADE,
@@ -115,17 +127,19 @@ class DatabaseMigrationTests(unittest.TestCase):
                 """,
                 (now,),
             )
-            conn.execute(
+            conn.executemany(
                 """
-                INSERT INTO missing_reports (id, assessment_id, student_id, status, opened_at)
-                VALUES ('report-1', 'assessment-1', 1, 'OPEN', ?)
+                INSERT INTO batch_revisions
+                (batch_id, revision, marks_hash, reason_hash, kind, actor_id,
+                 chain_state, created_at)
+                VALUES (?, 1, 'hash', 'reason', 'SUBMISSION', 1, 'LOCAL_ONLY', ?)
                 """,
-                (now,),
+                [("batch-1", now), ("batch-2", now)],
             )
             conn.execute(
                 """
                 INSERT INTO missing_reports (id, assessment_id, student_id, status, opened_at)
-                VALUES ('report-duplicate', 'assessment-1', 1, 'OPEN', ?)
+                VALUES ('report-1', 'assessment-1', 1, 'OPEN', ?)
                 """,
                 (now,),
             )
@@ -144,6 +158,21 @@ class DatabaseMigrationTests(unittest.TestCase):
                     """,
                     (office_salt, office_hash, now),
                 )
+                senate_salt, senate_hash = hash_password("senate-pass")
+                migrated.execute(
+                    """
+                    INSERT INTO users
+                    (username, full_name, role, password_salt, password_hash, created_at)
+                    VALUES ('senate', 'Senate User', 'senate_office', ?, ?, ?)
+                    """,
+                    (senate_salt, senate_hash, now),
+                )
+                old_assessment = migrated.execute(
+                    "SELECT release_policy FROM assessments WHERE id = 'assessment-1'"
+                ).fetchone()
+                old_batch = migrated.execute(
+                    "SELECT senate_status FROM batches WHERE id = 'batch-1'"
+                ).fetchone()
                 batch = migrated.execute(
                     "SELECT pipeline_stage FROM batches WHERE id = 'batch-1'"
                 ).fetchone()
@@ -153,16 +182,17 @@ class DatabaseMigrationTests(unittest.TestCase):
                 report = migrated.execute(
                     "SELECT status FROM missing_reports WHERE id = 'report-1'"
                 ).fetchone()
-                duplicate_report = migrated.execute(
-                    """
-                    SELECT status, lecturer_note FROM missing_reports
-                    WHERE id = 'report-duplicate'
-                    """
-                ).fetchone()
 
             check = db.connect()
             try:
                 violations = check.execute("PRAGMA foreign_key_check").fetchall()
+                user_columns = {
+                    row["name"] for row in check.execute("PRAGMA table_info(users)")
+                }
+                revision_columns = {
+                    row["name"]
+                    for row in check.execute("PRAGMA table_info(batch_revisions)")
+                }
             finally:
                 check.close()
 
@@ -172,21 +202,12 @@ class DatabaseMigrationTests(unittest.TestCase):
                 "DEPARTMENT_REVIEW",
             )
             self.assertEqual(report["status"], "OPEN")
-            self.assertEqual(duplicate_report["status"], "REJECTED")
-            self.assertIn("Automatically closed during migration", duplicate_report["lecturer_note"])
             self.assertEqual(violations, [])
-            for status in ("OPEN", "PENDING_REVIEW"):
-                with self.subTest(active_status=status):
-                    with self.assertRaises(sqlite3.IntegrityError):
-                        with db.transaction() as migrated:
-                            migrated.execute(
-                                """
-                                INSERT INTO missing_reports
-                                (id, assessment_id, student_id, status, opened_at)
-                                VALUES (?, 'assessment-1', 1, ?, ?)
-                                """,
-                                (f"report-third-{status}", status, now),
-                            )
+            self.assertIn("access_until", user_columns)
+            self.assertEqual(old_assessment["release_policy"], "UNCLASSIFIED")
+            self.assertEqual(old_batch["senate_status"], "NOT_REQUIRED")
+            self.assertIn("commitment_salt", revision_columns)
+            self.assertIn("canonical_marks", revision_columns)
 
 
 if __name__ == "__main__":

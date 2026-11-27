@@ -4,20 +4,57 @@ import json
 import mimetypes
 import os
 import re
+import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http import cookies
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from .auth import clear_session_cookie, current_user, login, session_cookie, SESSION_COOKIE
 from .chain import ChainClient
 from .db import Database
+from .evidence import AssessmentEvidenceService
+from .attachments import EvidenceAttachmentService
+from .document_intelligence import EvidenceDocumentIntelligenceService
 from .service import AppError, AppService
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB_DIR = ROOT / "web"
+
+# ---------------------------------------------------------------------------
+# Login rate limiter: 10 failures per IP per 15-minute window → HTTP 429
+# ---------------------------------------------------------------------------
+_rate_lock = threading.Lock()
+_failed_attempts: dict[str, list[float]] = {}
+_RATE_WINDOW = 900   # seconds (15 min)
+_MAX_FAILURES = 10
+
+
+def _client_ip(handler: BaseHTTPRequestHandler) -> str:
+    forwarded = handler.headers.get("X-Forwarded-For", "")
+    return forwarded.split(",")[0].strip() or handler.client_address[0]
+
+
+def _is_rate_limited(ip: str) -> bool:
+    now = time.monotonic()
+    with _rate_lock:
+        window = [t for t in _failed_attempts.get(ip, []) if now - t < _RATE_WINDOW]
+        _failed_attempts[ip] = window
+        return len(window) >= _MAX_FAILURES
+
+
+def _record_failure(ip: str) -> None:
+    now = time.monotonic()
+    with _rate_lock:
+        _failed_attempts.setdefault(ip, []).append(now)
+
+
+def _clear_failures(ip: str) -> None:
+    with _rate_lock:
+        _failed_attempts.pop(ip, None)
 
 
 class MarkTrailHandler(BaseHTTPRequestHandler):
@@ -30,6 +67,14 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
     @property
     def service(self) -> AppService:
         return self.server.service  # type: ignore[attr-defined]
+
+    @property
+    def evidence(self) -> AssessmentEvidenceService:
+        return self.server.evidence  # type: ignore[attr-defined]
+
+    @property
+    def attachments(self) -> EvidenceAttachmentService:
+        return self.server.attachments  # type: ignore[attr-defined]
 
     def _send_json(self, payload, status: int = 200, extra_headers: dict | None = None):
         body = json.dumps(payload, default=str).encode("utf-8")
@@ -52,17 +97,25 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _body(self) -> dict:
-        length = int(self.headers.get("Content-Length", "0"))
-        if length > 2_000_000:
+    def _body(self, max_bytes: int = 2_000_000) -> dict:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as exc:
+            raise AppError("Invalid request content length.", 400) from exc
+        if length < 0 or length > max_bytes:
             raise AppError("Request body is too large.", 413)
         raw = self.rfile.read(length)
+        if len(raw) != length:
+            raise AppError("Request body was truncated.", 400)
         if not raw:
             return {}
         try:
-            return json.loads(raw.decode("utf-8"))
-        except json.JSONDecodeError as exc:
-            raise AppError("Request body must be valid JSON.", 400) from exc
+            payload = json.loads(raw.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise AppError("Request body must be valid UTF-8 JSON.", 400) from exc
+        if not isinstance(payload, dict):
+            raise AppError("Request body must be a JSON object.", 400)
+        return payload
 
     def _user(self):
         return current_user(self.db, self.headers.get("Cookie"))
@@ -84,16 +137,24 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True, "service": "MarkTrail"})
 
         if method == "POST" and path == "/api/login":
+            ip = _client_ip(self)
+            if _is_rate_limited(ip):
+                raise AppError(
+                    "Too many failed login attempts. Please wait 15 minutes.", 429
+                )
             body = self._body()
-            session_id = login(
+            result = login(
                 self.db,
                 str(body.get("username", "")),
                 str(body.get("password", "")),
             )
-            if not session_id:
+            if not result:
+                _record_failure(ip)
                 raise AppError("Invalid username or password.", 401)
+            session_id, must_change = result
+            _clear_failures(ip)
             return self._send_json(
-                {"ok": True},
+                {"ok": True, "must_change_password": must_change},
                 200,
                 {"Set-Cookie": session_cookie(session_id)},
             )
@@ -119,18 +180,242 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     "user": {
                         k: user[k]
                         for k in ("id", "username", "full_name", "role")
-                    }
+                    },
+                    "must_change_password": bool(user["must_change_password"]),
                 }
+            )
+
+        # Force password change before any other action
+        if user["must_change_password"] and path != "/api/auth/change-password":
+            raise AppError(
+                "You must change your password before continuing.", 403
+            )
+
+        if method == "POST" and path == "/api/auth/change-password":
+            body = self._body()
+            return self._send_json(
+                self.service.change_password(
+                    user_id,
+                    str(body.get("current_password", "")),
+                    str(body.get("new_password", "")),
+                )
             )
 
         if method == "GET" and path == "/api/dashboard":
             return self._send_json(self.service.dashboard(user_id))
+
+        if method == "GET" and path == "/api/staff/unit-completeness":
+            return self._send_json(
+                {"completeness": self.service.staff_unit_completeness(user_id)}
+            )
+
+        if method == "GET" and path == "/api/evidence/assessments":
+            return self._send_json({"assessments": self.evidence.list_assessments(user_id)})
+
+        if method == "GET" and path == "/api/evidence/staff":
+            return self._send_json({"staff": self.evidence.staff_options(user_id)})
+
+        if method == "GET" and path == "/api/evidence/cases":
+            return self._send_json({"cases": self.evidence.list_evidence_cases(user_id)})
+
+        if method == "POST" and path == "/api/evidence/attachments":
+            body = self._body(max_bytes=14_000_000)
+            return self._send_json(
+                self.attachments.upload(
+                    user_id,
+                    str(body.get("owner_type", "")),
+                    str(body.get("owner_id", "")),
+                    str(body.get("filename", "")),
+                    str(body.get("content_base64", "")),
+                ),
+                201,
+            )
+
+        if method == "GET" and path == "/api/evidence/attachments":
+            query = parse_qs(parsed.query)
+            owner_type = (query.get("owner_type") or [""])[0]
+            owner_id = (query.get("owner_id") or [None])[0]
+            return self._send_json({
+                "attachments": self.attachments.list_attachments(user_id, owner_type, owner_id)
+            })
+
+        match = re.fullmatch(r"/api/evidence/attachments/([a-f0-9]{32})/analyze", path)
+        if method == "POST" and match:
+            return self._send_json(
+                self.document_intelligence.analyze(user_id, match.group(1))
+            )
+
+        match = re.fullmatch(r"/api/evidence/attachments/([a-f0-9]{32})/download", path)
+        if method == "GET" and match:
+            attachment = self.attachments.read_attachment(user_id, match.group(1))
+            payload = attachment.pop("content")
+            encoded_name = quote(attachment["filename"], safe="")
+            fallback = "evidence-" + match.group(1)[:12]
+            self.send_response(200)
+            self.send_header("Content-Type", attachment["media_type"])
+            self.send_header(
+                "Content-Disposition",
+                f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded_name}",
+            )
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "private, no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", "default-src 'none'; sandbox")
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
+        match = re.fullmatch(r"/api/admin/evidence-attachments/([a-f0-9]{32})/rescan", path)
+        if method == "POST" and match:
+            return self._send_json(self.attachments.rescan(user_id, match.group(1)))
+
+        match = re.fullmatch(r"/api/evidence/cases/([^/]+)/decision", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.evidence.decide_evidence_case(
+                    user_id,
+                    match.group(1),
+                    str(body.get("decision", "")),
+                    str(body.get("reason", "")),
+                )
+            )
+
+        if method == "POST" and path == "/api/evidence/sessions":
+            body = self._body()
+            return self._send_json(
+                self.evidence.create_session(
+                    user_id,
+                    str(body.get("assessment_id", "")),
+                    str(body.get("exam_at", "")),
+                    str(body.get("venue", "")),
+                    str(body.get("session_type", "UNCLASSIFIED")),
+                ),
+                201,
+            )
+
+        match = re.fullmatch(r"/api/evidence/assessments/([^/]+)", path)
+        if method == "GET" and match:
+            return self._send_json(self.evidence.assessment_detail(user_id, match.group(1)))
+
+        match = re.fullmatch(r"/api/evidence/sessions/([^/]+)", path)
+        if method == "GET" and match:
+            return self._send_json(self.evidence.session_detail(user_id, match.group(1)))
+
+        match = re.fullmatch(r"/api/evidence/sessions/([^/]+)/attendance", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.evidence.record_attendance(
+                    user_id, match.group(1), body.get("items", [])
+                )
+            )
+
+        match = re.fullmatch(r"/api/evidence/sessions/([^/]+)/exam-card-signoffs", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.evidence.sign_exam_cards(
+                    user_id, match.group(1), body.get("items", [])
+                )
+            )
+
+        match = re.fullmatch(r"/api/evidence/sessions/([^/]+)/close", path)
+        if method == "POST" and match:
+            return self._send_json(self.evidence.close_session(user_id, match.group(1)))
+
+        match = re.fullmatch(r"/api/evidence/sessions/([^/]+)/scripts", path)
+        if method == "POST" and match:
+            body = self._body()
+            raw_student_id = body.get("student_id")
+            try:
+                student_id = int(raw_student_id) if raw_student_id not in (None, "") else None
+            except (TypeError, ValueError) as exc:
+                raise AppError("student_id must be a numeric candidate ID or empty for an unidentified script.") from exc
+            return self._send_json(
+                self.evidence.receive_script(
+                    user_id,
+                    match.group(1),
+                    student_id,
+                    str(body.get("script_ref", "")),
+                    str(body.get("note", "")),
+                ),
+                201,
+            )
+
+        match = re.fullmatch(r"/api/evidence/scripts/([^/]+)/handoff", path)
+        if method == "POST" and match:
+            body = self._body()
+            try:
+                recipient_id = int(body.get("recipient_id"))
+            except (TypeError, ValueError) as exc:
+                raise AppError("recipient_id must be a valid staff account ID.") from exc
+            return self._send_json(
+                self.evidence.request_script_handoff(
+                    user_id, match.group(1), recipient_id, str(body.get("note", ""))
+                )
+            )
+
+        match = re.fullmatch(r"/api/evidence/scripts/([^/]+)/accept", path)
+        if method == "POST" and match:
+            return self._send_json(self.evidence.accept_script_handoff(user_id, match.group(1)))
+
+        match = re.fullmatch(r"/api/evidence/scripts/([^/]+)/mark", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.evidence.mark_script(user_id, match.group(1), str(body.get("note", "")))
+            )
+
+        match = re.fullmatch(r"/api/evidence/scripts/([^/]+)/link", path)
+        if method == "POST" and match:
+            body = self._body()
+            try:
+                student_id = int(body.get("student_id"))
+            except (TypeError, ValueError) as exc:
+                raise AppError("student_id must be a valid candidate ID.") from exc
+            return self._send_json(
+                self.evidence.link_unidentified_script(
+                    user_id, match.group(1), student_id, str(body.get("reason", ""))
+                )
+            )
 
         if method == "GET" and path == "/api/status":
             return self._send_json({"chain": ChainClient().status()})
 
         if method == "GET" and path == "/api/student/marks":
             return self._send_json({"marks": self.service.student_marks(user_id)})
+
+        if method == "GET" and path == "/api/student/unit-readiness":
+            return self._send_json(
+                {"courses": self.service.student_unit_readiness(user_id)}
+            )
+
+        if method == "GET" and path == "/api/student/notices":
+            return self._send_json(
+                {"notices": self.service.student_academic_notices(user_id)}
+            )
+
+        if method == "GET" and path == "/api/student/progress":
+            return self._send_json({"progress": self.evidence.student_progress(user_id)})
+
+        if method == "POST" and path == "/api/student/evidence-cases":
+            body = self._body()
+            return self._send_json(
+                self.evidence.student_report_evidence_issue(
+                    user_id,
+                    str(body.get("session_id", "")),
+                    str(body.get("category", "")),
+                    str(body.get("description", "")),
+                ),
+                201,
+            )
+
+        match = re.fullmatch(r"/api/student/marks/([^/]+)", path)
+        if method == "GET" and match:
+            return self._send_json(
+                self.service.student_mark_detail(user_id, match.group(1))
+            )
 
         if method == "GET" and path == "/api/student/reports":
             return self._send_json({"reports": self.service.student_reports(user_id)})
@@ -161,6 +446,48 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                 {"assessments": self.service.lecturer_assessments(user_id)}
             )
 
+        if method == "GET" and path == "/api/lecturer/units":
+            return self._send_json(
+                {"units": self.service.lecturer_units(user_id)}
+            )
+
+        if method == "POST" and path == "/api/lecturer/workbooks/generate":
+            body = self._body()
+            return self._send_json(
+                self.service.generate_roster_workbook(
+                    user_id,
+                    str(body.get("assessment_id", "")),
+                )
+            )
+
+        if method == "POST" and path == "/api/lecturer/workbooks/preview":
+            body = self._body(max_bytes=14_000_000)
+            return self._send_json(
+                self.service.preview_roster_workbook(
+                    user_id,
+                    str(body.get("assessment_id", "")),
+                    str(body.get("xlsx_base64", "")),
+                )
+            )
+
+        if method == "POST" and path == "/api/lecturer/registration-exceptions":
+            body = self._body()
+            try:
+                student_id = int(body.get("student_id"))
+            except (TypeError, ValueError) as exc:
+                raise AppError("student_id must be numeric.", 400) from exc
+            return self._send_json(
+                self.service.create_registration_exception(
+                    user_id,
+                    student_id,
+                    str(body.get("course_id", "")),
+                    str(body.get("assessment_id", "")),
+                    str(body.get("exception_type", "")),
+                    str(body.get("description", "")),
+                ),
+                201,
+            )
+
         if method == "GET" and path == "/api/lecturer/batches":
             return self._send_json(
                 {"batches": self.service.lecturer_batches(user_id)}
@@ -169,6 +496,59 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/api/lecturer/reports":
             return self._send_json(
                 {"reports": self.service.lecturer_reports(user_id)}
+            )
+
+        if method == "GET" and path == "/api/registry/registration-exceptions":
+            return self._send_json(
+                {"exceptions": self.service.registry_registration_exceptions(user_id)}
+            )
+
+        match = re.fullmatch(r"/api/registry/registration-exceptions/([^/]+)/decision", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.service.decide_registration_exception(
+                    user_id,
+                    match.group(1),
+                    str(body.get("decision", "")).upper(),
+                    str(body.get("reason", "")),
+                )
+            )
+
+        if method == "GET" and path == "/api/student/examination-cases":
+            return self._send_json(
+                {"cases": self.service.student_examination_cases(user_id)}
+            )
+
+        if method == "POST" and path == "/api/student/examination-cases":
+            body = self._body()
+            return self._send_json(
+                self.service.create_examination_case(
+                    user_id,
+                    str(body.get("category", "")),
+                    str(body.get("description", "")),
+                    str(body.get("course_id", "")),
+                    str(body.get("assessment_id", "")),
+                ),
+                201,
+            )
+
+        if method == "GET" and path == "/api/staff/examination-cases":
+            return self._send_json(
+                {"cases": self.service.staff_examination_cases(user_id)}
+            )
+
+        match = re.fullmatch(r"/api/staff/examination-cases/([^/]+)/update", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.service.update_examination_case(
+                    user_id,
+                    match.group(1),
+                    str(body.get("status", "")).upper(),
+                    str(body.get("details", "")),
+                    str(body.get("resolution_reason", "")),
+                )
             )
 
         if method == "POST" and path == "/api/lecturer/batches/preview":
@@ -242,6 +622,24 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                 {"batches": self.service.portal_batches(user_id)}
             )
 
+        if method == "GET" and path == "/api/senate/batches":
+            return self._send_json(
+                {"batches": self.service.senate_batches(user_id)}
+            )
+
+        match = re.fullmatch(r"/api/senate/batches/(0x[a-fA-F0-9]{64})/decision", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.service.decide_senate_batch(
+                    user_id,
+                    match.group(1),
+                    str(body.get("decision", "")),
+                    str(body.get("meeting_reference", "")),
+                    str(body.get("reason", "")),
+                )
+            )
+
         match = re.fullmatch(r"/api/portal/batches/(0x[a-fA-F0-9]{64})/publish", path)
         if method == "POST" and match:
             return self._send_json(
@@ -258,6 +656,14 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
         if method == "POST" and match:
             return self._send_json(self.service.retry_chain(user_id, match.group(1)))
 
+        match = re.fullmatch(r"/api/admin/batches/(0x[a-fA-F0-9]{64})/retry-chain", path)
+        if method == "POST" and match:
+            return self._send_json(self.service.retry_chain(user_id, match.group(1)))
+
+        if method == "POST" and path == "/api/admin/batches/recover":
+            self.service.require_role(user_id, {"admin"})
+            return self._send_json(self.service.recover_pending_batches())
+
         if method == "GET" and path == "/api/admin/batches":
             return self._send_json({"batches": self.service.admin_batches(user_id)})
 
@@ -266,6 +672,21 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
 
         if method == "GET" and path == "/api/admin/courses":
             return self._send_json({"courses": self.service.admin_courses(user_id)})
+
+        if method == "GET" and path == "/api/admin/assessments":
+            return self._send_json({"assessments": self.service.admin_assessments(user_id)})
+
+        match = re.fullmatch(r"/api/admin/assessments/([^/]+)/release-policy", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.service.admin_update_assessment_release_policy(
+                    user_id,
+                    match.group(1),
+                    str(body.get("release_policy", "")),
+                    str(body.get("reason", "")),
+                )
+            )
 
         if method == "POST" and path == "/api/admin/users":
             body = self._body()
@@ -276,8 +697,34 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     str(body.get("full_name", "")),
                     str(body.get("role", "")),
                     str(body.get("password", "")),
+                    str(body.get("reg_number", "")) or None,
+                    str(body.get("access_until", "")) or None,
                 ),
                 201,
+            )
+
+        match = re.fullmatch(r"/api/admin/users/(\d+)/access", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.service.admin_update_user_access(
+                    user_id,
+                    int(match.group(1)),
+                    body.get("active"),
+                    str(body.get("access_until", "")) or None,
+                )
+            )
+
+        match = re.fullmatch(r"/api/admin/courses/([^/]+)/bulk-enroll", path)
+        if method == "POST" and match:
+            body = self._body()
+            return self._send_json(
+                self.service.admin_bulk_enroll_csv(
+                    user_id,
+                    match.group(1),
+                    str(body.get("csv", "")),
+                    str(body.get("access_until", "")) or None,
+                )
             )
 
         if method == "POST" and path == "/api/admin/courses":
@@ -295,6 +742,22 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     lecturer_id,
                 ),
                 201,
+            )
+
+        match = re.fullmatch(r"/api/admin/courses/([^/]+)/lecturers", path)
+        if method == "POST" and match:
+            body = self._body()
+            try:
+                lecturer_id = int(body.get("lecturer_id"))
+            except (TypeError, ValueError) as exc:
+                raise AppError("lecturer_id must be a numeric user ID.", 400) from exc
+            return self._send_json(
+                self.service.admin_assign_course_lecturer(
+                    user_id,
+                    match.group(1),
+                    lecturer_id,
+                    body.get("active", True) is not False,
+                )
             )
 
         match = re.fullmatch(r"/api/admin/courses/([^/]+)/enroll", path)
@@ -321,6 +784,8 @@ class MarkTrailHandler(BaseHTTPRequestHandler):
                     match.group(1),
                     str(body.get("name", "")),
                     max_mark,
+                    str(body.get("submission_deadline", "")) or None,
+                    str(body.get("release_policy", "")),
                 ),
                 201,
             )
@@ -406,6 +871,11 @@ class MarkTrailServer(ThreadingHTTPServer):
         super().__init__(address, MarkTrailHandler)
         self.db = db
         self.service = service
+        self.evidence = AssessmentEvidenceService(db, service)
+        self.attachments = EvidenceAttachmentService(db, service)
+        self.document_intelligence = EvidenceDocumentIntelligenceService(
+            db, service, self.attachments
+        )
 
 
 def run(host: str | None = None, port: int | None = None):
@@ -426,6 +896,12 @@ def run(host: str | None = None, port: int | None = None):
             "portal_operator/portal123 · student/student123"
         )
     print("Blockchain mode:", service.chain.config.mode)
+    if service.chain.enabled:
+        threading.Thread(
+            target=service.recover_pending_batches,
+            name="chain-startup-recovery",
+            daemon=True,
+        ).start()
 
     try:
         server.serve_forever()

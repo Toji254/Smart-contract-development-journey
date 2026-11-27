@@ -3,46 +3,265 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MarkTrail — Academic marks, without the mystery</title>
-  <meta name="description" content="MarkTrail makes academic marks traceable from submission to resolution.">
+  <title>MarkTrail — Clear records. Accountable results.</title>
+  <meta name="description" content="A clearer trail for academic records, examination evidence and result governance across Kenyan universities.">
+  <meta name="theme-color" content="#123e32">
+  <meta property="og:title" content="MarkTrail — Clear records. Accountable results.">
+  <meta property="og:description" content="Follow every assessment, evidence handoff and result decision with clarity.">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
 
-  <section id="login-screen" class="login-screen">
-    <div class="login-card">
-      <div class="brand-mark">MT</div>
-      <p class="eyebrow">MARKTRAIL</p>
-      <h1>Academic marks,<br>without the mystery.</h1>
-      <p class="lead">
-        Track submissions, follow each office handoff, resolve issues, and preserve an audit trail.
-      </p>
+  <!-- ───────────── PUBLIC WEBSITE ───────────── -->
+  <div id="public-site" class="public-site">
+    <a class="skip-link" href="#public-main">Skip to content</a>
+    <header class="site-header">
+      <a class="site-brand" href="#top" aria-label="MarkTrail home">
+        <span class="site-brand-mark" aria-hidden="true">M</span>
+        <span class="site-brand-copy"><strong>MarkTrail</strong><small>ACADEMIC RECORDS</small></span>
+      </a>
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="#platform">Platform</a>
+        <a href="#workflow">How it works</a>
+        <a href="#campus">Campus life</a>
+        <a href="#trust">Trust &amp; privacy</a>
+      </nav>
+      <a class="site-button site-button-primary site-header-cta" href="#sign-in" data-open-login>
+        Sign in <span aria-hidden="true">↗</span>
+      </a>
+      <details class="site-mobile-nav">
+        <summary aria-label="Open navigation"><span></span><span></span><span></span></summary>
+        <nav aria-label="Mobile navigation">
+          <a href="#platform">Platform</a>
+          <a href="#workflow">How it works</a>
+          <a href="#campus">Campus life</a>
+          <a href="#trust">Trust &amp; privacy</a>
+          <a href="#sign-in" data-open-login>Sign in to MarkTrail</a>
+        </nav>
+      </details>
+    </header>
 
-      <form id="login-form">
-        <label>
-          Username
-          <input id="login-username" autocomplete="username" required>
-        </label>
-        <label>
-          Password
-          <input id="login-password" type="password" autocomplete="current-password" required>
-        </label>
-        <button class="button primary full" type="submit">Sign in</button>
-      </form>
+    <main id="public-main">
+      <section class="site-hero" id="top">
+        <img class="site-hero-image" src="https://cdn.tuko.co.ke/images/1120/a120f201350c9f58.jpeg?v=1" alt="Karatina University graduates celebrate together in their academic gowns" fetchpriority="high">
+        <div class="site-hero-shade"></div>
+        <div class="site-hero-content">
+          <p class="site-kicker"><span></span> BUILT AROUND KENYAN UNIVERSITY WORKFLOWS</p>
+          <h1>Every academic record deserves a <em>clear trail.</em></h1>
+          <p class="site-hero-lead">From the lecture room to the exam office, MarkTrail helps students and university teams follow assessments, evidence and result decisions without the guesswork.</p>
+          <div class="site-hero-actions">
+            <a class="site-button site-button-gold" href="#sign-in" data-open-login>Enter your workspace <span aria-hidden="true">↗</span></a>
+            <a class="site-text-link site-text-link-light" href="#workflow">See how MarkTrail works <span aria-hidden="true">↓</span></a>
+          </div>
+          <div class="site-hero-note"><span class="site-live-dot"></span> One connected view for students, lecturers and academic offices</div>
+        </div>
+        <div class="site-hero-caption">
+          <span>THE MOMENT THE WORK LEADS TO</span>
+          <a href="https://www.tuko.co.ke/429369-5-kenyan-universities-collaborate-german-counterparts-reduce-graduate-unemployment-fund-innovators.html" target="_blank" rel="noreferrer">Karatina University graduation · Photo source ↗</a>
+        </div>
+        <a class="site-scroll-cue" href="#platform" aria-label="Scroll to platform"><span></span> SCROLL TO EXPLORE</a>
+      </section>
 
-      <div class="demo-accounts">
-        <div class="mini-label">DEMO ACCOUNTS</div>
-        <code>student / student123</code>
-        <code>lecturer / lecturer123</code>
-        <code>reviewer / reviewer123</code>
-        <code>exam_office / office123</code>
-        <code>portal_operator / portal123</code>
-        <code>admin / admin123</code>
+      <section class="site-intro-strip" aria-label="MarkTrail principles">
+        <div><span class="site-strip-number">01</span><strong>Records you can follow</strong><small>Know what has been submitted, reviewed and published.</small></div>
+        <div><span class="site-strip-number">02</span><strong>Evidence that stays connected</strong><small>Keep registers, scripts and handovers tied to an assessment.</small></div>
+        <div><span class="site-strip-number">03</span><strong>Decisions made by people</strong><small>Automate the workflow, never the academic judgement.</small></div>
+      </section>
+
+      <section class="site-section site-platform" id="platform">
+        <div class="site-section-heading">
+          <p class="site-kicker site-kicker-dark">A BETTER WAY TO FOLLOW THE RECORD</p>
+          <h2>Less chasing.<br><em>More clarity.</em></h2>
+          <p>MarkTrail connects the steps that are often scattered across spreadsheets, paper registers, office queues and messages.</p>
+        </div>
+        <div class="site-feature-grid">
+          <article class="site-feature-card">
+            <div class="site-feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 32 32" fill="none"><path d="M7 5.5h12l6 6V26H7z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M19 5.5v6h6M11 17h10M11 21h7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </div>
+            <p class="site-card-label">FOR STUDENTS</p>
+            <h3>See where your results stand.</h3>
+            <p>Check published marks, see whether unit components are accounted for, and submit a structured report when something is missing.</p>
+            <a href="#sign-in" data-open-login class="site-card-link">Open student workspace <span>↗</span></a>
+          </article>
+          <article class="site-feature-card site-feature-card-featured">
+            <div class="site-feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 32 32" fill="none"><path d="M5 25.5h22M8 25.5V12l8-5 8 5v13.5M12 25.5v-8h8v8M12 13h.01M20 13h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <p class="site-card-label">FOR LECTURERS</p>
+            <h3>Keep every assessment moving.</h3>
+            <p>Validate mark submissions, track departmental review, capture exam evidence and follow student issues through to a human decision.</p>
+            <a href="#sign-in" data-open-login class="site-card-link">Open lecturer workspace <span>↗</span></a>
+          </article>
+          <article class="site-feature-card">
+            <div class="site-feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 32 32" fill="none"><path d="M6 7h20v18H6zM10 12h12M10 16h8M10 20h5M22 20l2 2 4-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <p class="site-card-label">FOR ACADEMIC OFFICES</p>
+            <h3>Make every handoff accountable.</h3>
+            <p>Review batches, reconcile examination evidence, route Senate-controlled results and preserve an auditable history of decisions.</p>
+            <a href="#sign-in" data-open-login class="site-card-link">Open staff workspace <span>↗</span></a>
+          </article>
+        </div>
+      </section>
+
+      <section class="site-campus" id="campus">
+        <div class="site-campus-copy">
+          <p class="site-kicker site-kicker-light">MADE FOR THE PEOPLE BEHIND THE RECORDS</p>
+          <h2>Real campus life.<br><em>Real academic work.</em></h2>
+          <p>Universities run on the work of students, lecturers, administrators and examination teams. MarkTrail is designed to make the academic process easier to follow for all of them.</p>
+          <a class="site-text-link site-text-link-light" href="#workflow">Explore the workflow <span aria-hidden="true">↗</span></a>
+        </div>
+        <div class="site-campus-gallery">
+          <figure class="site-photo site-photo-large">
+            <img src="https://www.tukenya.ac.ke/images/2024/IMG_2329.JPG" alt="A Kenyan lecturer addresses students in a university lecture hall" loading="lazy">
+            <figcaption><strong>Teaching in action</strong><a href="https://www.tukenya.ac.ke/" target="_blank" rel="noreferrer">Photo source · Technical University of Kenya ↗</a></figcaption>
+          </figure>
+          <figure class="site-photo site-photo-small">
+            <img src="https://static.wixstatic.com/media/c0136c_7cdf7e39808248e9b9fe8691d6aeb481~mv2.jpg/v1/fill/w_1000%2Ch_623%2Cal_c%2Cq_85%2Cusm_0.66_1.00_0.01/c0136c_7cdf7e39808248e9b9fe8691d6aeb481~mv2.jpg" alt="Karatina University students and a faculty member outside a campus building" loading="lazy">
+            <figcaption><strong>Campus community</strong><a href="https://www.youthmappers.org/post/2018/02/08/welcoming-our-100th-youthmappers-chapter-the-nature-club-of-karatina-university" target="_blank" rel="noreferrer">Photo source · Karatina University Nature Club ↗</a></figcaption>
+          </figure>
+          <figure class="site-photo site-photo-small site-photo-graduates">
+            <img src="https://uonbi.ac.ke/sites/default/files/61st_Graduation_Ceremony_September_2019_8640.jpg" alt="Kenyan university graduates smiling at their graduation ceremony" loading="lazy">
+            <figcaption><strong>Graduation day</strong><a href="https://uonbi.ac.ke/gallery/61st-graduation-ceremony-september-6-2019" target="_blank" rel="noreferrer">Photo source · University of Nairobi ↗</a></figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="site-section site-workflow" id="workflow">
+        <div class="site-section-heading site-section-heading-centered">
+          <p class="site-kicker site-kicker-dark">ONE CONNECTED PROCESS</p>
+          <h2>Every step has an owner.<br><em>Every decision has a history.</em></h2>
+          <p>Follow a result from submission to release, with the right people responsible at each stage.</p>
+        </div>
+        <div class="site-workflow-line">
+          <article class="site-workflow-step"><span>01</span><div><h3>Submit</h3><p>The lecturer validates an assessment batch and submits it for review.</p></div></article>
+          <article class="site-workflow-step"><span>02</span><div><h3>Review</h3><p>Department reviewers check completeness and send approved work onward.</p></div></article>
+          <article class="site-workflow-step"><span>03</span><div><h3>Reconcile</h3><p>The exam office checks the record and follows up on missing evidence or exceptions.</p></div></article>
+          <article class="site-workflow-step"><span>04</span><div><h3>Approve</h3><p>Senate-controlled results wait for the required decision; direct-release assessments follow their configured path.</p></div></article>
+          <article class="site-workflow-step"><span>05</span><div><h3>Publish</h3><p>Only results that complete their approval path are made available to students.</p></div></article>
+        </div>
+        <p class="site-workflow-footnote">The exact release path depends on the institution’s approved assessment policy. MarkTrail does not invent marks, weights or academic outcomes.</p>
+      </section>
+
+      <section class="site-trust" id="trust">
+        <div class="site-trust-image">
+          <img src="https://kabarak.ac.ke/images/speasyimagegallery/albums/4/images/law-deans-first-class-for-first-years-4.jpg" alt="A Kenyan lecturer engaging students during a university class" loading="lazy">
+          <span>ACADEMIC WORK, WITH CONTEXT</span>
+        </div>
+        <div class="site-trust-copy">
+          <p class="site-kicker site-kicker-dark">BUILT WITH GUARDRAILS</p>
+          <h2>Technology should support academic judgement. <em>Not replace it.</em></h2>
+          <div class="site-trust-points">
+            <div><span>01</span><p><strong>Private by design</strong>Student records stay in the application’s controlled data store; marks, identities and attendance are not written to a blockchain.</p></div>
+            <div><span>02</span><p><strong>Evidence stays reviewable</strong>Document extraction can suggest text, but authorised staff must compare it with the original before making a decision.</p></div>
+            <div><span>03</span><p><strong>History is preserved</strong>Important handoffs and corrections are recorded so a reviewer can understand what happened and when.</p></div>
+          </div>
+          <a class="site-text-link site-text-link-dark" href="#sign-in" data-open-login>Continue to MarkTrail <span aria-hidden="true">↗</span></a>
+          <small class="site-photo-credit">Classroom photo source: <a href="https://kabarak.ac.ke/" target="_blank" rel="noreferrer">Kabarak University ↗</a></small>
+        </div>
+      </section>
+
+      <section class="site-final-cta">
+        <div><p class="site-kicker site-kicker-light">CLEARER RECORDS START HERE</p><h2>Stop chasing the process.<br><em>Follow the trail.</em></h2></div>
+        <a class="site-button site-button-gold" href="#sign-in" data-open-login>Sign in to MarkTrail <span aria-hidden="true">↗</span></a>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer-main">
+        <a class="site-brand site-brand-footer" href="#top"><span class="site-brand-mark" aria-hidden="true">M</span><span class="site-brand-copy"><strong>MarkTrail</strong><small>ACADEMIC RECORDS</small></span></a>
+        <p>A clearer workflow for academic records, examination evidence and result governance.</p>
+        <a href="#top" class="site-back-top">Back to top ↑</a>
+      </div>
+      <div class="site-footer-bottom">
+        <span>© <span id="site-year">2026</span> MarkTrail</span>
+        <span>Development pilot · Institution approval and official portal integrations are deployment-specific.</span>
+        <span class="site-footer-disclaimer">Independent product concept. Not an official university website.</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ───────────── LOGIN ───────────── -->
+  <section id="login-screen" class="login-screen hidden" aria-label="MarkTrail sign in">
+    <div class="login-layout">
+      <aside class="login-story">
+        <a class="site-brand site-brand-login" href="#top" data-back-to-site>
+          <span class="site-brand-mark" aria-hidden="true">M</span>
+          <span class="site-brand-copy"><strong>MarkTrail</strong><small>ACADEMIC RECORDS</small></span>
+        </a>
+        <div>
+          <p class="site-kicker site-kicker-light">YOUR CAMPUS WORKSPACE</p>
+          <h1>Welcome back.<br><em>Your work has a trail.</em></h1>
+          <p>Sign in with the account provided by your institution. Your workspace is tailored to your role and access permissions.</p>
+        </div>
+        <div class="login-story-foot"><span>STUDENTS</span><span>LECTURERS</span><span>ACADEMIC OFFICES</span></div>
+      </aside>
+      <div class="login-card">
+        <div class="brand-mark">M</div>
+        <p class="eyebrow">MARKTRAIL ACCESS</p>
+        <h2>Sign in to continue</h2>
+        <p class="lead">Use the username and password approved by your MarkTrail administrator.</p>
+
+        <form id="login-form">
+          <label>
+            Username
+            <input id="login-username" autocomplete="username" required>
+          </label>
+          <label>
+            Password
+            <input id="login-password" type="password" autocomplete="current-password" required>
+          </label>
+          <button class="button primary full" type="submit">Sign in securely</button>
+        </form>
+        <p class="muted">Access is limited to approved accounts. Contact your institution’s MarkTrail administrator if you need access.</p>
+
+        <details class="demo-accounts">
+          <summary>Demo accounts · local development only</summary>
+          <code>student / student123</code>
+          <code>lecturer / lecturer123</code>
+          <code>reviewer / reviewer123</code>
+          <code>exam_office / office123</code>
+          <code>portal_operator / portal123</code>
+          <code>admin / admin123</code>
+        </details>
+        <button class="login-back-link" type="button" data-back-to-site>← Back to MarkTrail website</button>
       </div>
     </div>
   </section>
 
+  <!-- ───────────── PASSWORD CHANGE (first login) ───────────── -->
+  <section id="password-change-screen" class="login-screen hidden">
+    <div class="login-card">
+      <div class="brand-mark">MT</div>
+      <p class="eyebrow">SECURITY</p>
+      <h1>Change your password</h1>
+      <p class="lead">You must set a new password before you can continue.</p>
+
+      <form id="password-change-form">
+        <label>
+          Current password
+          <input id="pw-current" type="password" autocomplete="current-password" required>
+        </label>
+        <label>
+          New password
+          <input id="pw-new" type="password" autocomplete="new-password" required minlength="8">
+        </label>
+        <label>
+          Confirm new password
+          <input id="pw-confirm" type="password" autocomplete="new-password" required minlength="8">
+        </label>
+        <button class="button primary full" type="submit">Update password</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ───────────── APP SHELL ───────────── -->
   <div id="app-shell" class="app-shell hidden">
     <header class="topbar">
       <div>
@@ -50,8 +269,12 @@
         <div class="tagline">Know where your mark went.</div>
       </div>
       <div class="topbar-actions">
-        <span id="chain-indicator" class="pill neutral">checking chain…</span>
+        <span id="chain-indicator" class="pill neutral">Checking record service…</span>
         <span id="user-chip" class="pill"></span>
+        <button id="theme-toggle" class="button ghost" title="Toggle theme" aria-label="Toggle dark mode">
+          <svg id="theme-icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+          <svg id="theme-icon-moon" class="hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
         <button id="logout-button" class="button ghost">Log out</button>
       </div>
     </header>
@@ -68,7 +291,16 @@
 
       <nav id="nav" class="nav"></nav>
 
+      <!-- ───── STUDENT ───── -->
       <section id="student-panel" class="panel hidden">
+        <div id="student-home-summary" class="home-brief" data-role-view="home">
+          <div class="home-brief-primary">
+            <p class="eyebrow">MY ACADEMIC RECORD</p>
+            <h2>Your results, with a clear trail.</h2>
+            <p>Checking your latest assessment records…</p>
+          </div>
+        </div>
+        <div data-role-view="marks">
         <div class="section-head">
           <div>
             <p class="eyebrow">STUDENT</p>
@@ -78,7 +310,29 @@
         </div>
         <div id="student-notifications" class="notification-list"></div>
         <div id="student-marks" class="table-wrap"></div>
-
+        </div>
+        <div data-role-view="progress">
+          <div class="card unit-readiness-intro">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">UNIT RESULT COMPLETENESS</p>
+                <h2>Are all my component marks accounted for?</h2>
+                <p class="muted">CATs, coursework and the final examination are checked as separate components. This view never treats a missing component as zero and does not calculate a final unit total or guess institutional weighting.</p>
+              </div>
+            </div>
+            <div id="student-unit-readiness" class="unit-readiness-list"></div>
+          </div>
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">EXAM EVIDENCE</p>
+              <h2>My exam progress</h2>
+              <p class="muted">See what has been recorded for your own assessments. A blank or missing record means it has not been captured here yet — it is not proof that you were absent.</p>
+            </div>
+            <button class="button secondary" data-refresh type="button">Refresh</button>
+          </div>
+          <div id="student-progress" class="student-progress-list"></div>
+        </div>
+        <div data-role-view="reports">
         <div class="split">
           <div>
             <div class="section-head compact">
@@ -97,13 +351,34 @@
             </p>
           </div>
         </div>
+        </div>
       </section>
 
+      <!-- ───── LECTURER ───── -->
       <section id="lecturer-panel" class="panel hidden">
+        <div id="lecturer-home-summary" class="home-brief" data-role-view="home">
+          <div class="home-brief-primary">
+            <p class="eyebrow">TEACHING WORKSPACE</p>
+            <h2>Assessment activity</h2>
+            <p>Loading assigned assessments and open requests…</p>
+          </div>
+        </div>
+        <div data-role-view="completeness">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">ACADEMIC OVERSIGHT</p>
+              <h2>Unit component completeness</h2>
+              <p class="muted">Find missing components by course, assessment and student. Student rows show status only, not unpublished marks.</p>
+            </div>
+            <button class="button secondary" data-refresh type="button">Refresh</button>
+          </div>
+          <div id="lecturer-completeness" class="staff-completeness-list"></div>
+        </div>
+        <div data-role-view="batches">
         <div class="section-head">
           <div>
             <p class="eyebrow">LECTURER</p>
-            <h2>Marks operations</h2>
+            <h2>Upload and track marks</h2>
           </div>
           <button class="button secondary" data-refresh>Refresh</button>
         </div>
@@ -112,7 +387,7 @@
           <div class="card-head">
             <div>
               <h3>Submit an assessment batch</h3>
-              <p class="muted">CSV headers: <code>student_id,mark</code></p>
+              <p class="muted">CSV headers: <code>registration_number,mark</code></p>
             </div>
           </div>
           <div class="form-grid">
@@ -125,7 +400,8 @@
               <input id="marks-file" type="file" accept=".csv,text/csv">
             </label>
           </div>
-          <textarea id="marks-csv" class="code-input" rows="7" placeholder="student_id,mark&#10;4,18&#10;5,15"></textarea>
+          <p id="assessment-help" class="muted"></p>
+          <textarea id="marks-csv" class="code-input" rows="7" placeholder="registration_number,mark&#10;SCT/001/2025,18&#10;SCT/002/2025,15"></textarea>
           <div class="actions">
             <button id="preview-batch" class="button secondary">Validate batch</button>
             <button id="submit-batch" class="button primary">Submit batch</button>
@@ -135,33 +411,46 @@
 
         <div class="section-head compact">
           <div>
-            <p class="eyebrow">INCOMING</p>
-            <h2>Missing-mark queue</h2>
-          </div>
-        </div>
-        <div id="lecturer-reports"></div>
-
-        <div class="section-head compact">
-          <div>
             <p class="eyebrow">SUBMISSIONS</p>
             <h2>Assessment batches</h2>
           </div>
         </div>
         <div id="lecturer-batches" class="table-wrap"></div>
+        </div>
+        <div data-role-view="reports">
+          <div class="section-head">
+            <div><p class="eyebrow">STUDENT REQUESTS</p><h2>Missing-mark issues</h2></div>
+            <button class="button secondary" data-refresh>Refresh</button>
+          </div>
+          <div id="lecturer-reports"></div>
+        </div>
       </section>
 
+      <!-- ───── REVIEWER ───── -->
       <section id="reviewer-panel" class="panel hidden">
+        <div class="callout" data-role-view="home">
+          <strong>Department review</strong>
+          <p>Check submitted marks for completeness, then approve each batch to send it to the exam office. Only batches waiting for your review need action.</p>
+        </div>
+        <div data-role-view="verify">
         <div class="section-head">
           <div>
             <p class="eyebrow">REVIEWER</p>
-            <h2>Verification queue</h2>
+            <h2>Batches waiting for your review</h2>
           </div>
           <button class="button secondary" data-refresh>Refresh</button>
         </div>
         <div id="reviewer-batches"></div>
+        </div>
       </section>
 
+      <!-- ───── EXAM OFFICE ───── -->
       <section id="exam-office-panel" class="panel hidden">
+        <div class="callout" data-role-view="home">
+          <strong>Exam-office workspace</strong>
+          <p>Review department-approved batches. Direct-release CATs proceed to portal operations; assessments configured for Senate approval are routed to the Secretariat after exam-office processing.</p>
+        </div>
+        <div data-role-view="process">
         <div class="section-head">
           <div>
             <p class="eyebrow">EXAM OFFICE</p>
@@ -170,9 +459,35 @@
           <button class="button secondary" data-refresh>Refresh</button>
         </div>
         <div id="exam-office-batches"></div>
+        </div>
       </section>
 
+      <!-- ───── SENATE SECRETARIAT ───── -->
+      <section id="senate-panel" class="panel hidden">
+        <div class="callout" data-role-view="home">
+          <strong>University Senate results review</strong>
+          <p>Review only assessments explicitly configured for Senate approval. CATs and other direct-release assessments do not enter this queue.</p>
+        </div>
+        <div data-role-view="review">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">SENATE SECRETARIAT</p>
+              <h2>Results awaiting Senate decision</h2>
+              <p class="muted">Record the meeting/minute reference. A deferred batch stays blocked from portal publication.</p>
+            </div>
+            <button class="button secondary" data-refresh type="button">Refresh</button>
+          </div>
+          <div id="senate-batches"></div>
+        </div>
+      </section>
+
+      <!-- ───── PORTAL OPERATOR ───── -->
       <section id="portal-operator-panel" class="panel hidden">
+        <div class="callout" data-role-view="home">
+          <strong>Portal publishing</strong>
+          <p>Only batches whose approval path is complete appear here. Senate-controlled final results are held out until an authorised Senate approval is recorded.</p>
+        </div>
+        <div data-role-view="import">
         <div class="section-head">
           <div>
             <p class="eyebrow">PORTAL OPERATIONS</p>
@@ -181,9 +496,27 @@
           <button class="button secondary" data-refresh>Refresh</button>
         </div>
         <div id="portal-batches"></div>
+        </div>
       </section>
 
+      <!-- ───── ADMIN ───── -->
       <section id="admin-panel" class="panel hidden">
+        <div class="callout" data-role-view="home">
+          <strong>Institution administration</strong>
+          <p>Create and manage approved accounts, courses, enrolments, and assessments. Set account end dates and disable accounts when access should stop.</p>
+        </div>
+        <div data-role-view="completeness">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">INSTITUTION-WIDE OVERSIGHT</p>
+              <h2>Unit component completeness</h2>
+              <p class="muted">Review missing and delayed components across all configured courses. This is a status dashboard, not a marks calculation or academic decision.</p>
+            </div>
+            <button class="button secondary" data-refresh type="button">Refresh</button>
+          </div>
+          <div id="admin-completeness" class="staff-completeness-list"></div>
+        </div>
+        <div data-role-view="setup">
         <div class="section-head">
           <div>
             <p class="eyebrow">ADMIN</p>
@@ -200,14 +533,20 @@
             <form id="create-user-form" class="stack">
               <input name="username" placeholder="username" required>
               <input name="full_name" placeholder="Full name" required>
-              <select name="role" required>
+              <input name="reg_number" placeholder="Reg number (students only, e.g. SCT/001/2025)">
+              <select name="role" id="create-user-role" required>
                 <option value="student">Student</option>
                 <option value="lecturer">Lecturer</option>
                 <option value="reviewer">Reviewer</option>
                 <option value="exam_office">Exam office</option>
+                <option value="senate_office">Senate Secretariat</option>
                 <option value="portal_operator">Portal operator</option>
                 <option value="admin">Admin</option>
               </select>
+              <label>
+                Graduation / access end date
+                <input name="access_until" id="create-user-access-until" type="date" required>
+              </label>
               <input name="password" type="password" placeholder="temporary password" required minlength="8">
               <button class="button primary">Create user</button>
             </form>
@@ -239,18 +578,58 @@
 
           <div class="card">
             <div class="card-head">
+              <h3>Bulk enroll from CSV</h3>
+              <p class="muted">CSV: <code>reg_number,full_name</code>. Existing students can be matched by registration number without a name; new accounts need a full name.</p>
+            </div>
+            <form id="bulk-enroll-form" class="stack">
+              <select name="course_id" id="bulk-enroll-course" required></select>
+              <label>Graduation / access end date for new students<input name="access_until" type="date"></label>
+              <textarea name="csv" class="code-input" rows="5" required placeholder="reg_number,full_name&#10;SCT/003/2025,Alice Wanjiku&#10;SCT/004/2025,David Kamau"></textarea>
+              <p class="muted">A name and access end date are required only when creating a new student account. New accounts receive unique one-time passwords; download the activation list and deliver it securely. Students must change their password at first sign-in.</p>
+              <button class="button primary">Bulk enroll</button>
+            </form>
+            <div id="bulk-enroll-result" class="preview bulk-enroll-result hidden" role="status" aria-live="polite"></div>
+            <div id="bulk-enroll-credentials" class="stack hidden" aria-live="polite">
+              <p class="muted">These activation passwords are shown only in this response. Save and distribute them securely; they cannot be retrieved later.</p>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Student</th><th>Username</th><th>One-time password</th></tr></thead>
+                  <tbody id="bulk-enroll-credentials-list"></tbody>
+                </table>
+              </div>
+              <button id="download-bulk-enroll-credentials" class="button secondary" type="button">Download activation list</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
               <h3>Create assessment</h3>
             </div>
             <form id="create-assessment-form" class="stack">
               <select name="course_id" id="assessment-course" required></select>
               <input name="name" placeholder="CAT 1" required>
               <input name="max_mark" type="number" step="0.01" min="0.01" placeholder="20" required>
+              <input name="submission_deadline" type="datetime-local" placeholder="Submission deadline (optional)">
+              <label>Result release policy
+                <select name="release_policy" required>
+                  <option value="">Choose release policy</option>
+                  <option value="DIRECT">CAT / coursework — direct release</option>
+                  <option value="SENATE">Main exam / final result — Senate approval</option>
+                </select>
+              </label>
               <button class="button primary">Create assessment</button>
             </form>
           </div>
+          <div class="card">
+            <div class="card-head">
+              <h3>Existing assessment release policies</h3>
+            </div>
+            <p class="muted">Older assessments are shown as UNCLASSIFIED until an administrator explicitly chooses direct release or Senate approval. Unclassified batches cannot be published.</p>
+            <div id="admin-assessments" class="table-wrap"></div>
+          </div>
         </div>
 
-        <div class="split">
+        <div class="split admin-directory-split">
           <div>
             <div class="section-head compact">
               <div>
@@ -270,13 +649,102 @@
             <div id="admin-courses" class="table-wrap"></div>
           </div>
         </div>
+
+        <div style="margin-top: 2rem;">
+          <div class="section-head compact">
+            <div>
+              <p class="eyebrow">WORKFLOW SUPPORT</p>
+              <h2>Batch processing issues</h2>
+            </div>
+            <button id="admin-recover-chain" class="button secondary">Retry failed record updates</button>
+          </div>
+          <div id="admin-batches" class="table-wrap"></div>
+        </div>
+        </div>
       </section>
 
+      <!-- ───── ASSESSMENT EVIDENCE ───── -->
+      <section id="evidence-panel" class="panel hidden">
+        <div data-role-view="evidence">
+          <div class="callout">
+            <strong>Assessment evidence workspace</strong>
+            <p>Keep the examination register, script receipts and marking handovers connected to the exact assessment. A missing signature is an exception to investigate, not an automatic absence.</p>
+          </div>
+
+          <div class="card">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">ASSESSMENT</p>
+                <h2>Start an examination session</h2>
+              </div>
+              <button class="button secondary" id="evidence-refresh" type="button">Refresh</button>
+            </div>
+            <form id="evidence-session-form" class="form-grid">
+              <label>
+                Assessment
+                <select id="evidence-assessment" name="assessment_id" required></select>
+              </label>
+              <label>
+                Assessment type
+                <select id="evidence-session-type" name="session_type" required>
+                  <option value="">Choose assessment type</option>
+                  <option value="CAT">CAT</option>
+                  <option value="COURSEWORK">Coursework</option>
+                  <option value="PRACTICAL">Practical / laboratory</option>
+                  <option value="FINAL_EXAM">Final examination</option>
+                  <option value="SPECIAL_EXAM">Special / deferred examination</option>
+                </select>
+              </label>
+              <label>
+                Examination date and time
+                <input id="evidence-exam-at" name="exam_at" type="datetime-local" required>
+              </label>
+              <label>
+                Venue
+                <input id="evidence-venue" name="venue" maxlength="120" placeholder="e.g. Lecture Theatre 2" required>
+              </label>
+              <div class="actions">
+                <button class="button primary" type="submit">Create locked candidate register</button>
+              </div>
+            </form>
+            <p class="muted">MarkTrail snapshots the approved course roster when the session is created. Final and special examinations also require the lecturer in charge to confirm each physical exam-card signature after the register is closed. CAT and coursework sessions do not use that sign-off step.</p>
+          </div>
+
+          <div class="card">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">EXAM SESSIONS</p>
+                <h2>Assessment sessions</h2>
+              </div>
+            </div>
+            <div id="evidence-sessions" class="stack">
+              <p class="muted">Choose an assessment to see its examination sessions.</p>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">FOLLOW-UP</p>
+                <h2>Evidence case queue</h2>
+                <p class="muted">Detected exceptions become owned cases. When evidence clears an exception, a reviewer still confirms the outcome.</p>
+              </div>
+              <button class="button secondary" id="evidence-cases-refresh" type="button">Refresh cases</button>
+            </div>
+            <div id="evidence-case-queue" class="stack"></div>
+          </div>
+
+          <div id="evidence-workspace" class="stack"></div>
+        </div>
+      </section>
+
+      <!-- ───── AUDIT ───── -->
       <section id="audit-panel" class="panel hidden">
         <div class="section-head">
           <div>
             <p class="eyebrow">AUDIT TRAIL</p>
-            <h2>Trace a batch</h2>
+            <h2>Batch history</h2>
+            <p class="muted">See who handled the marks, what changed, and where the batch is now.</p>
           </div>
         </div>
 
@@ -286,9 +754,9 @@
             <select id="audit-batch"></select>
           </label>
           <div class="actions">
-            <button id="load-audit" class="button primary">Load audit</button>
-            <button id="reconcile-audit" class="button secondary">Reconcile with chain</button>
-            <button id="download-audit" class="button secondary">Download audit CSV</button>
+            <button id="load-audit" class="button primary">Show history</button>
+            <button id="reconcile-audit" class="button secondary hidden">Check record integrity</button>
+            <button id="download-audit" class="button secondary">Download history</button>
           </div>
         </div>
 
@@ -297,7 +765,7 @@
     </main>
 
     <footer>
-      MarkTrail is a runnable development MVP. Demo data only. Do not use this deployment for real student records.
+      MarkTrail — academic marks tracked from submission to publication. Pilot deployment.
     </footer>
   </div>
 

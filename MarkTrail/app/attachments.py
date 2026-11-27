@@ -1,0 +1,869 @@
+from __future__ import annotations
+
+import base64
+import binascii
+import errno
+import hashlib
+import hmac
+import json
+import os
+import shutil
+import stat
+import subprocess
+import tempfile
+import uuid
+from pathlib import Path
+from typing import Callable
+
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+from .db import Database, utc_now
+from .service import AppError, AppService
+
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+EVIDENCE_ENCRYPTION_MAGIC = b"MT-EVIDENCE-ENC1"
+EVIDENCE_ENCRYPTION_VERSION = 1
+AES_GCM_NONCE_BYTES = 12
+AES_GCM_TAG_BYTES = 16
+MAX_STORED_BYTES = MAX_ATTACHMENT_BYTES + len(EVIDENCE_ENCRYPTION_MAGIC) + AES_GCM_NONCE_BYTES + AES_GCM_TAG_BYTES
+ALLOWED_TYPES = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+}
+
+
+class EvidenceAttachmentService:
+    """Private, append-only evidence storage with fail-closed malware scanning."""
+
+    def __init__(
+        self,
+        db: Database,
+        app: AppService,
+        storage_dir: str | Path | None = None,
+        scanner: Callable[[Path], tuple[str, str] | str] | None = None,
+        encryption_key: str | bytes | None = None,
+    ) -> None:
+        self.db = db
+        self.app = app
+        configured = storage_dir or os.getenv("MARKTRAIL_EVIDENCE_DIR")
+        self.storage_dir = Path(configured) if configured else db.path.parent / "private-evidence"
+        self.storage_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            self.storage_dir.chmod(0o700)
+        except OSError:
+            pass
+        supplied_key = encryption_key if encryption_key is not None else os.getenv("MARKTRAIL_EVIDENCE_ENCRYPTION_KEY", "")
+        if isinstance(supplied_key, bytes):
+            key = supplied_key
+        else:
+            try:
+                key = bytes.fromhex(str(supplied_key).strip()) if str(supplied_key).strip() else b""
+            except ValueError as exc:
+                raise ValueError("MARKTRAIL_EVIDENCE_ENCRYPTION_KEY must be 64 hexadecimal characters.") from exc
+        if key and len(key) != 32:
+            raise ValueError("MARKTRAIL_EVIDENCE_ENCRYPTION_KEY must decode to exactly 32 bytes (64 hex characters).")
+        self.encryption_key = key or None
+        self.encryption_key_id = hashlib.sha256(self.encryption_key).hexdigest()[:32] if self.encryption_key else None
+        self.scanner = scanner
+        self._ensure_schema()
+        self._migrate_legacy_files()
+
+    def _ensure_schema(self) -> None:
+        conn = self.db.connect()
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS evidence_attachments (
+                    id TEXT PRIMARY KEY,
+                    owner_type TEXT NOT NULL CHECK (owner_type IN ('CASE','SESSION','SCRIPT')),
+                    case_id TEXT REFERENCES evidence_cases(id) ON DELETE RESTRICT,
+                    session_id TEXT REFERENCES exam_sessions(id) ON DELETE RESTRICT,
+                    script_id TEXT REFERENCES exam_scripts(id) ON DELETE RESTRICT,
+                    uploaded_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+                    original_name TEXT NOT NULL,
+                    media_type TEXT NOT NULL CHECK (
+                        media_type IN ('application/pdf','image/png','image/jpeg')
+                    ),
+                    byte_size INTEGER NOT NULL CHECK (byte_size > 0 AND byte_size <= 10485760),
+                    sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+                    storage_key TEXT NOT NULL UNIQUE,
+                    encryption_version INTEGER NOT NULL DEFAULT 0 CHECK (encryption_version IN (0,1)),
+                    encryption_key_id TEXT,
+                    scan_status TEXT NOT NULL CHECK (
+                        scan_status IN ('CLEAN','QUARANTINED','INFECTED','SCAN_ERROR','CORRUPT')
+                    ),
+                    scan_engine TEXT NOT NULL,
+                    scan_detail TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    scanned_at TEXT,
+                    CHECK (
+                        (owner_type = 'CASE' AND case_id IS NOT NULL AND session_id IS NULL AND script_id IS NULL)
+                        OR
+                        (owner_type = 'SESSION' AND case_id IS NULL AND session_id IS NOT NULL AND script_id IS NULL)
+                        OR
+                        (owner_type = 'SCRIPT' AND case_id IS NULL AND session_id IS NULL AND script_id IS NOT NULL)
+                    ),
+                    CHECK (storage_key NOT LIKE '%/%' AND storage_key NOT LIKE '%..%')
+                );
+
+                CREATE TABLE IF NOT EXISTS evidence_attachment_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    attachment_id TEXT NOT NULL REFERENCES evidence_attachments(id) ON DELETE RESTRICT,
+                    event_type TEXT NOT NULL CHECK (
+                        event_type IN (
+                            'UPLOADED','SCANNED_CLEAN','QUARANTINED','INFECTED',
+                            'SCAN_ERROR','SCAN_RETRIED','INTEGRITY_FAILED','STORAGE_ENCRYPTED'
+                        )
+                    ),
+                    actor_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                    note TEXT NOT NULL DEFAULT '',
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_evidence_attachments_case
+                    ON evidence_attachments(case_id, created_at, id);
+                CREATE INDEX IF NOT EXISTS idx_evidence_attachments_session
+                    ON evidence_attachments(session_id, created_at, id);
+                CREATE INDEX IF NOT EXISTS idx_evidence_attachments_script
+                    ON evidence_attachments(script_id, created_at, id);
+                CREATE INDEX IF NOT EXISTS idx_evidence_attachment_events
+                    ON evidence_attachment_events(attachment_id, created_at, id);
+
+                CREATE TRIGGER IF NOT EXISTS evidence_attachment_events_no_update
+                BEFORE UPDATE ON evidence_attachment_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'evidence attachment history is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS evidence_attachment_events_no_delete
+                BEFORE DELETE ON evidence_attachment_events
+                BEGIN
+                    SELECT RAISE(ABORT, 'evidence attachment history is append-only');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS evidence_attachments_metadata_immutable
+                BEFORE UPDATE ON evidence_attachments
+                WHEN
+                    OLD.id IS NOT NEW.id
+                    OR OLD.owner_type IS NOT NEW.owner_type
+                    OR OLD.case_id IS NOT NEW.case_id
+                    OR OLD.session_id IS NOT NEW.session_id
+                    OR OLD.script_id IS NOT NEW.script_id
+                    OR OLD.uploaded_by IS NOT NEW.uploaded_by
+                    OR OLD.original_name IS NOT NEW.original_name
+                    OR OLD.media_type IS NOT NEW.media_type
+                    OR OLD.byte_size IS NOT NEW.byte_size
+                    OR OLD.sha256 IS NOT NEW.sha256
+                    OR OLD.storage_key IS NOT NEW.storage_key
+                    OR OLD.created_at IS NOT NEW.created_at
+                BEGIN
+                    SELECT RAISE(ABORT, 'evidence attachment metadata is immutable');
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS evidence_attachments_no_delete
+                BEFORE DELETE ON evidence_attachments
+                BEGIN
+                    SELECT RAISE(ABORT, 'evidence attachments are retained; deletion is not permitted');
+                END;
+                """
+            )
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(evidence_attachments)").fetchall()
+            }
+            if "encryption_version" not in columns:
+                conn.execute(
+                    "ALTER TABLE evidence_attachments ADD COLUMN encryption_version INTEGER NOT NULL DEFAULT 0"
+                )
+            if "encryption_key_id" not in columns:
+                conn.execute(
+                    "ALTER TABLE evidence_attachments ADD COLUMN encryption_key_id TEXT"
+                )
+
+            event_schema = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'evidence_attachment_events'"
+            ).fetchone()
+            if event_schema and "STORAGE_ENCRYPTED" not in event_schema["sql"]:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute("DROP TRIGGER IF EXISTS evidence_attachment_events_no_update")
+                conn.execute("DROP TRIGGER IF EXISTS evidence_attachment_events_no_delete")
+                conn.execute(
+                    "ALTER TABLE evidence_attachment_events RENAME TO evidence_attachment_events_legacy"
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE evidence_attachment_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        attachment_id TEXT NOT NULL REFERENCES evidence_attachments(id) ON DELETE RESTRICT,
+                        event_type TEXT NOT NULL CHECK (event_type IN (
+                            'UPLOADED','SCANNED_CLEAN','QUARANTINED','INFECTED',
+                            'SCAN_ERROR','SCAN_RETRIED','INTEGRITY_FAILED','STORAGE_ENCRYPTED'
+                        )),
+                        actor_id INTEGER REFERENCES users(id) ON DELETE RESTRICT,
+                        note TEXT NOT NULL DEFAULT '',
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO evidence_attachment_events
+                        (id, attachment_id, event_type, actor_id, note, metadata_json, created_at)
+                    SELECT id, attachment_id, event_type, actor_id, note, metadata_json, created_at
+                    FROM evidence_attachment_events_legacy
+                    """
+                )
+                conn.execute("DROP TABLE evidence_attachment_events_legacy")
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_evidence_attachment_events ON evidence_attachment_events(attachment_id, created_at, id)"
+                )
+                conn.execute(
+                    """
+                    CREATE TRIGGER evidence_attachment_events_no_update
+                    BEFORE UPDATE ON evidence_attachment_events
+                    BEGIN
+                        SELECT RAISE(ABORT, 'evidence attachment history is append-only');
+                    END
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TRIGGER evidence_attachment_events_no_delete
+                    BEFORE DELETE ON evidence_attachment_events
+                    BEGIN
+                        SELECT RAISE(ABORT, 'evidence attachment history is append-only');
+                    END
+                    """
+                )
+                conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _event(conn, attachment_id, event_type, actor_id, note, metadata, now) -> None:
+        conn.execute(
+            """
+            INSERT INTO evidence_attachment_events
+                (attachment_id, event_type, actor_id, note, metadata_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (attachment_id, event_type, actor_id, str(note or "")[:1000],
+             json.dumps(metadata, sort_keys=True), now),
+        )
+
+    def _aad(self, attachment_id: str, media_type: str) -> bytes:
+        return f"MarkTrail evidence v{EVIDENCE_ENCRYPTION_VERSION}|{attachment_id}|{media_type}".encode("utf-8")
+
+    def _encrypt_payload(self, attachment_id: str, media_type: str, payload: bytes) -> bytes:
+        if not self.encryption_key:
+            raise AppError("Evidence encryption is not configured. Ask the administrator to configure the evidence encryption key.", 503)
+        nonce = os.urandom(AES_GCM_NONCE_BYTES)
+        encrypted = AESGCM(self.encryption_key).encrypt(nonce, payload, self._aad(attachment_id, media_type))
+        return EVIDENCE_ENCRYPTION_MAGIC + nonce + encrypted
+
+    def _decrypt_payload(self, attachment: dict, stored: bytes) -> bytes:
+        version = int(attachment.get("encryption_version") or 0)
+        if version == 0 and not stored.startswith(EVIDENCE_ENCRYPTION_MAGIC):
+            raise AppError(
+                "This legacy evidence file is not encrypted at rest. Configure the evidence encryption key and restart MarkTrail to migrate it before downloading.",
+                503,
+            )
+        if not self.encryption_key:
+            raise AppError("The evidence encryption key is not configured on this server.", 503)
+        saved_key_id = attachment.get("encryption_key_id")
+        if saved_key_id and saved_key_id != self.encryption_key_id:
+            raise AppError("The configured evidence encryption key does not match this file. Restore the correct key before retrying.", 503)
+        if version not in {0, EVIDENCE_ENCRYPTION_VERSION}:
+            raise AppError("This evidence file uses an unsupported encryption version.", 500)
+        if not stored.startswith(EVIDENCE_ENCRYPTION_MAGIC):
+            raise InvalidTag
+        offset = len(EVIDENCE_ENCRYPTION_MAGIC)
+        nonce = stored[offset:offset + AES_GCM_NONCE_BYTES]
+        ciphertext = stored[offset + AES_GCM_NONCE_BYTES:]
+        if len(nonce) != AES_GCM_NONCE_BYTES or len(ciphertext) < 16:
+            raise InvalidTag
+        return AESGCM(self.encryption_key).decrypt(
+            nonce, ciphertext, self._aad(attachment["id"], attachment["media_type"])
+        )
+
+    def _storage_path(self, storage_key: str) -> Path:
+        if not storage_key or Path(storage_key).name != storage_key or "/" in storage_key or "\\" in storage_key or ".." in storage_key:
+            raise AppError("Invalid private evidence storage key.", 500)
+        root = self.storage_dir.resolve()
+        target = root / storage_key
+        if target.resolve().parent != root:
+            raise AppError("Private evidence path escaped its storage directory.", 500)
+        return target
+
+    @staticmethod
+    def _read_private_file(target: Path) -> bytes:
+        """Read a bounded regular file without following a final symlink."""
+        no_follow = getattr(os, "O_NOFOLLOW", 0)
+        if not no_follow and target.is_symlink():
+            raise ValueError("Private evidence storage object must not be a symlink.")
+        fd = os.open(target, os.O_RDONLY | no_follow | getattr(os, "O_CLOEXEC", 0))
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError("Private evidence storage object is not a single-link regular file.")
+            if info.st_size <= 0 or info.st_size > MAX_STORED_BYTES:
+                raise ValueError("Private evidence storage object has an invalid size.")
+            with os.fdopen(fd, "rb") as handle:
+                payload = handle.read(MAX_STORED_BYTES + 1)
+            if len(payload) != info.st_size:
+                raise ValueError("Private evidence storage object changed while being read.")
+            return payload
+        except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
+
+    @staticmethod
+    def _write_private_file(target: Path, payload: bytes) -> None:
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(target, flags, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+
+    def _atomic_replace_private_file(self, target: Path, payload: bytes) -> None:
+        fd, temporary_name = tempfile.mkstemp(prefix=".evidence-encrypt-", dir=self.storage_dir.resolve())
+        temporary = Path(temporary_name)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, target)
+            try:
+                directory_fd = os.open(self.storage_dir.resolve(), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError:
+                pass
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def _scan_payload(self, payload: bytes) -> tuple[str, str, str]:
+        fd, temporary_name = tempfile.mkstemp(prefix="marktrail-evidence-scan-")
+        temporary = Path(temporary_name)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+            return self._scan(temporary)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def _mark_corrupt(self, user_id, attachment: dict, observed_hash: str, note: str) -> None:
+        now = utc_now()
+        expected_hash = attachment["sha256"]
+        with self.db.transaction() as conn:
+            conn.execute(
+                """UPDATE evidence_attachments
+                   SET scan_status = 'CORRUPT', scan_engine = 'INTEGRITY_CHECK',
+                       scan_detail = ?, scanned_at = ? WHERE id = ?""",
+                (str(note)[:500], now, attachment["id"]),
+            )
+            self._event(conn, attachment["id"], "INTEGRITY_FAILED", user_id, note,
+                        {"expected_sha256": expected_hash, "observed_sha256": observed_hash}, now)
+            self.app._audit(conn, "EVIDENCE_ATTACHMENT", attachment["id"], user_id,
+                            "ATTACHMENT_INTEGRITY_FAILED",
+                            {"expected_sha256": expected_hash, "observed_sha256": observed_hash})
+
+    def _migrate_legacy_files(self) -> None:
+        if not self.encryption_key:
+            return
+        conn = self.db.connect()
+        try:
+            rows = conn.execute(
+                """SELECT id, media_type, byte_size, sha256, storage_key,
+                          encryption_version, encryption_key_id
+                   FROM evidence_attachments
+                   WHERE encryption_version = 0 ORDER BY created_at, id"""
+            ).fetchall()
+        finally:
+            conn.close()
+
+        for row in rows:
+            attachment = dict(row)
+            target = self._storage_path(attachment["storage_key"])
+            try:
+                stored = self._read_private_file(target)
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(
+                    f"Cannot safely read legacy evidence attachment {attachment['id']} during encryption migration."
+                ) from exc
+            if stored.startswith(EVIDENCE_ENCRYPTION_MAGIC):
+                try:
+                    plaintext = self._decrypt_payload(attachment, stored)
+                except (InvalidTag, ValueError) as exc:
+                    raise RuntimeError(f"Cannot recover interrupted evidence encryption for {attachment['id']}.") from exc
+            else:
+                plaintext = stored
+            actual_hash = hashlib.sha256(plaintext).hexdigest()
+            if len(plaintext) != int(attachment["byte_size"]) or not hmac.compare_digest(actual_hash, attachment["sha256"]):
+                self._mark_corrupt(None, attachment, actual_hash,
+                                   "Legacy evidence failed its integrity check during encryption migration.")
+                continue
+            encrypted = stored if stored.startswith(EVIDENCE_ENCRYPTION_MAGIC) else self._encrypt_payload(
+                attachment["id"], attachment["media_type"], plaintext
+            )
+            if encrypted is not stored:
+                self._atomic_replace_private_file(target, encrypted)
+            now = utc_now()
+            with self.db.transaction() as conn:
+                conn.execute(
+                    """UPDATE evidence_attachments
+                       SET encryption_version = ?, encryption_key_id = ?
+                       WHERE id = ? AND encryption_version = 0""",
+                    (EVIDENCE_ENCRYPTION_VERSION, self.encryption_key_id, attachment["id"]),
+                )
+                self._event(
+                    conn, attachment["id"], "STORAGE_ENCRYPTED", None,
+                    "Legacy evidence file encrypted at rest using AES-256-GCM.",
+                    {"encryption_version": EVIDENCE_ENCRYPTION_VERSION,
+                     "encryption_key_id": self.encryption_key_id}, now,
+                )
+                self.app._audit(
+                    conn, "EVIDENCE_ATTACHMENT", attachment["id"], None,
+                    "ATTACHMENT_ENCRYPTED_AT_REST",
+                    {"encryption_version": EVIDENCE_ENCRYPTION_VERSION,
+                     "encryption_key_id": self.encryption_key_id},
+                )
+
+
+    def _authorize_owner(self, conn, user_id, owner_type, owner_id, *, for_upload=False):
+        actor = conn.execute(
+            "SELECT id, role, active FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if not actor or not actor["active"]:
+            raise AppError("Your account is not active.", 403)
+        role = actor["role"]
+
+        if owner_type == "CASE":
+            row = conn.execute(
+                """
+                SELECT ec.id, ec.student_id, ec.assigned_role, ec.assigned_user_id,
+                       ec.status, ec.session_id
+                FROM evidence_cases ec WHERE ec.id = ?
+                """,
+                (owner_id,),
+            ).fetchone()
+            if not row:
+                raise AppError("Evidence case not found.", 404)
+            allowed = (
+                role == "admin"
+                or (role == "student" and int(row["student_id"] or 0) == user_id)
+                or (role == "reviewer" and row["assigned_role"] == "reviewer")
+                or (role == "exam_office" and row["assigned_role"] == "exam_office")
+                or (
+                    role == "lecturer"
+                    and row["assigned_role"] == "lecturer"
+                    and int(row["assigned_user_id"] or 0) == user_id
+                )
+            )
+            if not allowed:
+                raise AppError("You do not have access to this evidence case.", 403)
+            if for_upload and row["status"] in {"RESOLVED", "DISMISSED"}:
+                raise AppError(
+                    "This case has a final decision; new evidence must use the institution's appeal/review process.",
+                    409,
+                )
+            return dict(row)
+
+        if role not in {"admin", "reviewer", "exam_office", "lecturer"}:
+            raise AppError("Only assigned academic staff may access session or script attachments.", 403)
+
+        if owner_type == "SESSION":
+            row = conn.execute(
+                """
+                SELECT s.id, c.lecturer_id
+                FROM exam_sessions s
+                JOIN assessments a ON a.id = s.assessment_id
+                JOIN courses c ON c.id = a.course_id
+                WHERE s.id = ?
+                """,
+                (owner_id,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """
+                SELECT s.id AS session_id, c.lecturer_id
+                FROM exam_scripts script
+                JOIN exam_sessions s ON s.id = script.session_id
+                JOIN assessments a ON a.id = s.assessment_id
+                JOIN courses c ON c.id = a.course_id
+                WHERE script.id = ?
+                """,
+                (owner_id,),
+            ).fetchone()
+        if not row:
+            raise AppError("Examination evidence record not found.", 404)
+        if role == "lecturer" and int(row["lecturer_id"] or 0) != user_id:
+            raise AppError("You can only manage attachments for your assigned courses.", 403)
+        return dict(row)
+
+    @staticmethod
+    def _safe_filename(value: str) -> tuple[str, str]:
+        raw = str(value or "").replace("\\", "/")
+        name = raw.rsplit("/", 1)[-1].strip()
+        if (
+            not name or len(name) > 128 or name in {".", ".."}
+            or any(ord(char) < 32 or ord(char) == 127 for char in name)
+        ):
+            raise AppError("Provide a valid file name of at most 128 characters.")
+        suffix = Path(name).suffix.lower()
+        if suffix not in ALLOWED_TYPES:
+            raise AppError("Only PDF, PNG and JPEG evidence files are accepted.")
+        return name, suffix
+
+    @staticmethod
+    def _validate_content(suffix: str, payload: bytes) -> str:
+        if not payload:
+            raise AppError("The selected file is empty.")
+        if suffix == ".pdf" and payload.startswith(b"%PDF-"):
+            return "application/pdf"
+        if suffix == ".png" and payload.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if suffix in {".jpg", ".jpeg"} and payload.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+        raise AppError("The file extension does not match a supported PDF, PNG or JPEG file.")
+
+    def _scan(self, path: Path) -> tuple[str, str, str]:
+        if self.scanner is not None:
+            try:
+                result = self.scanner(path)
+                status, detail = result if isinstance(result, tuple) else (str(result), "Configured scanner")
+            except Exception as exc:
+                return "SCAN_ERROR", "CUSTOM_SCANNER", str(exc)[:500]
+            status = str(status).upper()
+            if status not in {"CLEAN", "INFECTED", "QUARANTINED", "SCAN_ERROR"}:
+                return "SCAN_ERROR", "CUSTOM_SCANNER", "Scanner returned an invalid status."
+            return status, "CUSTOM_SCANNER", str(detail)[:500]
+
+        executable = shutil.which("clamscan")
+        if not executable:
+            return "QUARANTINED", "NOT_CONFIGURED", "ClamAV is not installed; file is quarantined."
+        try:
+            result = subprocess.run(
+                [executable, "--no-summary", "--infected", str(path)],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return "QUARANTINED", "CLAMAV", "ClamAV scan timed out; file remains quarantined."
+        except OSError as exc:
+            return "SCAN_ERROR", "CLAMAV", str(exc)[:500]
+        detail = (result.stdout or result.stderr or "").strip()[:500]
+        if result.returncode == 0:
+            return "CLEAN", "CLAMAV", detail or "No malware detected."
+        if result.returncode == 1:
+            return "INFECTED", "CLAMAV", detail or "ClamAV detected an infected file."
+        return "SCAN_ERROR", "CLAMAV", detail or f"ClamAV exited with status {result.returncode}."
+
+    @staticmethod
+    def _scan_event(status: str) -> str:
+        return {
+            "CLEAN": "SCANNED_CLEAN", "INFECTED": "INFECTED",
+            "QUARANTINED": "QUARANTINED", "SCAN_ERROR": "SCAN_ERROR",
+        }[status]
+
+    @staticmethod
+    def _public_row(row) -> dict:
+        owner_id = row["case_id"] or row["session_id"] or row["script_id"]
+        return {
+            "id": row["id"], "owner_type": row["owner_type"], "owner_id": owner_id,
+            "filename": row["original_name"], "media_type": row["media_type"],
+            "byte_size": int(row["byte_size"]), "sha256": row["sha256"],
+            "scan_status": row["scan_status"], "scan_engine": row["scan_engine"],
+            "scan_detail": row["scan_detail"],
+            "encrypted_at_rest": int(row["encryption_version"] or 0) == EVIDENCE_ENCRYPTION_VERSION,
+            "uploaded_by": row["uploaded_by"],
+            "uploaded_by_name": row["uploaded_by_name"], "created_at": row["created_at"],
+        }
+
+    def upload(self, user_id, owner_type, owner_id, filename, content_base64) -> dict:
+        owner_type = str(owner_type or "").upper()
+        owner_id = str(owner_id or "").strip()
+        if owner_type not in {"CASE", "SESSION", "SCRIPT"}:
+            raise AppError("Attachment owner must be CASE, SESSION or SCRIPT.")
+        if not self.encryption_key:
+            raise AppError("Evidence encryption is not configured. Ask the administrator to configure the evidence encryption key.", 503)
+        if not owner_id or len(owner_id) > 128 or "/" in owner_id or "\\" in owner_id:
+            raise AppError("A valid evidence record ID is required.")
+        safe_name, suffix = self._safe_filename(filename)
+        encoded = str(content_base64 or "")
+        max_encoded = ((MAX_ATTACHMENT_BYTES + 2) // 3) * 4 + 8
+        if not encoded or len(encoded) > max_encoded:
+            raise AppError("The file is empty or exceeds the 10 MB upload limit.", 413)
+        try:
+            payload = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise AppError("The evidence file must be valid base64 data.") from exc
+        if len(payload) > MAX_ATTACHMENT_BYTES:
+            raise AppError("Evidence files must be 10 MB or smaller.", 413)
+        media_type = self._validate_content(suffix, payload)
+
+        conn = self.db.connect()
+        try:
+            self._authorize_owner(conn, user_id, owner_type, owner_id, for_upload=True)
+        finally:
+            conn.close()
+
+        attachment_id = uuid.uuid4().hex
+        storage_key = attachment_id + suffix
+        target = self._storage_path(storage_key)
+        scan_status, scan_engine, scan_detail = self._scan_payload(payload)
+        stored_payload = self._encrypt_payload(attachment_id, media_type, payload)
+        self._write_private_file(target, stored_payload)
+        now = utc_now()
+        digest = hashlib.sha256(payload).hexdigest()
+        try:
+            with self.db.transaction() as conn:
+                self._authorize_owner(conn, user_id, owner_type, owner_id, for_upload=True)
+                conn.execute(
+                    """
+                    INSERT INTO evidence_attachments
+                        (id, owner_type, case_id, session_id, script_id, uploaded_by,
+                         original_name, media_type, byte_size, sha256, storage_key,
+                         encryption_version, encryption_key_id, scan_status, scan_engine,
+                         scan_detail, created_at, scanned_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        attachment_id, owner_type,
+                        owner_id if owner_type == "CASE" else None,
+                        owner_id if owner_type == "SESSION" else None,
+                        owner_id if owner_type == "SCRIPT" else None,
+                        user_id, safe_name, media_type, len(payload), digest, storage_key,
+                        EVIDENCE_ENCRYPTION_VERSION, self.encryption_key_id,
+                        scan_status, scan_engine, scan_detail, now,
+                        now if scan_status in {"CLEAN", "INFECTED", "SCAN_ERROR"} else None,
+                    ),
+                )
+                metadata = {
+                    "owner_type": owner_type, "owner_id": owner_id, "filename": safe_name,
+                    "media_type": media_type, "byte_size": len(payload), "sha256": digest,
+                    "scan_status": scan_status, "scan_engine": scan_engine,
+                    "encryption_version": EVIDENCE_ENCRYPTION_VERSION,
+                    "encryption_key_id": self.encryption_key_id,
+                }
+                self._event(conn, attachment_id, "UPLOADED", user_id,
+                            "Evidence attachment uploaded.", metadata, now)
+                self._event(conn, attachment_id, self._scan_event(scan_status), user_id,
+                            scan_detail, {"scan_engine": scan_engine, "scan_status": scan_status}, now)
+                self.app._audit(conn, "EVIDENCE_ATTACHMENT", attachment_id, user_id,
+                                "ATTACHMENT_UPLOADED", metadata)
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+        return {
+            "id": attachment_id, "owner_type": owner_type, "owner_id": owner_id,
+            "filename": safe_name, "media_type": media_type, "byte_size": len(payload),
+            "sha256": digest, "scan_status": scan_status, "scan_engine": scan_engine,
+            "scan_detail": scan_detail, "created_at": now, "downloadable": scan_status == "CLEAN",
+            "encrypted_at_rest": True,
+        }
+
+    def list_attachments(self, user_id, owner_type, owner_id=None) -> list[dict]:
+        owner_type = str(owner_type or "").upper()
+        if owner_type not in {"CASE", "SESSION", "SCRIPT"}:
+            raise AppError("Attachment owner must be CASE, SESSION or SCRIPT.")
+        conn = self.db.connect()
+        try:
+            if owner_type == "CASE" and not owner_id:
+                actor = conn.execute(
+                    "SELECT role FROM users WHERE id = ? AND active = 1", (user_id,)
+                ).fetchone()
+                if not actor:
+                    raise AppError("Your account is not active.", 403)
+                role = actor["role"]
+                where, params = "", ()
+                if role == "student":
+                    where, params = "WHERE ec.student_id = ?", (user_id,)
+                elif role == "reviewer":
+                    where, params = "WHERE ec.assigned_role = 'reviewer'", ()
+                elif role == "exam_office":
+                    where, params = "WHERE ec.assigned_role = 'exam_office'", ()
+                elif role == "lecturer":
+                    where, params = "WHERE ec.assigned_role = 'lecturer' AND ec.assigned_user_id = ?", (user_id,)
+                elif role != "admin":
+                    raise AppError("You do not have access to evidence case attachments.", 403)
+                query = """
+                    SELECT a.*, u.full_name AS uploaded_by_name
+                    FROM evidence_attachments a
+                    JOIN evidence_cases ec ON ec.id = a.case_id
+                    JOIN users u ON u.id = a.uploaded_by
+                """
+                query += (where + " AND a.owner_type = 'CASE'" if where else "WHERE a.owner_type = 'CASE'")
+                query += " ORDER BY a.created_at, a.id"
+                rows = conn.execute(query, params).fetchall()
+            else:
+                if not owner_id:
+                    raise AppError("An evidence record ID is required for this attachment query.")
+                self._authorize_owner(conn, user_id, owner_type, str(owner_id))
+                column = {"CASE": "case_id", "SESSION": "session_id", "SCRIPT": "script_id"}[owner_type]
+                rows = conn.execute(
+                    f"""
+                    SELECT a.*, u.full_name AS uploaded_by_name
+                    FROM evidence_attachments a
+                    JOIN users u ON u.id = a.uploaded_by
+                    WHERE a.{column} = ?
+                    ORDER BY a.created_at, a.id
+                    """,
+                    (owner_id,),
+                ).fetchall()
+            result = []
+            for row in rows:
+                item = self._public_row(row)
+                events = conn.execute(
+                    """
+                    SELECT event.event_type, event.note, event.created_at,
+                           actor.full_name AS actor_name
+                    FROM evidence_attachment_events event
+                    LEFT JOIN users actor ON actor.id = event.actor_id
+                    WHERE event.attachment_id = ?
+                    ORDER BY event.id
+                    """,
+                    (row["id"],),
+                ).fetchall()
+                item["history"] = [
+                    {
+                        "event_type": event["event_type"],
+                        "note": event["note"],
+                        "actor_name": event["actor_name"] or "System",
+                        "created_at": event["created_at"],
+                    }
+                    for event in events
+                ]
+                result.append(item)
+            return result
+        finally:
+            conn.close()
+
+    def read_attachment(self, user_id, attachment_id) -> dict:
+        conn = self.db.connect()
+        try:
+            row = conn.execute(
+                """SELECT a.*, u.full_name AS uploaded_by_name
+                   FROM evidence_attachments a JOIN users u ON u.id = a.uploaded_by
+                   WHERE a.id = ?""",
+                (attachment_id,),
+            ).fetchone()
+            if not row:
+                raise AppError("Evidence attachment not found.", 404)
+            attachment = dict(row)
+            owner_id = attachment["case_id"] or attachment["session_id"] or attachment["script_id"]
+            self._authorize_owner(conn, user_id, attachment["owner_type"], owner_id)
+        finally:
+            conn.close()
+        if attachment["scan_status"] != "CLEAN":
+            raise AppError("This file is not available for download until a clean malware scan has completed.", 409)
+        target = self._storage_path(attachment["storage_key"])
+        try:
+            stored = self._read_private_file(target)
+        except FileNotFoundError:
+            self._mark_corrupt(user_id, attachment, hashlib.sha256(b"").hexdigest(),
+                               "Private evidence file is missing from storage.")
+            raise AppError("Evidence integrity check failed. The missing file has been marked CORRUPT.", 409)
+        except ValueError as exc:
+            self._mark_corrupt(user_id, attachment, hashlib.sha256(b"").hexdigest(),
+                               f"Private evidence object is unsafe or invalid: {exc}")
+            raise AppError("Evidence integrity check failed. The unsafe file has been marked CORRUPT.", 409)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                self._mark_corrupt(user_id, attachment, hashlib.sha256(b"").hexdigest(),
+                                   "Private evidence object is a symlink and is not permitted.")
+                raise AppError("Evidence integrity check failed. The unsafe file has been marked CORRUPT.", 409)
+            raise AppError("Private evidence storage is unavailable. Contact an administrator.", 503)
+        try:
+            payload = self._decrypt_payload(attachment, stored)
+        except AppError:
+            raise
+        except (InvalidTag, ValueError):
+            self._mark_corrupt(user_id, attachment, hashlib.sha256(stored).hexdigest(),
+                               "Stored evidence failed authenticated decryption.")
+            raise AppError("Evidence integrity check failed. The file has been quarantined.", 409)
+        digest = hashlib.sha256(payload).hexdigest()
+        if len(payload) != attachment["byte_size"] or not hmac.compare_digest(digest, attachment["sha256"]):
+            self._mark_corrupt(user_id, attachment, digest,
+                               "Stored evidence failed its SHA-256 integrity check.")
+            raise AppError("Evidence integrity check failed. The file has been quarantined.", 409)
+        result = self._public_row(attachment)
+        result["filename"] = attachment["original_name"]
+        result["media_type"] = attachment["media_type"]
+        result["content"] = payload
+        return result
+
+    def rescan(self, user_id, attachment_id) -> dict:
+        self.app.require_role(user_id, {"admin"})
+        conn = self.db.connect()
+        try:
+            row = conn.execute("SELECT * FROM evidence_attachments WHERE id = ?", (attachment_id,)).fetchone()
+            if not row:
+                raise AppError("Evidence attachment not found.", 404)
+            attachment = dict(row)
+        finally:
+            conn.close()
+        target = self._storage_path(attachment["storage_key"])
+        try:
+            stored = self._read_private_file(target)
+        except FileNotFoundError:
+            self._mark_corrupt(user_id, attachment, hashlib.sha256(b"").hexdigest(),
+                               "Private evidence file is missing from storage during rescan.")
+            raise AppError("Evidence integrity check failed. The missing file has been marked CORRUPT.", 409)
+        except ValueError as exc:
+            self._mark_corrupt(user_id, attachment, hashlib.sha256(b"").hexdigest(),
+                               f"Private evidence object is unsafe or invalid during rescan: {exc}")
+            raise AppError("Evidence integrity check failed. The unsafe file has been marked CORRUPT.", 409)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                self._mark_corrupt(user_id, attachment, hashlib.sha256(b"").hexdigest(),
+                                   "Private evidence object is a symlink and is not permitted during rescan.")
+                raise AppError("Evidence integrity check failed. The unsafe file has been marked CORRUPT.", 409)
+            raise AppError("Private evidence storage is unavailable. Contact an administrator.", 503)
+        try:
+            payload = self._decrypt_payload(attachment, stored)
+        except AppError:
+            raise
+        except (InvalidTag, ValueError):
+            self._mark_corrupt(user_id, attachment, hashlib.sha256(stored).hexdigest(),
+                               "Stored evidence failed authenticated decryption during rescan.")
+            raise AppError("Evidence integrity check failed. The file has been quarantined.", 409)
+        digest = hashlib.sha256(payload).hexdigest()
+        if len(payload) != attachment["byte_size"] or not hmac.compare_digest(digest, attachment["sha256"]):
+            self._mark_corrupt(user_id, attachment, digest,
+                               "Stored evidence failed its SHA-256 integrity check during rescan.")
+            raise AppError("Evidence integrity check failed. The file has been quarantined.", 409)
+        status, engine, detail = self._scan_payload(payload)
+        now = utc_now()
+        with self.db.transaction() as conn:
+            conn.execute(
+                """UPDATE evidence_attachments
+                   SET scan_status = ?, scan_engine = ?, scan_detail = ?, scanned_at = ?
+                   WHERE id = ?""",
+                (status, engine, detail, now if status != "QUARANTINED" else None, attachment_id),
+            )
+            self._event(conn, attachment_id, "SCAN_RETRIED", user_id, detail,
+                        {"scan_status": status, "scan_engine": engine}, now)
+            self._event(conn, attachment_id, self._scan_event(status), user_id, detail,
+                        {"scan_status": status, "scan_engine": engine}, now)
+            self.app._audit(conn, "EVIDENCE_ATTACHMENT", attachment_id, user_id,
+                            "ATTACHMENT_RESCANNED", {"scan_status": status, "scan_engine": engine})
+        return {"id": attachment_id, "scan_status": status, "scan_engine": engine, "scan_detail": detail}
