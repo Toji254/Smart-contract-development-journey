@@ -514,7 +514,7 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(result["created"], 1)
         self.assertEqual(result["enrolled"], 1)
         self.assertEqual(len(result["errors"]), 1)
-        self.assertIn("reg_number and full_name are required", result["errors"][0])
+        self.assertIn("reg_number is required", result["errors"][0])
 
         conn = self.db.connect()
         try:
@@ -576,10 +576,30 @@ class MarkTrailTests(unittest.TestCase):
             conn.close()
         self.assertEqual([row["must_change_password"] for row in account_flags], [1, 1])
 
-    def test_bulk_enroll_rejects_missing_headers(self):
-        with self.assertRaisesRegex(AppError, "reg_number.*full_name"):
-            self.service.admin_bulk_enroll_csv(
+    def test_bulk_enroll_existing_student_by_registration_without_name_or_end_date(self):
+            result = self.service.admin_bulk_enroll_csv(
                 self.admin["id"],
+                "course-csc201",
+                "reg_number,full_name\nSCT/001/2025,\n",
+            )
+
+            self.assertEqual(result["enrolled"], 0)
+            self.assertEqual(result["created"], 0)
+            self.assertEqual(result["skipped"], 1)
+            self.assertEqual(result["errors"], [])
+
+    def test_bulk_enroll_new_student_requires_name_and_end_date(self):
+            with self.assertRaisesRegex(AppError, "full_name is required to create a new student account"):
+                self.service.admin_bulk_enroll_csv(
+                    self.admin["id"],
+                    "course-csc201",
+                    "reg_number,full_name\nREG/2026/001,\n",
+                )
+
+    def test_bulk_enroll_rejects_missing_headers(self):
+            with self.assertRaisesRegex(AppError, "reg_number.*full_name"):
+                self.service.admin_bulk_enroll_csv(
+                    self.admin["id"],
                 "course-csc201",
                 "registration_number,mark\nSCT/011/2026,20\n",
                 access_until="2027-10-23",

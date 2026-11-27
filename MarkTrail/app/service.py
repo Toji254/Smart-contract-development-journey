@@ -4731,8 +4731,8 @@ class AppService:
                 continue
             reg = (row.get(reg_col) or "").strip()
             full = (row.get(name_col) or "").strip()
-            if not reg or not full:
-                errors.append(f"Row {index}: reg_number and full_name are required.")
+            if not reg:
+                errors.append(f"Row {index}: reg_number is required.")
                 continue
             uname = (
                 (row.get(username_col) or "").strip()
@@ -4760,7 +4760,7 @@ class AppService:
                 with self.db.transaction() as tx:
                     matches = tx.execute(
                         """
-                        SELECT id, username, reg_number, role, active, access_until
+                        SELECT id, username, reg_number, full_name, role, active, access_until
                         FROM users WHERE reg_number = ? OR username = ?
                         """,
                         (reg, uname),
@@ -4794,8 +4794,15 @@ class AppService:
                                 f"Row {index}: username {uname!r} belongs to a different registration."
                             )
                             continue
+                        if not full:
+                            full = existing["full_name"]
                         student_id = int(existing["id"])
                     else:
+                        if not full:
+                            errors.append(
+                                f"Row {index}: full_name is required to create a new student account."
+                            )
+                            continue
                         if access_until is None:
                             errors.append(
                                 f"Row {index}: provide a graduation or access end date for new students."

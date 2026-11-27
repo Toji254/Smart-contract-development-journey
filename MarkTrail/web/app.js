@@ -2797,6 +2797,9 @@ $("#bulk-enroll-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = new FormData(event.target);
   bulkActivationCredentials = [];
+  const resultPanel = $("#bulk-enroll-result");
+  resultPanel.classList.add("hidden");
+  resultPanel.replaceChildren();
   $("#bulk-enroll-credentials").classList.add("hidden");
   $("#bulk-enroll-credentials-list").replaceChildren();
   try {
@@ -2807,7 +2810,24 @@ $("#bulk-enroll-form").addEventListener("submit", async (event) => {
         access_until: form.get("access_until")
       })
     });
-    toast("Enrolled " + result.enrolled + " students, created " + result.created + " accounts, skipped " + result.skipped + ".");
+    const summary = document.createElement("p");
+    summary.textContent =
+      "Finished: " + result.enrolled + " enrolled, " +
+      result.created + " accounts created, " +
+      result.skipped + " already enrolled.";
+    resultPanel.appendChild(summary);
+    if (result.errors.length) {
+      const errorHeading = document.createElement("strong");
+      errorHeading.textContent = "Some rows need attention:";
+      const errorList = document.createElement("ul");
+      for (const error of result.errors) {
+        const item = document.createElement("li");
+        item.textContent = error;
+        errorList.appendChild(item);
+      }
+      resultPanel.append(errorHeading, errorList);
+    }
+    resultPanel.classList.remove("hidden");
     bulkActivationCredentials = result.credentials || [];
     if (bulkActivationCredentials.length) {
       const rows = bulkActivationCredentials.map((credential) => {
@@ -2829,7 +2849,10 @@ $("#bulk-enroll-form").addEventListener("submit", async (event) => {
     event.target.reset();
     await loadAdmin();
     await loadDashboard();
+    showView("setup");
   } catch (error) {
+    resultPanel.textContent = error.message;
+    resultPanel.classList.remove("hidden");
     toast(error.message, "error");
   }
 });

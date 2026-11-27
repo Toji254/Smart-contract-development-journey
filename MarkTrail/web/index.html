@@ -579,15 +579,16 @@
           <div class="card">
             <div class="card-head">
               <h3>Bulk enroll from CSV</h3>
-              <p class="muted">CSV: <code>reg_number,full_name</code></p>
+              <p class="muted">CSV: <code>reg_number,full_name</code>. Existing students can be matched by registration number without a name; new accounts need a full name.</p>
             </div>
             <form id="bulk-enroll-form" class="stack">
               <select name="course_id" id="bulk-enroll-course" required></select>
-              <label>Graduation / access end date for new students<input name="access_until" type="date" required></label>
-              <textarea name="csv" class="code-input" rows="5" placeholder="reg_number,full_name&#10;SCT/003/2025,Alice Wanjiku&#10;SCT/004/2025,David Kamau"></textarea>
-              <p class="muted">New accounts receive unique one-time passwords. Download them once and deliver each through your institution's approved secure channel. Students must change the password at first sign-in.</p>
+              <label>Graduation / access end date for new students<input name="access_until" type="date"></label>
+              <textarea name="csv" class="code-input" rows="5" required placeholder="reg_number,full_name&#10;SCT/003/2025,Alice Wanjiku&#10;SCT/004/2025,David Kamau"></textarea>
+              <p class="muted">A name and access end date are required only when creating a new student account. New accounts receive unique one-time passwords; download the activation list and deliver it securely. Students must change their password at first sign-in.</p>
               <button class="button primary">Bulk enroll</button>
             </form>
+            <div id="bulk-enroll-result" class="preview bulk-enroll-result hidden" role="status" aria-live="polite"></div>
             <div id="bulk-enroll-credentials" class="stack hidden" aria-live="polite">
               <p class="muted">These activation passwords are shown only in this response. Save and distribute them securely; they cannot be retrieved later.</p>
               <div class="table-wrap">
@@ -628,7 +629,7 @@
           </div>
         </div>
 
-        <div class="split">
+        <div class="split admin-directory-split">
           <div>
             <div class="section-head compact">
               <div>
