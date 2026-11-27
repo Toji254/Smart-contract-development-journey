@@ -14,6 +14,14 @@ Anvil prints test accounts and private keys. Use only those local development ke
 
 ## 2. Build the contract
 
+From the outer repository root, initialize the pinned OpenZeppelin dependency:
+
+~~~bash
+git submodule update --init --recursive
+~~~
+
+Then build from the MarkTrail directory:
+
 ~~~bash
 cd MarkTrail
 forge build
@@ -24,10 +32,18 @@ forge build
 Use one Anvil account as the owner and chain relayer.
 
 ~~~bash
-forge create src/MarkTrailAudit.sol:MarkTrailAudit   --rpc-url http://127.0.0.1:8545   --private-key YOUR_ANVIL_PRIVATE_KEY
+forge create src/MarkTrailAudit.sol:MarkTrailAudit \
+  --rpc-url http://127.0.0.1:8545 \
+  --private-key YOUR_ANVIL_PRIVATE_KEY \
+  --broadcast
 ~~~
 
 Copy the deployed contract address.
+
+Ownership transfers are two-step. The current owner calls `transferOwnership(NEW_OWNER)`;
+the proposed owner must then call `acceptOwnership()` from its own address before
+administrative control changes. The current owner can cancel a pending transfer by
+calling `transferOwnership(address(0))`.
 
 ## 4. Authorize the relayer
 
@@ -77,9 +93,11 @@ on-chain commitment
     ↓
 CONFIRMED
     ↓
-reviewer verification
+department reviewer approval
     ↓
-VERIFIED
+exam-office processing
+    ↓
+portal operator imports and publishes
 ~~~
 
 ## Development warning

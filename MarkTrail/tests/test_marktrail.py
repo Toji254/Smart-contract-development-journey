@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import csv
+import base64
+import io
+import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
+import openpyxl
 
-from app.db import Database
+from app.chain import ChainError, bytes32_hash
+from app.db import Database, utc_now, verify_password
 from app.service import AppError, AppService
 
 
@@ -24,6 +32,82 @@ class FakeChain:
         }
 
 
+class RecoverableChain(FakeChain):
+    enabled = True
+
+    def __init__(self):
+        self.revisions = {}
+        self.reasons = {}
+        self.operations = []
+        self.statuses = {}
+        self.metadata = {}
+        self.verify_calls = 0
+        self.transaction_status = "CONFIRMED"
+
+    def get_transaction_status(self, _tx_hash):
+        return self.transaction_status
+
+    def reconcile(self, batch_id, local_revision, local_hash):
+        revisions = self.revisions.get(batch_id, [])
+        chain_hash = revisions[-1] if revisions else None
+        match = (
+            len(revisions) == local_revision
+            and chain_hash is not None
+            and chain_hash.lower() == local_hash.lower()
+        )
+        return {
+            "status": "MATCH" if match else "NOT_ON_CHAIN" if not revisions else "MISMATCH",
+            "match": match,
+            "local_revision": local_revision,
+            "chain_revision": len(revisions),
+            "local_hash": local_hash,
+            "chain_hash": chain_hash,
+        }
+
+    def get_revision_hash(self, batch_id, revision_index):
+        return self.revisions[batch_id][revision_index]
+
+    def get_revision_details(self, batch_id, revision_index):
+        return {
+            "marks_hash": self.revisions[batch_id][revision_index],
+            "reason_hash": self.reasons[batch_id][revision_index],
+        }
+
+    def get_batch_status(self, batch_id):
+        return self.statuses[batch_id]
+
+    def get_batch_details(self, batch_id):
+        return {**self.metadata[batch_id], "status": self.statuses[batch_id]}
+
+    def submit_batch(self, batch_id, course_id, assessment_id, student_count, marks_hash):
+        self.operations.append(("submit", batch_id, marks_hash))
+        self.metadata[batch_id] = {
+            "course_id": bytes32_hash(course_id),
+            "assessment_id": bytes32_hash(assessment_id),
+            "student_count": student_count,
+        }
+        self.revisions[batch_id] = [marks_hash]
+        self.reasons[batch_id] = ["0x" + "00" * 32]
+        self.statuses[batch_id] = 1
+        return "0x" + "11" * 32
+
+    def verify_batch(self, batch_id):
+        self.operations.append(("verify", batch_id))
+        self.verify_calls += 1
+        self.statuses[batch_id] = 2
+        return "0x" + "33" * 32
+
+    def amend_batch(self, batch_id, marks_hash, reason_hash):
+        if self.statuses[batch_id] != 2:
+            raise AssertionError("amendment requires the preceding revision to be verified")
+        self.operations.append(("amend", batch_id, marks_hash, reason_hash))
+        self.revisions[batch_id].append(marks_hash)
+        self.reasons[batch_id].append(reason_hash)
+        self.statuses[batch_id] = 3
+        tx_marker = f"{len(self.revisions[batch_id]):02x}"
+        return "0x" + tx_marker * 32
+
+
 class MarkTrailTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -35,11 +119,23 @@ class MarkTrailTests(unittest.TestCase):
         self.student = conn.execute(
             "SELECT id FROM users WHERE username = 'student'"
         ).fetchone()
+        self.other_student = conn.execute(
+            "SELECT id FROM users WHERE username = 'student2'"
+        ).fetchone()
         self.lecturer = conn.execute(
             "SELECT id FROM users WHERE username = 'lecturer'"
         ).fetchone()
         self.reviewer = conn.execute(
             "SELECT id FROM users WHERE username = 'reviewer'"
+        ).fetchone()
+        self.exam_office = conn.execute(
+            "SELECT id FROM users WHERE username = 'exam_office'"
+        ).fetchone()
+        self.portal_operator = conn.execute(
+            "SELECT id FROM users WHERE username = 'portal_operator'"
+        ).fetchone()
+        self.admin = conn.execute(
+            "SELECT id FROM users WHERE username = 'admin'"
         ).fetchone()
         self.assessment = conn.execute(
             "SELECT id FROM assessments WHERE id = 'assessment-cat2'"
@@ -56,6 +152,708 @@ class MarkTrailTests(unittest.TestCase):
         self.assertIsNone(cat2["mark"])
         self.assertEqual(cat2["batch_status"], "VERIFIED")
 
+    def test_unit_readiness_checks_every_component_without_calculating_a_total(self):
+        student_id = int(self.student["id"])
+        initial = next(
+            item for item in self.service.student_unit_readiness(student_id)
+            if item["course_id"] == "course-csc201"
+        )
+        self.assertGreaterEqual(initial["component_count"], 3)
+        self.assertNotEqual(initial["readiness"], "ALL_COMPONENTS_PUBLISHED")
+        self.assertIsNone(initial["unit_total"])
+
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.transaction() as conn:
+            assessments = conn.execute(
+                """
+                SELECT id, release_policy
+                FROM assessments
+                WHERE course_id = 'course-csc201'
+                ORDER BY created_at, id
+                """
+            ).fetchall()
+            for index, assessment in enumerate(assessments):
+                batch = conn.execute(
+                    "SELECT id FROM batches WHERE assessment_id = ?",
+                    (assessment["id"],),
+                ).fetchone()
+                if batch:
+                    batch_id = batch["id"]
+                    conn.execute(
+                        """
+                        UPDATE batches
+                        SET status = 'VERIFIED', pipeline_stage = 'PUBLISHED',
+                            senate_status = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            "APPROVED" if assessment["release_policy"] == "SENATE" else "NOT_REQUIRED",
+                            batch_id,
+                        ),
+                    )
+                else:
+                    batch_id = "readiness-" + assessment["id"]
+                    conn.execute(
+                        """
+                        INSERT INTO batches
+                        (id, assessment_id, submitted_by, status, student_count,
+                         marks_hash, commitment_salt, revision, chain_state,
+                         submitted_at, verified_by, verified_at, pipeline_stage, senate_status)
+                        VALUES (?, ?, ?, 'VERIFIED', 1, ?, ?, 1, 'LOCAL_ONLY',
+                                ?, ?, ?, 'PUBLISHED', ?)
+                        """,
+                        (
+                            batch_id,
+                            assessment["id"],
+                            int(self.lecturer["id"]),
+                            "0x" + str(index + 1) * 64,
+                            "readiness-test-salt",
+                            now,
+                            int(self.reviewer["id"]),
+                            now,
+                            "APPROVED" if assessment["release_policy"] == "SENATE" else "NOT_REQUIRED",
+                        ),
+                    )
+
+                existing_mark = conn.execute(
+                    """
+                    SELECT 1 FROM assessment_marks
+                    WHERE assessment_id = ? AND student_id = ?
+                    """,
+                    (assessment["id"], student_id),
+                ).fetchone()
+                if existing_mark:
+                    conn.execute(
+                        """
+                        UPDATE assessment_marks
+                        SET candidate_mark = 12, candidate_status = 'RECORDED',
+                            published_mark = 12, published_status = 'RECORDED',
+                            batch_id = ?, updated_at = ?
+                        WHERE assessment_id = ? AND student_id = ?
+                        """,
+                        (batch_id, now, assessment["id"], student_id),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO assessment_marks
+                        (assessment_id, student_id, candidate_mark, candidate_status,
+                         published_mark, published_status, batch_id, updated_at)
+                        VALUES (?, ?, 12, 'RECORDED', 12, 'RECORDED', ?, ?)
+                        """,
+                        (assessment["id"], student_id, batch_id, now),
+                    )
+
+        ready = next(
+            item for item in self.service.student_unit_readiness(student_id)
+            if item["course_id"] == "course-csc201"
+        )
+        self.assertEqual(ready["readiness"], "ALL_COMPONENTS_PUBLISHED")
+        self.assertEqual(ready["complete_component_count"], ready["component_count"])
+        self.assertEqual(ready["numeric_component_count"], ready["component_count"])
+        self.assertIsNone(ready["unit_total"])
+        self.assertTrue(all(component["status"] == "RECORDED" for component in ready["components"]))
+
+        no_mark_assessment = ready["components"][0]["assessment_id"]
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE assessment_marks
+                SET candidate_mark = NULL, candidate_status = 'NO_MARK',
+                    published_mark = NULL, published_status = 'NO_MARK'
+                WHERE assessment_id = ? AND student_id = ?
+                """,
+                (no_mark_assessment, student_id),
+            )
+        no_mark = next(
+            item for item in self.service.student_unit_readiness(student_id)
+            if item["course_id"] == "course-csc201"
+        )
+        self.assertEqual(no_mark["readiness"], "OFFICIAL_NO_MARK_OUTCOME")
+        self.assertEqual(no_mark["complete_component_count"], no_mark["component_count"])
+        self.assertLess(no_mark["numeric_component_count"], no_mark["component_count"])
+
+        missing_assessment = ready["components"][-1]["assessment_id"]
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE assessment_marks
+                SET candidate_mark = NULL, candidate_status = 'MISSING',
+                    published_mark = NULL, published_status = 'MISSING'
+                WHERE assessment_id = ? AND student_id = ?
+                """,
+                (missing_assessment, student_id),
+            )
+        missing = next(
+            item for item in self.service.student_unit_readiness(student_id)
+            if item["course_id"] == "course-csc201"
+        )
+        self.assertEqual(missing["readiness"], "MISSING_COMPONENTS")
+        self.assertLess(missing["complete_component_count"], missing["component_count"])
+        self.assertIsNone(missing["unit_total"])
+
+    def test_staff_unit_completeness_is_scoped_and_never_returns_mark_values(self):
+        lecturer_id = int(self.lecturer["id"])
+        admin_id = int(self.admin["id"])
+        reviewer_id = int(self.reviewer["id"])
+
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO courses (id, code, title, lecturer_id, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                ("course-reviewer-owned", "REV 101", "Reviewer-owned course", reviewer_id, utc_now()),
+            )
+
+        lecturer_view = self.service.staff_unit_completeness(lecturer_id)
+        admin_view = self.service.staff_unit_completeness(admin_id)
+
+        self.assertEqual(lecturer_view["scope"], "ASSIGNED_COURSES")
+        self.assertEqual(admin_view["scope"], "ALL_COURSES")
+        self.assertIn(
+            "course-csc201",
+            {course["course_id"] for course in lecturer_view["courses"]},
+        )
+        self.assertNotIn(
+            "course-reviewer-owned",
+            {course["course_id"] for course in lecturer_view["courses"]},
+        )
+        self.assertIn(
+            "course-reviewer-owned",
+            {course["course_id"] for course in admin_view["courses"]},
+        )
+        self.assertFalse(lecturer_view["mark_values_included"])
+        self.assertIsNone(lecturer_view.get("unit_total"))
+
+        csc201 = next(
+            course for course in lecturer_view["courses"]
+            if course["course_id"] == "course-csc201"
+        )
+        self.assertGreater(csc201["assessment_count"], 0)
+        self.assertGreater(csc201["student_count"], 0)
+        self.assertEqual(
+            csc201["counts"]["components"],
+            sum(item["counts"]["total"] for item in csc201["assessments"]),
+        )
+        for assessment in csc201["assessments"]:
+            self.assertEqual(
+                assessment["counts"]["total"],
+                len(assessment["students"]),
+            )
+            for candidate in assessment["students"]:
+                self.assertIn("full_name", candidate)
+                self.assertIn("status", candidate)
+                self.assertNotIn("candidate_mark", candidate)
+                self.assertNotIn("published_mark", candidate)
+                self.assertNotIn("mark", candidate)
+
+        with self.assertRaises(AppError) as student_error:
+            self.service.staff_unit_completeness(int(self.student["id"]))
+        self.assertEqual(student_error.exception.status, 403)
+
+        with self.assertRaises(AppError) as reviewer_error:
+            self.service.staff_unit_completeness(reviewer_id)
+        self.assertEqual(reviewer_error.exception.status, 403)
+
+    def test_staff_unit_completeness_distinguishes_official_no_mark_outcome(self):
+        now = utc_now()
+        lecturer_id = int(self.lecturer["id"])
+        student_id = int(self.student["id"])
+        reviewer_id = int(self.reviewer["id"])
+
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO courses (id, code, title, lecturer_id, created_at)
+                VALUES ('course-no-mark', 'NMRK 101', 'Official no-mark test', ?, ?)
+                """,
+                (lecturer_id, now),
+            )
+            conn.execute(
+                """
+                INSERT INTO enrollments (course_id, student_id, created_at)
+                VALUES ('course-no-mark', ?, ?)
+                """,
+                (student_id, now),
+            )
+            conn.execute(
+                """
+                INSERT INTO assessments
+                    (id, course_id, name, max_mark, release_policy, created_at)
+                VALUES ('assessment-no-mark', 'course-no-mark', 'Final assessment',
+                        100, 'DIRECT', ?)
+                """,
+                (now,),
+            )
+            conn.execute(
+                """
+                INSERT INTO batches
+                    (id, assessment_id, submitted_by, status, student_count,
+                     marks_hash, commitment_salt, revision, chain_state, submitted_at,
+                     verified_by, verified_at, pipeline_stage, senate_status)
+                VALUES
+                    ('batch-no-mark', 'assessment-no-mark', ?, 'VERIFIED', 1,
+                     ?, 'test-salt', 1, 'LOCAL_ONLY', ?, ?, ?, 'PUBLISHED',
+                     'NOT_REQUIRED')
+                """,
+                (
+                    lecturer_id,
+                    "0x" + "ab" * 32,
+                    now,
+                    reviewer_id,
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO assessment_marks
+                    (assessment_id, student_id, candidate_mark, candidate_status,
+                     published_mark, published_status, batch_id, updated_at)
+                VALUES
+                    ('assessment-no-mark', ?, NULL, 'NO_MARK', NULL, 'NO_MARK',
+                     'batch-no-mark', ?)
+                """,
+                (student_id, now),
+            )
+
+        view = self.service.staff_unit_completeness(lecturer_id)
+        course = next(
+            item for item in view["courses"]
+            if item["course_id"] == "course-no-mark"
+        )
+        self.assertEqual(course["readiness"], "OFFICIAL_NO_MARK_OUTCOME")
+        self.assertEqual(course["counts"]["components"], 1)
+        self.assertEqual(course["counts"]["complete"], 1)
+        self.assertEqual(course["counts"]["numeric"], 0)
+        self.assertEqual(course["counts"]["no_mark"], 1)
+        self.assertEqual(course["assessments"][0]["counts"]["no_mark"], 1)
+
+    def test_admin_can_schedule_expiry_and_disable_user_access(self):
+        student_id = int(self.student["id"])
+        tomorrow = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+        self.service.admin_update_user_access(
+            int(self.admin["id"]), student_id, True, tomorrow
+        )
+        user = next(
+            row for row in self.service.admin_users(int(self.admin["id"]))
+            if row["id"] == student_id
+        )
+        self.assertEqual(user["access_until"], tomorrow)
+
+        session_id = self.db.create_session(student_id)
+        self.service.admin_update_user_access(
+            int(self.admin["id"]), student_id, False, tomorrow
+        )
+        self.assertIsNone(self.db.get_session_user(session_id))
+
+    def test_admin_cannot_disable_or_expire_own_access(self):
+        admin_id = int(self.admin["id"])
+        with self.assertRaisesRegex(AppError, "cannot disable or expire your own"):
+            self.service.admin_update_user_access(admin_id, admin_id, False, None)
+        with self.assertRaisesRegex(AppError, "cannot disable or expire your own"):
+            self.service.admin_update_user_access(admin_id, admin_id, True, "2000-01-01")
+
+    def test_last_usable_admin_cannot_schedule_a_future_lockout(self):
+        admin_id = int(self.admin["id"])
+        tomorrow = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+        backup = self.service.admin_create_user(
+            admin_id,
+            "backup-admin",
+            "Backup Admin",
+            "admin",
+            "temporary-admin-pass",
+        )
+        six_months = (datetime.now(timezone.utc).date() + timedelta(days=180)).isoformat()
+        self.service.admin_update_user_access(
+            admin_id, backup["id"], True, six_months
+        )
+
+        with self.assertRaisesRegex(AppError, "without an active, unexpired administrator"):
+            self.service.admin_update_user_access(
+                admin_id, admin_id, True, tomorrow
+            )
+
+    def test_admin_create_user_accepts_access_end_date(self):
+        access_until = (datetime.now(timezone.utc).date() + timedelta(days=365)).isoformat()
+        created = self.service.admin_create_user(
+            int(self.admin["id"]),
+            "new-student",
+            "New Student",
+            "student",
+            "temporary-pass",
+            "SCT/999/2026",
+            access_until,
+        )
+        user = next(
+            row for row in self.service.admin_users(int(self.admin["id"]))
+            if row["id"] == created["id"]
+        )
+        self.assertEqual(user["access_until"], access_until)
+
+    def test_admin_cannot_create_student_without_graduation_date(self):
+        with self.assertRaisesRegex(AppError, "require a graduation or access end date"):
+            self.service.admin_create_user(
+                int(self.admin["id"]),
+                "student-no-end-date",
+                "Student Without End Date",
+                "student",
+                "temporary-pass",
+            )
+
+    def test_bulk_enroll_parses_its_own_csv_and_allows_partial_success(self):
+        access_until = (datetime.now(timezone.utc).date() + timedelta(days=365)).isoformat()
+        result = self.service.admin_bulk_enroll_csv(
+            self.admin["id"],
+            "course-csc201",
+            "reg_number,full_name,username\n"
+            "SCT/010/2026,New Student,new-student\n"
+            ",Missing Registration,missing-reg\n",
+            access_until=access_until,
+        )
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(result["enrolled"], 1)
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("reg_number is required", result["errors"][0])
+
+        conn = self.db.connect()
+        try:
+            student = conn.execute(
+                "SELECT access_until FROM users WHERE username = 'new-student'"
+            ).fetchone()
+            enrollment = conn.execute(
+                """
+                SELECT 1 FROM enrollments e JOIN users u ON u.id = e.student_id
+                WHERE e.course_id = 'course-csc201' AND u.username = 'new-student'
+                """
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(student["access_until"], access_until)
+        self.assertIsNotNone(enrollment)
+        credential = result["credentials"][0]
+        self.assertEqual(credential["username"], "new-student")
+        conn = self.db.connect()
+        try:
+            account = conn.execute(
+                "SELECT password_salt, password_hash FROM users WHERE username = 'new-student'"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertTrue(
+            verify_password(
+                credential["activation_password"],
+                account["password_salt"],
+                account["password_hash"],
+            )
+        )
+
+    def test_bulk_enroll_generates_unique_one_time_passwords(self):
+        access_until = (datetime.now(timezone.utc).date() + timedelta(days=365)).isoformat()
+        result = self.service.admin_bulk_enroll_csv(
+            self.admin["id"],
+            "course-csc201",
+            "reg_number,full_name\n"
+            "SCT/020/2026,First New Student\n"
+            "SCT/021/2026,Second New Student\n",
+            access_until=access_until,
+        )
+
+        passwords = [item["activation_password"] for item in result["credentials"]]
+        self.assertEqual(len(passwords), 2)
+        self.assertNotEqual(passwords[0], passwords[1])
+        self.assertGreaterEqual(len(passwords[0]), 32)
+        conn = self.db.connect()
+        try:
+            account_flags = conn.execute(
+                """
+                SELECT must_change_password FROM users
+                WHERE username IN ('sct-020-2026', 'sct-021-2026')
+                ORDER BY username
+                """
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual([row["must_change_password"] for row in account_flags], [1, 1])
+
+    def test_bulk_enroll_existing_student_by_registration_without_name_or_end_date(self):
+            result = self.service.admin_bulk_enroll_csv(
+                self.admin["id"],
+                "course-csc201",
+                "reg_number,full_name\nSCT/001/2025,\n",
+            )
+
+            self.assertEqual(result["enrolled"], 0)
+            self.assertEqual(result["created"], 0)
+            self.assertEqual(result["skipped"], 1)
+            self.assertEqual(result["errors"], [])
+
+    def test_bulk_enroll_new_student_requires_name_and_end_date(self):
+            with self.assertRaisesRegex(AppError, "full_name is required to create a new student account"):
+                self.service.admin_bulk_enroll_csv(
+                    self.admin["id"],
+                    "course-csc201",
+                    "reg_number,full_name\nREG/2026/001,\n",
+                )
+
+    def test_bulk_enroll_rejects_missing_headers(self):
+            with self.assertRaisesRegex(AppError, "reg_number.*full_name"):
+                self.service.admin_bulk_enroll_csv(
+                    self.admin["id"],
+                "course-csc201",
+                "registration_number,mark\nSCT/011/2026,20\n",
+                access_until="2027-10-23",
+            )
+
+    def test_bulk_enroll_rejects_duplicate_registrations_in_csv(self):
+        access_until = (datetime.now(timezone.utc).date() + timedelta(days=365)).isoformat()
+        result = self.service.admin_bulk_enroll_csv(
+            self.admin["id"],
+            "course-csc201",
+            "reg_number,full_name\n"
+            "SCT/012/2026,First Student\n"
+            "SCT/012/2026,Duplicate Student\n",
+            access_until=access_until,
+        )
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(result["enrolled"], 1)
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("duplicate registration number", result["errors"][0])
+
+    def test_bulk_enroll_does_not_enroll_expired_existing_account(self):
+        yesterday = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE users SET access_until = ? WHERE id = ?",
+                (yesterday, self.student["id"]),
+            )
+        with self.assertRaisesRegex(AppError, "not an active student"):
+            self.service.admin_bulk_enroll_csv(
+                self.admin["id"],
+                "course-csc201",
+                "reg_number,full_name\nSCT/001/2025,Existing Student\n",
+            )
+
+    def test_pipeline_audit_shows_owner_and_each_handoff_duration(self):
+        conn = self.db.connect()
+        batch = conn.execute(
+            "SELECT id FROM batches WHERE assessment_id = 'assessment-cat1'"
+        ).fetchone()
+        conn.close()
+
+        pipeline = self.service.batch_pipeline(self.student["id"], batch["id"])
+
+        self.assertEqual(pipeline["current_stage"], "PUBLISHED")
+        self.assertEqual(pipeline["current_owner"], "Published to students")
+        self.assertEqual(
+            [stage["owner"] for stage in pipeline["stages"]],
+            [
+                "Department / reviewer",
+                "Exam office",
+                "Portal operator",
+            ],
+        )
+        self.assertTrue(all(stage["duration_seconds"] >= 0 for stage in pipeline["stages"]))
+        self.assertEqual(
+            pipeline["stages"][0]["completed_by"],
+            "Prof. Grace Wambui",
+        )
+
+    def test_student_notifications_are_private_and_can_be_marked_read(self):
+        report_id = self.service.report_missing_mark(
+            self.student["id"], self.assessment["id"]
+        )["id"]
+        self.service.reject_report(
+            self.lecturer["id"], report_id, "Please check the answer script."
+        )
+
+        notifications = self.service.student_notifications(self.student["id"])
+        self.assertEqual(len(notifications), 1)
+        self.assertEqual(notifications[0]["event_type"], "REPORT_REJECTED")
+        self.assertEqual(
+            self.service.student_notifications(self.other_student["id"]),
+            [],
+        )
+        with self.assertRaises(AppError) as error:
+            self.service.mark_notification_read(
+                self.other_student["id"], notifications[0]["id"]
+            )
+        self.assertEqual(error.exception.status, 404)
+
+        result = self.service.mark_notification_read(
+            self.student["id"], notifications[0]["id"]
+        )
+        self.assertTrue(result["read"])
+        self.assertIsNotNone(
+            self.service.student_notifications(self.student["id"])[0]["read_at"]
+        )
+
+    def test_student_audit_csv_escapes_formulas_and_omits_mark_history(self):
+        conn = self.db.connect()
+        batch = conn.execute(
+            "SELECT id FROM batches WHERE assessment_id = 'assessment-cat1'"
+        ).fetchone()
+        conn.close()
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE batches SET chain_tx_hash = '＝1+1' WHERE id = ?",
+                (batch["id"],),
+            )
+
+        report = self.service.batch_report_csv(self.student["id"], batch["id"])
+        rows = list(csv.reader(io.StringIO(report)))
+        self.assertIn(["chain_tx_hash", "'＝1+1"], rows)
+        self.assertFalse(any("Student ID" in cell for row in rows for cell in row))
+
+    def test_csv_cell_sanitizer_handles_ascii_unicode_and_whitespace_prefixes(self):
+        dangerous = [
+            "=1+1",
+            "+1+1",
+            "-1+1",
+            "@SUM(A1:A2)",
+            "\t=1+1",
+            "\r=1+1",
+            "\n=1+1",
+            " \t=1+1",
+            "＝1+1",
+            "＋1+1",
+            "－1+1",
+            "＠SUM(A1:A2)",
+            "\u200b=1+1",
+        ]
+        for value in dangerous:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    self.service._sanitize_csv_cell(value),
+                    "'" + value,
+                )
+        self.assertEqual(self.service._sanitize_csv_cell("ordinary text"), "ordinary text")
+        self.assertEqual(self.service._sanitize_csv_cell(12.5), 12.5)
+
+    def test_student_batch_audit_excludes_salt_and_private_event_notes(self):
+        conn = self.db.connect()
+        batch = conn.execute(
+            "SELECT id FROM batches WHERE assessment_id = 'assessment-cat1'"
+        ).fetchone()
+        conn.close()
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO audit_events
+                (entity_type, entity_id, actor_id, action, metadata_json, created_at)
+                VALUES ('BATCH', ?, ?, 'BATCH_AMENDED', ?, '2026-10-22T12:00:00+00:00')
+                """,
+                (
+                    batch["id"],
+                    self.lecturer["id"],
+                    '{"reason":"private note about another student","report_id":"secret-report"}',
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO batch_revisions
+                (batch_id, revision, marks_hash, reason_hash, kind, actor_id,
+                 chain_state, created_at)
+                VALUES (?, 2, 'marks-hash-2', 'reason-hash-secret',
+                        'AMENDMENT', ?, 'LOCAL_ONLY', '2026-10-22T12:00:00+00:00')
+                """,
+                (batch["id"], self.lecturer["id"]),
+            )
+
+        student_audit = self.service.batch_audit(self.student["id"], batch["id"])
+        self.assertNotIn("commitment_salt", student_audit["batch"])
+        self.assertNotIn("submitted_by", student_audit["batch"])
+        self.assertNotIn("lecturer_id", student_audit["batch"])
+        self.assertNotIn("reason_hash", student_audit["revisions"][-1])
+        self.assertNotIn("actor_id", student_audit["revisions"][-1])
+        student_event = next(
+            event for event in student_audit["events"]
+            if event["action"] == "BATCH_AMENDED"
+        )
+        self.assertEqual(student_event["metadata"], {})
+        self.assertNotIn("actor_id", student_event)
+        self.assertNotIn("metadata_json", student_event)
+
+        staff_audit = self.service.batch_audit(self.reviewer["id"], batch["id"])
+        staff_event = next(
+            event for event in staff_audit["events"]
+            if event["action"] == "BATCH_AMENDED"
+        )
+        self.assertEqual(
+            staff_event["metadata"]["reason"],
+            "private note about another student",
+        )
+
+    def test_only_course_lecturer_can_preview_or_submit_batches(self):
+        forbidden_users = [
+            self.student["id"],
+            self.reviewer["id"],
+            self.exam_office["id"],
+            self.portal_operator["id"],
+        ]
+        for index, user_id in enumerate(forbidden_users, start=3):
+            assessment_id = f"assessment-role-{index}"
+            with self.db.transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO assessments (id, course_id, name, max_mark, created_at)
+                    VALUES (?, 'course-csc201', 'Role test', 20, '2026-10-08T00:00:00+00:00')
+                    """,
+                    (assessment_id,),
+                )
+            with self.subTest(role_user_id=user_id):
+                with self.assertRaises(AppError) as preview_error:
+                    self.service.preview_batch(
+                        user_id, assessment_id, "registration_number,mark\nSCT/001/2025,18\n"
+                    )
+                self.assertEqual(preview_error.exception.status, 403)
+                with self.assertRaises(AppError) as submit_error:
+                    self.service.submit_batch(
+                        user_id, assessment_id, "registration_number,mark\nSCT/001/2025,18\n"
+                    )
+                self.assertEqual(submit_error.exception.status, 403)
+
+    def test_lecturer_cannot_preview_or_submit_for_another_lecturers_course(self):
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO users
+                (username, full_name, role, password_salt, password_hash, created_at)
+                VALUES ('other_lecturer', 'Other Lecturer', 'lecturer', 'salt', 'hash', ?)
+                """,
+                ("2026-10-08T00:00:00+00:00",),
+            )
+            other_lecturer = conn.execute(
+                "SELECT id FROM users WHERE username = 'other_lecturer'"
+            ).fetchone()
+            conn.execute(
+                """
+                INSERT INTO courses (id, code, title, lecturer_id, created_at)
+                VALUES ('course-other', 'CSC 999', 'Other course', ?, ?)
+                """,
+                (other_lecturer["id"], "2026-10-08T00:00:00+00:00"),
+            )
+            conn.execute(
+                """
+                INSERT INTO assessments (id, course_id, name, max_mark, release_policy, created_at)
+                VALUES ('assessment-other', 'course-other', 'Exam', 20, 'DIRECT', ?)
+                """,
+                ("2026-10-08T00:00:00+00:00",),
+            )
+
+        for operation in (
+            self.service.preview_batch,
+            self.service.submit_batch,
+        ):
+            with self.subTest(operation=operation.__name__):
+                with self.assertRaises(AppError) as error:
+                    operation(
+                        self.lecturer["id"],
+                        "assessment-other",
+                        "registration_number,mark\nSCT/001/2025,18\n",
+                    )
+                self.assertEqual(error.exception.status, 403)
+
     def test_student_can_open_one_missing_mark_report(self):
         result = self.service.report_missing_mark(
             self.student["id"], self.assessment["id"]
@@ -71,39 +869,738 @@ class MarkTrailTests(unittest.TestCase):
         with self.db.transaction() as conn:
             conn.execute(
                 """
-                INSERT INTO assessments (id, course_id, name, max_mark, created_at)
-                VALUES ('assessment-cat3', 'course-csc201', 'CAT 3', 20,
+                INSERT INTO assessments (id, course_id, name, max_mark, release_policy, created_at)
+                VALUES ('assessment-cat3', 'course-csc201', 'CAT 3', 20, 'DIRECT',
                         '2026-10-08T00:00:00+00:00')
                 """
             )
+
+    def test_new_assessment_creation_requires_explicit_release_policy(self):
+        with self.assertRaisesRegex(AppError, "explicit release policy"):
+            self.service.admin_create_assessment(
+                self.admin["id"],
+                "course-csc201",
+                "Unclassified Assessment",
+                20,
+            )
+
+        created = self.service.admin_create_assessment(
+            self.admin["id"],
+            "course-csc201",
+            "Explicit Direct CAT",
+            20,
+            None,
+            "DIRECT",
+        )
+        conn = self.db.connect()
+        try:
+            policy = conn.execute(
+                "SELECT release_policy FROM assessments WHERE id = ?",
+                (created["id"],),
+            ).fetchone()["release_policy"]
+        finally:
+            conn.close()
+        self.assertEqual(policy, "DIRECT")
+
+    def _create_senate_release_batch(self, assessment_name="Final Exam Senate Test"):
+        assessment = self.service.admin_create_assessment(
+            self.admin["id"],
+            "course-csc201",
+            assessment_name,
+            60,
+            None,
+            "SENATE",
+        )
+        assessment_id = assessment["id"]
+        self.service.submit_batch(
+            self.lecturer["id"],
+            assessment_id,
+            "registration_number,mark\nSCT/001/2025,47\nSCT/002/2025,41\n",
+        )
+        conn = self.db.connect()
+        try:
+            batch = conn.execute(
+                "SELECT id FROM batches WHERE assessment_id = ?",
+                (assessment_id,),
+            ).fetchone()
+            senate = conn.execute(
+                "SELECT id FROM users WHERE username = 'senate_office'"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.service.verify_batch(self.reviewer["id"], batch["id"])
+        return assessment_id, batch["id"], senate["id"]
+
+    def test_senate_final_results_are_hidden_until_approval(self):
+        assessment_id, batch_id, senate_id = self._create_senate_release_batch()
+
+        processed = self.service.process_exam_office_batch(
+            self.exam_office["id"], batch_id
+        )
+        self.assertEqual(processed["pipeline_stage"], "SENATE_APPROVAL")
+        self.assertEqual(processed["senate_status"], "PENDING")
+
+        pipeline = self.service.batch_pipeline(senate_id, batch_id)
+        self.assertEqual(pipeline["current_stage"], "SENATE_APPROVAL")
+        self.assertEqual(pipeline["current_owner"], "University Senate")
+
+        student_marks = self.service.student_marks(self.student["id"])
+        final = next(row for row in student_marks if row["assessment_id"] == assessment_id)
+        self.assertEqual(final["status"], "AWAITING_SENATE_APPROVAL")
+        self.assertEqual(final["pipeline_stage"], "SENATE_APPROVAL")
+        self.assertIsNone(final["mark"])
+        detail = self.service.student_mark_detail(self.student["id"], assessment_id)
+        self.assertEqual(detail["pipeline_stage"], "SENATE_APPROVAL")
+        self.assertEqual(detail["pipeline"]["current_stage"], "SENATE_APPROVAL")
+
+        senate_queue = self.service.senate_batches(senate_id)
+        self.assertEqual([row["id"] for row in senate_queue], [batch_id])
+        self.assertEqual(self.service.portal_batches(self.portal_operator["id"]), [])
+
+        with self.assertRaisesRegex(AppError, "Senate approval for the current marks revision is required"):
+            self.service.publish_portal_batch(self.portal_operator["id"], batch_id)
+
+        with self.assertRaisesRegex(AppError, "permission"):
+            self.service.senate_batches(self.portal_operator["id"])
+
+        decision = self.service.decide_senate_batch(
+            senate_id,
+            batch_id,
+            "APPROVED",
+            "SENATE-2026-MIN-014",
+            "Approved by the University Senate.",
+        )
+        self.assertEqual(decision["senate_status"], "APPROVED")
+        self.assertEqual(len(self.service.portal_batches(self.portal_operator["id"])), 1)
+
+        published = self.service.publish_portal_batch(
+            self.portal_operator["id"], batch_id
+        )
+        self.assertEqual(published["pipeline_stage"], "PUBLISHED")
+        final_after = next(
+            row for row in self.service.student_marks(self.student["id"])
+            if row["assessment_id"] == assessment_id
+        )
+        self.assertEqual(final_after["status"], "RECORDED")
+        self.assertEqual(final_after["mark"], 47)
+
+        student_notifications = self.service.student_notifications(self.student["id"])
+        self.assertTrue(any(item["event_type"] == "SENATE_APPROVED" for item in student_notifications))
+        student_audit = self.service.batch_audit(self.student["id"], batch_id)
+        self.assertEqual(student_audit["senate_decisions"][0]["decision"], "APPROVED")
+        self.assertNotIn("reason", student_audit["senate_decisions"][0])
+        staff_audit = self.service.batch_audit(senate_id, batch_id)
+        self.assertEqual(
+            staff_audit["senate_decisions"][0]["reason"],
+            "Approved by the University Senate.",
+        )
+
+        conn = self.db.connect()
+        try:
+            decisions = conn.execute(
+                "SELECT decision, meeting_reference, revision FROM senate_decisions WHERE batch_id = ?",
+                (batch_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(decisions[0]["decision"], "APPROVED")
+        self.assertEqual(decisions[0]["meeting_reference"], "SENATE-2026-MIN-014")
+        self.assertEqual(decisions[0]["revision"], 1)
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "Senate decision history is append-only"):
+            with self.db.transaction() as conn:
+                conn.execute(
+                    "UPDATE senate_decisions SET reason = 'rewritten' WHERE batch_id = ?",
+                    (batch_id,),
+                )
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "Senate decision history is append-only"):
+            with self.db.transaction() as conn:
+                conn.execute(
+                    "DELETE FROM senate_decisions WHERE batch_id = ?",
+                    (batch_id,),
+                )
+
+    def test_senate_approval_does_not_carry_over_to_a_new_batch_revision(self):
+        _assessment_id, batch_id, senate_id = self._create_senate_release_batch(
+            "Final Exam Revision Change"
+        )
+        self.service.process_exam_office_batch(self.exam_office["id"], batch_id)
+        approval = self.service.decide_senate_batch(
+            senate_id,
+            batch_id,
+            "APPROVED",
+            "SENATE-2026-MIN-021",
+            "Approved original marks batch.",
+        )
+        self.assertEqual(approval["revision"], 1)
+
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE batches SET revision = 2 WHERE id = ?",
+                (batch_id,),
+            )
+        with self.assertRaisesRegex(AppError, "current marks revision"):
+            self.service.publish_portal_batch(self.portal_operator["id"], batch_id)
+
+    def test_senate_deferral_keeps_result_blocked_until_a_later_approval(self):
+        assessment_id, batch_id, senate_id = self._create_senate_release_batch(
+            "Deferred Final Exam"
+        )
+        self.service.process_exam_office_batch(self.exam_office["id"], batch_id)
+
+        with self.assertRaisesRegex(AppError, "meeting or minute reference"):
+            self.service.decide_senate_batch(
+                senate_id, batch_id, "DEFERRED", "x", "Missing moderation documents."
+            )
+        with self.assertRaisesRegex(AppError, "requires an 8-character reason"):
+            self.service.decide_senate_batch(
+                senate_id, batch_id, "DEFERRED", "SENATE-2026-MIN-015", "Fix"
+            )
+
+        deferred = self.service.decide_senate_batch(
+            senate_id,
+            batch_id,
+            "DEFERRED",
+            "SENATE-2026-MIN-015",
+            "Reconcile two moderation discrepancies before approval.",
+        )
+        self.assertEqual(deferred["senate_status"], "DEFERRED")
+        self.assertEqual(self.service.senate_batches(senate_id)[0]["senate_status"], "DEFERRED")
+        self.assertEqual(self.service.portal_batches(self.portal_operator["id"]), [])
+        student = next(
+            row for row in self.service.student_marks(self.student["id"])
+            if row["assessment_id"] == assessment_id
+        )
+        self.assertEqual(student["status"], "SENATE_DEFERRED")
+        self.assertIsNone(student["mark"])
+        notifications = self.service.student_notifications(self.student["id"])
+        deferred_notice = next(
+            item for item in notifications
+            if item["event_type"] == "SENATE_DEFERRED"
+        )
+        self.assertNotIn("Reconcile two moderation discrepancies", deferred_notice["body"])
+        with self.assertRaisesRegex(AppError, "Senate approval for the current marks revision is required"):
+            self.service.publish_portal_batch(self.portal_operator["id"], batch_id)
+
+        approved = self.service.decide_senate_batch(
+            senate_id,
+            batch_id,
+            "APPROVED",
+            "SENATE-2026-MIN-018",
+            "The prior deferral issues have been resolved.",
+        )
+        self.assertEqual(approved["senate_status"], "APPROVED")
+        self.service.publish_portal_batch(self.portal_operator["id"], batch_id)
+
+        conn = self.db.connect()
+        try:
+            decisions = conn.execute(
+                "SELECT decision, decision_number FROM senate_decisions WHERE batch_id = ? ORDER BY decision_number",
+                (batch_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(
+            [(row["decision"], row["decision_number"]) for row in decisions],
+            [("DEFERRED", 1), ("APPROVED", 2)],
+        )
+
+    def test_unclassified_legacy_assessment_is_blocked_until_admin_sets_policy(self):
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO assessments (id, course_id, name, max_mark, created_at)
+                VALUES ('assessment-legacy-policy', 'course-csc201', 'Legacy Final', 60, ?)
+                """,
+                (utc_now(),),
+            )
+        self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-legacy-policy",
+            "registration_number,mark\nSCT/001/2025,46\nSCT/002/2025,40\n",
+        )
+        conn = self.db.connect()
+        try:
+            batch_id = conn.execute(
+                "SELECT id FROM batches WHERE assessment_id = 'assessment-legacy-policy'"
+            ).fetchone()["id"]
+            release_policy = conn.execute(
+                "SELECT release_policy FROM assessments WHERE id = 'assessment-legacy-policy'"
+            ).fetchone()["release_policy"]
+        finally:
+            conn.close()
+        self.assertEqual(release_policy, "UNCLASSIFIED")
+        self.service.verify_batch(self.reviewer["id"], batch_id)
+        with self.assertRaisesRegex(AppError, "unclassified"):
+            self.service.process_exam_office_batch(self.exam_office["id"], batch_id)
+
+        with self.assertRaisesRegex(AppError, "8"):
+            self.service.admin_update_assessment_release_policy(
+                self.admin["id"], "assessment-legacy-policy", "SENATE", "Fix"
+            )
+        updated = self.service.admin_update_assessment_release_policy(
+            self.admin["id"],
+            "assessment-legacy-policy",
+            "SENATE",
+            "Verified against the approved final examination policy.",
+        )
+        self.assertEqual(updated["release_policy"], "SENATE")
+
+        senate_id = int(self.db.connect().execute(
+            "SELECT id FROM users WHERE username = 'senate_office'"
+        ).fetchone()["id"])
+        self.service.process_exam_office_batch(self.exam_office["id"], batch_id)
+        self.service.decide_senate_batch(
+            senate_id,
+            batch_id,
+            "APPROVED",
+            "SENATE-2026-MIN-020",
+            "Legacy assessment policy reviewed and approved.",
+        )
+        self.service.publish_portal_batch(self.portal_operator["id"], batch_id)
 
     def test_lecturer_batch_preview_detects_missing_students(self):
         preview = self.service.preview_batch(
             self.lecturer["id"],
             "assessment-cat2",
-            "student_id,mark\n4,17\n",
+            "registration_number,mark\nSCT/001/2025,17\n",
         )
         self.assertTrue(preview["valid"])
         self.assertEqual(preview["enrolled_count"], 2)
         self.assertEqual(preview["submitted_count"], 1)
         self.assertEqual(preview["missing_count"], 1)
 
+    def test_lecturer_batch_preview_accepts_registration_number_and_marks_headers(self):
+        preview = self.service.preview_batch(
+            self.lecturer["id"],
+            "assessment-cat2",
+            "Registration Number,Marks\nSCT/001/2025,17\nSCT/002/2025,16\n",
+        )
+
+        self.assertTrue(preview["valid"])
+        self.assertEqual(preview["submitted_count"], 2)
+        self.assertEqual(
+            [row["registration_number"] for row in preview["rows"]],
+            ["SCT/001/2025", "SCT/002/2025"],
+        )
+
+    def test_demo_seed_has_an_unsubmitted_assessment_for_lecturer(self):
+        assessments = self.service.lecturer_assessments(self.lecturer["id"])
+        available = [assessment for assessment in assessments if not assessment["batch_id"]]
+
+        self.assertEqual(len(available), 1)
+        self.assertEqual(available[0]["id"], "assessment-demo-upload")
+
+    def test_chain_retry_replays_submission_before_amendment(self):
+        report = self.service.report_missing_mark(
+            self.student["id"], self.assessment["id"]
+        )
+        amendment = self.service.resolve_report(
+            self.lecturer["id"],
+            report["id"],
+            "MARK_ENTERED",
+            17,
+            "Recovered mark from the answer script.",
+        )
+        chain = RecoverableChain()
+        self.service.chain = chain
+
+        result = self.service.retry_chain(self.reviewer["id"], amendment["batch_id"])
+
+        conn = self.db.connect()
+        batch = conn.execute(
+            "SELECT revision, chain_state FROM batches WHERE id = ?",
+            (amendment["batch_id"],),
+        ).fetchone()
+        revisions = conn.execute(
+            """
+            SELECT revision, marks_hash
+            FROM batch_revisions
+            WHERE batch_id = ?
+            ORDER BY revision
+            """,
+            (amendment["batch_id"],),
+        ).fetchall()
+        conn.close()
+
+        self.assertEqual(
+            [operation[0] for operation in chain.operations],
+            ["submit", "verify", "amend"],
+        )
+        self.assertEqual(chain.operations[0][2], revisions[0]["marks_hash"])
+        self.assertEqual(chain.operations[2][2], revisions[1]["marks_hash"])
+        self.assertEqual(batch["revision"], 2)
+        self.assertEqual(batch["chain_state"], "CONFIRMED")
+        self.assertEqual(result["chain_state"], "CONFIRMED")
+
+    def test_chain_retry_does_not_resubmit_a_pending_transaction(self):
+        self._create_fresh_assessment()
+        submitted = self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-cat3",
+            "registration_number,mark\nSCT/001/2025,19\n",
+        )
+        batch_id = submitted["batch_id"]
+        tx_hash = "0x" + "cc" * 32
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE batches SET chain_state = 'PENDING', chain_tx_hash = ?
+                WHERE id = ?
+                """,
+                (tx_hash, batch_id),
+            )
+            conn.execute(
+                """
+                UPDATE batch_revisions
+                SET chain_state = 'PENDING', chain_tx_hash = ?
+                WHERE batch_id = ? AND revision = 1
+                """,
+                (tx_hash, batch_id),
+            )
+
+        chain = RecoverableChain()
+        chain.transaction_status = "PENDING"
+        self.service.chain = chain
+
+        with self.assertRaisesRegex(AppError, "still awaiting confirmation"):
+            self.service.retry_chain(self.reviewer["id"], batch_id)
+
+        conn = self.db.connect()
+        try:
+            batch = conn.execute(
+                "SELECT chain_state, chain_tx_hash FROM batches WHERE id = ?",
+                (batch_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(chain.operations, [])
+        self.assertEqual(batch["chain_state"], "PENDING")
+        self.assertEqual(batch["chain_tx_hash"], tx_hash)
+
+    def test_chain_retry_replays_multiple_missing_revisions_and_updates_each_record(self):
+        self._create_fresh_assessment()
+        submitted = self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-cat3",
+            "registration_number,mark\nSCT/001/2025,19\n",
+        )
+        batch_id = submitted["batch_id"]
+        reason_hashes = [
+            "0x" + "a1" * 32,
+            "0x" + "a2" * 32,
+        ]
+        marks_hashes = [
+            "0x" + "b1" * 32,
+            "0x" + "b2" * 32,
+        ]
+        with self.db.transaction() as conn:
+            for revision, (marks_hash, reason_hash) in enumerate(
+                zip(marks_hashes, reason_hashes), start=2
+            ):
+                conn.execute(
+                    """
+                    INSERT INTO batch_revisions
+                    (batch_id, revision, marks_hash, reason_hash, kind, actor_id,
+                     chain_state, created_at)
+                    VALUES (?, ?, ?, ?, 'AMENDMENT', ?, 'ERROR', ?)
+                    """,
+                    (
+                        batch_id,
+                        revision,
+                        marks_hash,
+                        reason_hash,
+                        self.lecturer["id"],
+                        utc_now(),
+                    ),
+                )
+            conn.execute(
+                """
+                UPDATE batches
+                SET status = 'AMENDED', revision = 3, marks_hash = ?,
+                    chain_state = 'ERROR'
+                WHERE id = ?
+                """,
+                (marks_hashes[-1], batch_id),
+            )
+            conn.execute(
+                """
+                UPDATE batch_revisions
+                SET chain_state = 'ERROR', chain_tx_hash = ?
+                WHERE batch_id = ? AND revision = 1
+                """,
+                ("0x" + "c1" * 32, batch_id),
+            )
+
+        chain = RecoverableChain()
+        conn = self.db.connect()
+        first_hash = conn.execute(
+            "SELECT marks_hash FROM batch_revisions WHERE batch_id = ? AND revision = 1",
+            (batch_id,),
+        ).fetchone()["marks_hash"]
+        conn.close()
+        chain.revisions[batch_id] = [first_hash]
+        chain.reasons[batch_id] = ["0x" + "00" * 32]
+        chain.statuses[batch_id] = 1
+        self.service.chain = chain
+
+        self.service.retry_chain(self.reviewer["id"], batch_id)
+
+        conn = self.db.connect()
+        try:
+            revisions = conn.execute(
+                """
+                SELECT revision, chain_state, chain_tx_hash
+                FROM batch_revisions
+                WHERE batch_id = ?
+                ORDER BY revision
+                """,
+                (batch_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        self.assertEqual([row["chain_state"] for row in revisions], ["CONFIRMED"] * 3)
+        self.assertEqual(revisions[0]["chain_tx_hash"], "0x" + "c1" * 32)
+        self.assertEqual(revisions[1]["chain_tx_hash"], "0x" + "02" * 32)
+        self.assertEqual(revisions[2]["chain_tx_hash"], "0x" + "03" * 32)
+        self.assertEqual(
+            [operation[0] for operation in chain.operations],
+            ["verify", "amend", "verify", "amend"],
+        )
+
+    def test_chain_retry_checkpoints_each_confirmed_revision_before_later_failure(self):
+        self._create_fresh_assessment()
+        submitted = self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-cat3",
+            "registration_number,mark\nSCT/001/2025,19\n",
+        )
+        batch_id = submitted["batch_id"]
+        marks_hashes = ["0x" + "d1" * 32, "0x" + "d2" * 32]
+        with self.db.transaction() as conn:
+            for revision, marks_hash in enumerate(marks_hashes, start=2):
+                conn.execute(
+                    """
+                    INSERT INTO batch_revisions
+                    (batch_id, revision, marks_hash, reason_hash, kind, actor_id,
+                     chain_state, created_at)
+                    VALUES (?, ?, ?, ?, 'AMENDMENT', ?, 'ERROR', ?)
+                    """,
+                    (
+                        batch_id,
+                        revision,
+                        marks_hash,
+                        "0x" + f"{revision:02x}" * 32,
+                        self.lecturer["id"],
+                        utc_now(),
+                    ),
+                )
+            conn.execute(
+                """
+                UPDATE batches SET status = 'AMENDED', revision = 3, marks_hash = ?,
+                    chain_state = 'ERROR'
+                WHERE id = ?
+                """,
+                (marks_hashes[-1], batch_id),
+            )
+
+        class FailingFinalAmendmentChain(RecoverableChain):
+            def amend_batch(self, batch_id, marks_hash, reason_hash):
+                if len([op for op in self.operations if op[0] == "amend"]) == 1:
+                    raise ChainError("simulated later amendment failure")
+                return super().amend_batch(batch_id, marks_hash, reason_hash)
+
+        chain = FailingFinalAmendmentChain()
+        conn = self.db.connect()
+        try:
+            first_hash = conn.execute(
+                "SELECT marks_hash FROM batch_revisions WHERE batch_id = ? AND revision = 1",
+                (batch_id,),
+            ).fetchone()["marks_hash"]
+        finally:
+            conn.close()
+        chain.revisions[batch_id] = [first_hash]
+        chain.reasons[batch_id] = ["0x" + "00" * 32]
+        chain.statuses[batch_id] = 1
+        self.service.chain = chain
+
+        with self.assertRaisesRegex(AppError, "simulated later amendment failure"):
+            self.service.retry_chain(self.reviewer["id"], batch_id)
+
+        conn = self.db.connect()
+        try:
+            revisions = conn.execute(
+                """
+                SELECT revision, chain_state, chain_tx_hash
+                FROM batch_revisions WHERE batch_id = ? ORDER BY revision
+                """,
+                (batch_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(revisions[1]["chain_state"], "CONFIRMED")
+        self.assertEqual(revisions[1]["chain_tx_hash"], "0x" + "02" * 32)
+        self.assertEqual(revisions[2]["chain_state"], "ERROR")
+
+    def test_chain_retry_flags_status_mismatch_instead_of_confirming(self):
+        self._create_fresh_assessment()
+        submitted = self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-cat3",
+            "registration_number,mark\nSCT/001/2025,19\n",
+        )
+        batch_id = submitted["batch_id"]
+        conn = self.db.connect()
+        try:
+            marks_hash = conn.execute(
+                "SELECT marks_hash FROM batch_revisions WHERE batch_id = ? AND revision = 1",
+                (batch_id,),
+            ).fetchone()["marks_hash"]
+        finally:
+            conn.close()
+
+        chain = RecoverableChain()
+        chain.revisions[batch_id] = [marks_hash]
+        chain.reasons[batch_id] = ["0x" + "00" * 32]
+        chain.statuses[batch_id] = 2
+        self.service.chain = chain
+
+        with self.assertRaisesRegex(AppError, "manual reconciliation is required"):
+            self.service.retry_chain(self.reviewer["id"], batch_id)
+
+        conn = self.db.connect()
+        try:
+            state = conn.execute(
+                "SELECT chain_state FROM batches WHERE id = ?", (batch_id,)
+            ).fetchone()["chain_state"]
+        finally:
+            conn.close()
+        self.assertEqual(state, "ERROR")
+        self.assertEqual(chain.verify_calls, 0)
+
+    def test_chain_retry_rejects_batch_hash_not_matching_latest_local_revision(self):
+        self._create_fresh_assessment()
+        submitted = self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-cat3",
+            "registration_number,mark\nSCT/001/2025,19\n",
+        )
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE batches SET marks_hash = ? WHERE id = ?",
+                ("0x" + "dd" * 32, submitted["batch_id"]),
+            )
+        chain = RecoverableChain()
+        self.service.chain = chain
+
+        with self.assertRaisesRegex(AppError, "current batch hash"):
+            self.service.retry_chain(self.reviewer["id"], submitted["batch_id"])
+
+        self.assertEqual(chain.revisions, {})
+
+    def test_chain_retry_rejects_mismatched_amendment_reason_hash(self):
+        report = self.service.report_missing_mark(
+            self.student["id"], self.assessment["id"]
+        )
+        amendment = self.service.resolve_report(
+            self.lecturer["id"],
+            report["id"],
+            "MARK_ENTERED",
+            17,
+            "Recovered mark from the answer script.",
+        )
+        batch_id = amendment["batch_id"]
+        conn = self.db.connect()
+        try:
+            revisions = conn.execute(
+                """
+                SELECT marks_hash, reason_hash
+                FROM batch_revisions WHERE batch_id = ? ORDER BY revision
+                """,
+                (batch_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        chain = RecoverableChain()
+        chain.revisions[batch_id] = [row["marks_hash"] for row in revisions]
+        chain.reasons[batch_id] = [
+            "0x" + "00" * 32,
+            "0x" + "ee" * 32,
+        ]
+        chain.statuses[batch_id] = 3
+        self.service.chain = chain
+
+        with self.assertRaisesRegex(AppError, "reason for revision 2"):
+            self.service.retry_chain(self.reviewer["id"], batch_id)
+
+    def test_admin_reconciliation_checks_workflow_status_and_local_batch_hash(self):
+        self._create_fresh_assessment()
+        submitted = self.service.submit_batch(
+            self.lecturer["id"],
+            "assessment-cat3",
+            "registration_number,mark\nSCT/001/2025,19\n",
+        )
+        batch_id = submitted["batch_id"]
+        conn = self.db.connect()
+        try:
+            local_hash = conn.execute(
+                """
+                SELECT marks_hash FROM batch_revisions
+                WHERE batch_id = ? AND revision = 1
+                """,
+                (batch_id,),
+            ).fetchone()["marks_hash"]
+        finally:
+            conn.close()
+
+        chain = RecoverableChain()
+        chain.revisions[batch_id] = [local_hash]
+        chain.reasons[batch_id] = ["0x" + "00" * 32]
+        chain.statuses[batch_id] = 2
+        chain.metadata[batch_id] = {
+            "course_id": bytes32_hash("course-csc201"),
+            "assessment_id": bytes32_hash("assessment-cat3"),
+            "student_count": 2,
+        }
+        self.service.chain = chain
+
+        mismatch = self.service.reconcile_batch(self.admin["id"], batch_id)
+        self.assertEqual(mismatch["status"], "STATUS_MISMATCH")
+        self.assertFalse(mismatch["match"])
+
+        chain.statuses[batch_id] = 1
+        matched = self.service.reconcile_batch(self.admin["id"], batch_id)
+        self.assertEqual(matched["status"], "MATCH")
+        self.assertTrue(matched["match"])
+        self.assertTrue(matched["on_chain"])
+
+        with self.db.transaction() as tx:
+            tx.execute(
+                "UPDATE batches SET marks_hash = ? WHERE id = ?",
+                ("0x" + "ff" * 32, batch_id),
+            )
+        local_mismatch = self.service.reconcile_batch(self.admin["id"], batch_id)
+        self.assertEqual(local_mismatch["status"], "LOCAL_HISTORY_MISMATCH")
+        self.assertFalse(local_mismatch["match"])
+
     def test_lecturer_can_submit_new_batch(self):
         self._create_fresh_assessment()
         result = self.service.submit_batch(
             self.lecturer["id"],
             "assessment-cat3",
-            "student_id,mark\n4,19\n5,16\n",
+            "registration_number,mark\nSCT/001/2025,19\nSCT/002/2025,16\n",
         )
         self.assertEqual(result["status"], "SUBMITTED")
         self.assertEqual(result["chain_state"], "LOCAL_ONLY")
 
-    def test_reviewer_verification_publishes_candidate_marks(self):
+    def test_marks_publish_only_after_ordered_office_handoffs(self):
         self._create_fresh_assessment()
         self.service.submit_batch(
             self.lecturer["id"],
             "assessment-cat3",
-            "student_id,mark\n4,19\n5,16\n",
+            "registration_number,mark\nSCT/001/2025,19\nSCT/002/2025,16\n",
         )
 
         conn = self.db.connect()
@@ -112,7 +1609,37 @@ class MarkTrailTests(unittest.TestCase):
         ).fetchone()
         conn.close()
 
-        self.service.verify_batch(self.reviewer["id"], batch["id"])
+        pipeline = self.service.batch_pipeline(self.reviewer["id"], batch["id"])
+        self.assertEqual(pipeline["current_stage"], "DEPARTMENT_REVIEW")
+        self.assertEqual(pipeline["current_owner"], "Department / reviewer")
+        self.assertIsNotNone(pipeline["waiting_since"])
+        self.assertIsNone(pipeline["stages"][-1]["completed_at"])
+
+        verified = self.service.verify_batch(self.reviewer["id"], batch["id"])
+        self.assertEqual(verified["pipeline_stage"], "EXAM_OFFICE")
+        pipeline = self.service.batch_pipeline(self.exam_office["id"], batch["id"])
+        self.assertEqual(pipeline["current_owner"], "Exam office")
+
+        marks = self.service.student_marks(self.student["id"])
+        cat3 = next(row for row in marks if row["assessment_id"] == "assessment-cat3")
+        self.assertEqual(cat3["status"], "AWAITING_PUBLICATION")
+        self.assertIsNone(cat3["mark"])
+
+        with self.assertRaises(AppError):
+            self.service.publish_portal_batch(
+                self.portal_operator["id"], batch["id"]
+            )
+
+        processed = self.service.process_exam_office_batch(
+            self.exam_office["id"], batch["id"]
+        )
+        self.assertEqual(processed["pipeline_stage"], "PORTAL_IMPORT")
+        pipeline = self.service.batch_pipeline(self.portal_operator["id"], batch["id"])
+        self.assertEqual(pipeline["current_owner"], "Portal operator")
+        self.service.publish_portal_batch(self.portal_operator["id"], batch["id"])
+        pipeline = self.service.batch_pipeline(self.student["id"], batch["id"])
+        self.assertEqual(pipeline["current_stage"], "PUBLISHED")
+        self.assertEqual(pipeline["waiting_seconds"], 0)
 
         conn = self.db.connect()
         rows = conn.execute(
@@ -128,6 +1655,11 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(rows[0]["published_mark"], 19)
         self.assertEqual(rows[0]["published_status"], "RECORDED")
         self.assertEqual(rows[1]["published_mark"], 16)
+        for student_id in (self.student["id"], self.other_student["id"]):
+            notifications = self.service.student_notifications(student_id)
+            self.assertEqual(len(notifications), 1)
+            self.assertEqual(notifications[0]["event_type"], "MARKS_PUBLISHED")
+            self.assertIn("published", notifications[0]["body"].lower())
 
     def test_missing_mark_resolution_requires_reviewer_before_publication(self):
         report_id = self.service.report_missing_mark(
@@ -170,8 +1702,17 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(mark["published_status"], "MISSING")
         self.assertEqual(batch["status"], "AMENDED")
         self.assertEqual(batch["revision"], 2)
+        notifications = self.service.student_notifications(self.student["id"])
+        self.assertEqual(notifications[0]["event_type"], "MARK_AMENDED")
+        self.assertIn("awaiting department review", notifications[0]["body"])
 
         self.service.verify_batch(self.reviewer["id"], result["batch_id"])
+        self.service.process_exam_office_batch(
+            self.exam_office["id"], result["batch_id"]
+        )
+        self.service.publish_portal_batch(
+            self.portal_operator["id"], result["batch_id"]
+        )
 
         conn = self.db.connect()
         mark = conn.execute(
@@ -192,6 +1733,19 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(mark["published_status"], "RECORDED")
         self.assertEqual(report["status"], "RESOLVED")
         self.assertIsNotNone(report["resolved_at"])
+        notifications = self.service.student_notifications(self.student["id"])
+        self.assertEqual(
+            [item["event_type"] for item in notifications].count("REPORT_RESOLVED"),
+            1,
+        )
+        self.assertEqual(
+            [item["event_type"] for item in notifications].count("MARKS_PUBLISHED"),
+            0,
+        )
+        self.assertEqual(
+            [item["event_type"] for item in notifications].count("MARK_AMENDED"),
+            1,
+        )
 
     def test_no_mark_resolution_is_distinguished_from_missing(self):
         report_id = self.service.report_missing_mark(
@@ -221,6 +1775,453 @@ class MarkTrailTests(unittest.TestCase):
         self.assertEqual(mark["candidate_status"], "NO_MARK")
         self.assertIsNone(mark["published_mark"])
         self.assertEqual(mark["published_status"], "MISSING")
+
+    def test_rejection_is_visible_and_student_can_report_again(self):
+        report_id = self.service.report_missing_mark(
+            self.student["id"], self.assessment["id"]
+        )["id"]
+
+        with self.assertRaises(AppError):
+            self.service.reject_report(self.lecturer["id"], report_id, "  ")
+
+        result = self.service.reject_report(
+            self.lecturer["id"],
+            report_id,
+            "The mark sheet shows the assessment was not attempted.",
+        )
+        self.assertEqual(result["status"], "REJECTED")
+
+        student_reports = self.service.student_reports(self.student["id"])
+        rejected = next(row for row in student_reports if row["id"] == report_id)
+        self.assertEqual(rejected["status"], "REJECTED")
+        self.assertEqual(
+            rejected["lecturer_note"],
+            "The mark sheet shows the assessment was not attempted.",
+        )
+        lecturer_reports = self.service.lecturer_reports(self.lecturer["id"])
+        self.assertTrue(any(row["id"] == report_id for row in lecturer_reports))
+
+        reopened = self.service.report_missing_mark(
+            self.student["id"], self.assessment["id"]
+        )
+        self.assertEqual(reopened["status"], "OPEN")
+
+
+class FakeChainEnabled:
+    """Simulates a live chain client that returns a configurable reconcile result."""
+
+    enabled = True
+
+    class Config:
+        mode = "cast"
+
+    config = Config()
+
+    def __init__(self, match: bool) -> None:
+        self._match = match
+        self._captured: dict = {}
+        self.revisions: dict[str, list[dict[str, str]]] = {}
+        self.statuses: dict[str, int] = {}
+        self.batch_details: dict[str, dict] = {}
+
+    def status(self):
+        return {"enabled": True, "mode": "cast", "label": "Connected to EVM chain"}
+
+    def submit_batch(self, batch_id, _course_id, _assessment_id, _student_count, marks_hash) -> str:
+        self.batch_details[batch_id] = {
+            "course_id": bytes32_hash(_course_id),
+            "assessment_id": bytes32_hash(_assessment_id),
+            "student_count": _student_count,
+        }
+        self.revisions[batch_id] = [
+            {"marks_hash": marks_hash, "reason_hash": "0x" + "00" * 32}
+        ]
+        self.statuses[batch_id] = 1
+        return "0x" + "ab" * 32
+
+    def verify_batch(self, batch_id) -> str:
+        self.statuses[batch_id] = 2
+        return "0x" + "cd" * 32
+
+    def get_revision_details(self, batch_id, index):
+        return self.revisions[batch_id][index]
+
+    def get_batch_status(self, batch_id):
+        return self.statuses[batch_id]
+
+    def get_batch_details(self, batch_id):
+        return {**self.batch_details[batch_id], "status": self.statuses[batch_id]}
+
+    def reconcile(self, batch_id: str, local_revision: int, local_hash: str) -> dict:
+        self._captured = {
+            "batch_id": batch_id,
+            "local_revision": local_revision,
+            "local_hash": local_hash,
+        }
+        if self._match:
+            return {
+                "status": "MATCH",
+                "match": True,
+                "local_revision": local_revision,
+                "chain_revision": local_revision,
+                "local_hash": local_hash,
+                "chain_hash": local_hash,
+            }
+        return {
+            "status": "MISMATCH",
+            "match": False,
+            "local_revision": local_revision,
+            "chain_revision": local_revision,
+            "local_hash": local_hash,
+            "chain_hash": "0x" + "ff" * 32,
+        }
+
+
+class PortalChainReconcileTests(unittest.TestCase):
+    """Tests that publish_portal_batch auto-verifies against the chain."""
+
+    def _make_service(self, chain):
+        import tempfile
+        from pathlib import Path
+
+        tmp = tempfile.mkdtemp()
+        db = Database(Path(tmp) / "test.db")
+        db.init(seed_demo=True)
+        return db, AppService(db, chain)
+
+    def _advance_to_portal_import(self, db, service):
+        """Submit, verify, and exam-office-process a fresh batch so it
+        lands at PORTAL_IMPORT, ready for the portal operator."""
+        conn = db.connect()
+        lecturer = conn.execute(
+            "SELECT id FROM users WHERE username = 'lecturer'"
+        ).fetchone()
+        reviewer = conn.execute(
+            "SELECT id FROM users WHERE username = 'reviewer'"
+        ).fetchone()
+        exam_office = conn.execute(
+            "SELECT id FROM users WHERE username = 'exam_office'"
+        ).fetchone()
+        portal_operator = conn.execute(
+            "SELECT id FROM users WHERE username = 'portal_operator'"
+        ).fetchone()
+        conn.close()
+
+        with db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO assessments (id, course_id, name, max_mark, release_policy, created_at)
+                VALUES ('assessment-chain-test', 'course-csc201', 'Chain Test', 20, 'DIRECT',
+                        '2026-10-08T00:00:00+00:00')
+                """
+            )
+
+        service.submit_batch(
+            lecturer["id"],
+            "assessment-chain-test",
+            "registration_number,mark\nSCT/001/2025,15\nSCT/002/2025,18\n",
+        )
+        conn = db.connect()
+        batch = conn.execute(
+            "SELECT id FROM batches WHERE assessment_id = 'assessment-chain-test'"
+        ).fetchone()
+        conn.close()
+        batch_id = batch["id"]
+
+        service.verify_batch(reviewer["id"], batch_id)
+        service.process_exam_office_batch(exam_office["id"], batch_id)
+
+        return batch_id, portal_operator["id"]
+
+    def test_publish_succeeds_when_chain_hash_matches(self):
+        fake_chain = FakeChainEnabled(match=True)
+        db, service = self._make_service(fake_chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+
+        result = service.publish_portal_batch(portal_id, batch_id)
+
+        self.assertEqual(result["pipeline_stage"], "PUBLISHED")
+        # reconcile was called with the right batch
+        self.assertEqual(fake_chain._captured["batch_id"], batch_id)
+
+    def test_publish_blocked_when_chain_hash_mismatches(self):
+        fake_chain = FakeChainEnabled(match=False)
+        db, service = self._make_service(fake_chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+
+        with self.assertRaises(AppError) as ctx:
+            service.publish_portal_batch(portal_id, batch_id)
+
+        error = ctx.exception
+        self.assertEqual(error.status, 409)
+        self.assertIn("Publication blocked", error.message)
+
+        # Confirm nothing was written — batch is still at PORTAL_IMPORT
+        conn = db.connect()
+        batch = conn.execute(
+            "SELECT pipeline_stage FROM batches WHERE id = ?", (batch_id,)
+        ).fetchone()
+        conn.close()
+        self.assertEqual(batch["pipeline_stage"], "PORTAL_IMPORT")
+
+    def test_publish_blocked_when_chain_workflow_status_differs(self):
+        fake_chain = FakeChainEnabled(match=True)
+        db, service = self._make_service(fake_chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        fake_chain.statuses[batch_id] = 3
+
+        with self.assertRaisesRegex(AppError, "configured on-chain batch history"):
+            service.publish_portal_batch(portal_id, batch_id)
+
+        conn = db.connect()
+        try:
+            stage = conn.execute(
+                "SELECT pipeline_stage FROM batches WHERE id = ?", (batch_id,)
+            ).fetchone()["pipeline_stage"]
+        finally:
+            conn.close()
+        self.assertEqual(stage, "PORTAL_IMPORT")
+
+    def test_publish_blocked_when_chain_revision_reason_differs(self):
+        fake_chain = FakeChainEnabled(match=True)
+        db, service = self._make_service(fake_chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        fake_chain.revisions[batch_id][0]["reason_hash"] = "0x" + "ee" * 32
+
+        with self.assertRaisesRegex(AppError, "configured on-chain batch history"):
+            service.publish_portal_batch(portal_id, batch_id)
+
+        conn = db.connect()
+        try:
+            stage = conn.execute(
+                "SELECT pipeline_stage FROM batches WHERE id = ?", (batch_id,)
+            ).fetchone()["pipeline_stage"]
+        finally:
+            conn.close()
+        self.assertEqual(stage, "PORTAL_IMPORT")
+
+    def test_publish_blocked_when_candidate_mark_changes_without_commitment_update(self):
+        fake_chain = FakeChainEnabled(match=True)
+        db, service = self._make_service(fake_chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        with db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE assessment_marks SET candidate_mark = candidate_mark + 1
+                WHERE batch_id = ? AND candidate_mark IS NOT NULL
+                """,
+                (batch_id,),
+            )
+
+        with self.assertRaisesRegex(AppError, "current marks no longer match"):
+            service.publish_portal_batch(portal_id, batch_id)
+
+        conn = db.connect()
+        try:
+            row = conn.execute(
+                "SELECT pipeline_stage FROM batches WHERE id = ?", (batch_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row["pipeline_stage"], "PORTAL_IMPORT")
+
+    def test_publish_blocked_when_chain_batch_metadata_differs(self):
+        fake_chain = FakeChainEnabled(match=True)
+        db, service = self._make_service(fake_chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        fake_chain.batch_details[batch_id]["student_count"] += 1
+
+        with self.assertRaisesRegex(AppError, "course, assessment, or student-count"):
+            service.publish_portal_batch(portal_id, batch_id)
+
+        conn = db.connect()
+        try:
+            row = conn.execute(
+                "SELECT pipeline_stage FROM batches WHERE id = ?", (batch_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row["pipeline_stage"], "PORTAL_IMPORT")
+
+    def test_local_only_publication_still_checks_candidate_commitment(self):
+        chain = FakeChain()
+        db, service = self._make_service(chain)
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        with db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE assessment_marks SET candidate_mark = candidate_mark + 1
+                WHERE batch_id = ? AND candidate_mark IS NOT NULL
+                """,
+                (batch_id,),
+            )
+
+        with self.assertRaisesRegex(AppError, "current marks no longer match"):
+            service.publish_portal_batch(portal_id, batch_id)
+
+    def test_publication_rechecks_marks_inside_write_transaction(self):
+        db, service = self._make_service(FakeChain())
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        original_integrity = service._chain_integrity
+
+        def integrity_then_mutate(target_batch_id):
+            result = original_integrity(target_batch_id)
+            with db.transaction() as conn:
+                conn.execute(
+                    """
+                    UPDATE assessment_marks SET candidate_mark = candidate_mark + 1
+                    WHERE batch_id = ? AND candidate_mark IS NOT NULL
+                    """,
+                    (target_batch_id,),
+                )
+            return result
+
+        with patch.object(service, "_chain_integrity", side_effect=integrity_then_mutate):
+            with self.assertRaisesRegex(AppError, "marks changed while publication"):
+                service.publish_portal_batch(portal_id, batch_id)
+
+        conn = db.connect()
+        try:
+            result = conn.execute(
+                """
+                SELECT b.pipeline_stage, m.published_mark
+                FROM batches b
+                JOIN assessment_marks m ON m.batch_id = b.id
+                WHERE b.id = ? AND m.candidate_mark IS NOT NULL
+                LIMIT 1
+                """,
+                (batch_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(result["pipeline_stage"], "PORTAL_IMPORT")
+        self.assertIsNone(result["published_mark"])
+
+    def test_reconciliation_detects_tampered_published_marks_in_local_mode(self):
+        db, service = self._make_service(FakeChain())
+        batch_id, portal_id = self._advance_to_portal_import(db, service)
+        service.publish_portal_batch(portal_id, batch_id)
+        with db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE assessment_marks SET published_mark = published_mark + 1
+                WHERE batch_id = ? AND published_mark IS NOT NULL
+                """,
+                (batch_id,),
+            )
+
+        result = service._chain_integrity(batch_id)
+
+        self.assertEqual(result["status"], "PUBLISHED_MARKS_MISMATCH")
+        self.assertFalse(result["match"])
+
+    def test_local_only_reconciliation_reports_missing_chain_anchor(self):
+        db, service = self._make_service(FakeChain())
+        batch_id, _portal_id = self._advance_to_portal_import(db, service)
+
+        result = service._chain_integrity(batch_id)
+
+        self.assertEqual(result["status"], "LOCAL_ONLY")
+        self.assertTrue(result["match"])
+        self.assertFalse(result["on_chain"])
+        self.assertIn("No independent on-chain anchor", result["reason"])
+
+class MarkTrailPortalFeatureTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = Database(Path(self.tmp.name) / "portal.db")
+        self.db.init(seed_demo=True)
+        self.service = AppService(self.db, FakeChain())
+        conn = self.db.connect()
+        self.lecturer_id = conn.execute(
+            "SELECT id FROM users WHERE username='lecturer'"
+        ).fetchone()["id"]
+        self.student_id = conn.execute(
+            "SELECT id FROM users WHERE username='student'"
+        ).fetchone()["id"]
+        self.other_student_id = conn.execute(
+            "SELECT id FROM users WHERE username='student2'"
+        ).fetchone()["id"]
+        self.registry_id = conn.execute(
+            "SELECT id FROM users WHERE username='registry'"
+        ).fetchone()["id"]
+        conn.close()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_workbook_is_roster_locked_and_accepts_zero_separately_from_blank(self):
+        generated = self.service.generate_roster_workbook(
+            int(self.lecturer_id), "assessment-demo-upload"
+        )
+        content = base64.b64decode(generated["xlsx_base64"])
+        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=False)
+        ws = wb["Official Marks Sheet"]
+        ws["C12"] = 0
+        ws["C13"] = None
+        ws["D13"] = "ABSENT"
+        edited = io.BytesIO()
+        wb.save(edited)
+        preview = self.service.preview_roster_workbook(
+            int(self.lecturer_id),
+            "assessment-demo-upload",
+            base64.b64encode(edited.getvalue()).decode("ascii"),
+        )
+        self.assertTrue(preview["valid"])
+        self.assertEqual(preview["rows"][0]["mark"], 0.0)
+        self.assertEqual(preview["rows"][1]["status"], "ABSENT")
+
+    def test_registration_exception_requires_registry_decision_and_is_audited(self):
+        created = self.service.create_registration_exception(
+            int(self.lecturer_id),
+            int(self.other_student_id),
+            "course-csc201",
+            "assessment-cat1",
+            "LATE_REGISTRATION",
+            "Student attended while registration is being verified.",
+        )
+        decided = self.service.decide_registration_exception(
+            int(self.registry_id),
+            created["id"],
+            "APPROVED",
+            "Registry found an approved late-registration record.",
+        )
+        self.assertEqual(decided["status"], "APPROVED")
+        conn = self.db.connect()
+        enrolled = conn.execute(
+            "SELECT 1 FROM enrollments WHERE course_id=? AND student_id=?",
+            ("course-csc201", int(self.other_student_id)),
+        ).fetchone()
+        audit = conn.execute(
+            "SELECT 1 FROM audit_events WHERE entity_type='REGISTRATION_EXCEPTION' "
+            "AND entity_id=?",
+            (created["id"],),
+        ).fetchone()
+        conn.close()
+        self.assertIsNotNone(enrolled)
+        self.assertIsNotNone(audit)
+
+    def test_student_can_create_and_only_view_their_own_case(self):
+        created = self.service.create_examination_case(
+            int(self.student_id),
+            "MISSING_CAT_MARK",
+            "My CAT 1 mark is missing.",
+            "course-csc201",
+            "assessment-cat1",
+        )
+        own = self.service.student_examination_cases(int(self.student_id))
+        other = self.service.student_examination_cases(int(self.other_student_id))
+        self.assertTrue(any(case["id"] == created["id"] for case in own))
+        self.assertFalse(any(case["id"] == created["id"] for case in other))
+
+        with self.assertRaises(AppError):
+            self.service.update_examination_case(
+                int(self.student_id),
+                created["id"],
+                "RESOLVED",
+                "Student cannot close this case.",
+                "Resolved",
+            )
 
 
 if __name__ == "__main__":

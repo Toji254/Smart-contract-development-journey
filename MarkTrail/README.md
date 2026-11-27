@@ -80,6 +80,12 @@ It records:
 
 A real deployment would keep the actual marks in a protected application database and use the blockchain only as a tamper-evident audit layer.
 
+Contract administration uses OpenZeppelin's two-step ownership transfer: the proposed
+owner must call `acceptOwnership()` before control changes. Lecturer and reviewer
+permissions remain owner-managed allowlists through `setLecturer` and `setReviewer`.
+Existing deployed instances are not upgradeable; deploy the updated contract and
+configure the application to use its new address.
+
 ## Important security note
 
 A plain hash is not automatically private.
@@ -141,6 +147,22 @@ It is:
 
 That question should drive the next version.
 
+## MarkTrail examination query and workbook pilot
+
+The runnable application now also provides:
+
+- individual lecturer accounts and course/co-lecturer authorization;
+- immutable roster snapshots and protected `.xlsx` marks workbooks;
+- server-side workbook validation for identity, duplicates, unknown candidates,
+  missing candidates, numeric ranges, formulas and explicit outcomes;
+- Academic Registry registration exceptions with registry-only decisions;
+- student-owned examination query cases and staff assignment queues;
+- audit events and in-app notifications for registration and case decisions;
+- role-scoped staff and student APIs, with standalone demo accounts for local use.
+
+This is a pilot implementation. KarU SSO, official registration feeds and
+production email/SMS providers are integration boundaries and are not enabled.
+
 
 ## Project path
 
@@ -166,12 +188,16 @@ The first version should solve one concrete problem: a student can report a miss
 
 ### 2. Define the actors
 
-Start with four roles:
+The initial application used four roles:
 
 - Student — views marks and reports missing assessments.
 - Lecturer — submits marks and resolves reports.
 - Reviewer — verifies submitted batches.
 - Administrator — manages roles and institutional configuration.
+
+The runnable MVP also separates department review from later handoffs:
+reviewers represent the department/HOD, while exam-office staff and portal
+operators record their own processing steps.
 
 Authorization must be enforced by the application and, where applicable, the smart contract. Hiding a button is not access control.
 
@@ -268,6 +294,17 @@ Do not simply concatenate predictable values and call the result private. A prod
 The important invariant is:
 
 > The application must be able to prove which exact version of a batch was committed without publishing the students' marks.
+
+Before publishing, MarkTrail rebuilds the canonical marks from the current
+candidate records and recomputes the latest salted commitment. It also checks
+the on-chain course, assessment, and student count. Each new revision stores
+its own salt and canonical snapshot for later verification. Existing amended
+history without saved revision salts cannot be reconstructed; those records
+fail closed until their audit history can be independently restored.
+These local commitment checks also run when blockchain integration is off;
+local-only reconciliation reports that no independent on-chain anchor exists.
+Publication repeats the marks check in the write transaction, and later
+reconciliation checks that published marks still match the committed revision.
 
 ### 8. Test the contract
 
@@ -416,18 +453,19 @@ The project now includes a complete runnable local stack rather than only a visu
 The Python application provides:
 
 - session-based login;
-- role-based access for students, lecturers, reviewers, and administrators;
+- role-based access for students, lecturers, department reviewers, exam-office staff, portal operators, and administrators;
 - course and roster management;
 - assessment creation;
 - CSV validation and batch submission;
 - missing-mark reports;
-- lecturer resolution;
+- lecturer resolution or rejection with a recorded reason;
 - controlled mark amendments;
-- reviewer verification before publication;
+- department review, exam-office processing, and portal import before publication;
 - audit events;
 - database/chain reconciliation hooks.
 
-The application uses SQLite and only Python's standard library so the architecture stays easy to inspect.
+The application uses SQLite and Python's standard library for its core workflow.
+Evidence encryption uses the maintained `cryptography` package (AES-256-GCM).
 
 ### Blockchain layer
 
@@ -463,35 +501,204 @@ chain commitment
   ↓
 REVIEWER
   ↓
-verify
+department review
   ↓
-published to students
+EXAM OFFICE
+  ↓
+record processing
+  ↓
+PORTAL OPERATOR
+  ↓
+import and publish
+  ↓
+STUDENT
+  ↓
+sees published mark
 
 STUDENT
   ↓
-sees missing mark
+reports missing mark
   ↓
-opens report
-
 LECTURER
   ↓
-enters mark / no mark
+enter mark / no mark / reject with reason
   ↓
-new batch revision
+reviewer → exam office → portal import
   ↓
-REVIEWER verifies amendment
-  ↓
-new value published
+updated mark published
 ~~~
+
+Reviewer approval is not the same as publication. Students only see a new or
+amended mark after the portal operator records the import. Each handoff is
+timestamped in the audit trail. A rejected report is closed with a reason; if
+the mark is still missing, the student can open a new report.
+
+When a chain update is retried, MarkTrail compares every saved revision's
+marks and amendment reason with the recorded contract history, then checks
+that the local workflow status agrees with the contract status. The initial
+submission intentionally uses a zero on-chain reason hash. Missing revisions
+can be replayed in order; inconsistent history or status is flagged for
+administrator reconciliation rather than reported as recovered. Each replayed
+revision retains its own transaction reference. State-changing transactions are
+broadcast once and checked by transaction hash; if confirmation is uncertain,
+the batch remains pending and recovery checks that transaction's receipt before
+submitting another one.
+
+The contract uses two-step ownership transfer and does not permit ownership
+renunciation, so the contract cannot be left without an administrator.
+
+### Private examination evidence attachments
+
+Students can attach supporting files to their own open evidence cases. Authorised
+staff can attach scanned source records to an examination session or an
+individual script, including an unidentified script waiting for candidate
+matching. Supported file types are PDF, PNG and JPEG, up to 10 MB per file.
+
+Files are stored outside the web root under `MARKTRAIL_EVIDENCE_DIR` (or
+`private-evidence` beside the database by default), using generated storage
+keys and restricted filesystem permissions. File contents are encrypted at rest
+with AES-256-GCM before they are written; the original filename is metadata,
+not a storage path. The encryption key is supplied through
+`MARKTRAIL_EVIDENCE_ENCRYPTION_KEY`, never stored in SQLite or the evidence
+archive. New uploads fail closed when the key is not configured. When a key is
+configured, legacy plaintext attachments are integrity-checked and encrypted
+during service startup. Access is checked again on every list and download request.
+
+A clean ClamAV scan is required before download. If ClamAV is missing,
+unavailable or times out, the file remains quarantined and downloads are
+blocked. Every download rechecks the byte count and SHA-256 digest. Attachment
+metadata is immutable; upload, scan, rescan and integrity events are retained
+in append-only history. Files, contents and hashes stay off-chain.
+
+Assigned academic staff can manually request local document extraction for a
+clean attachment. Tesseract handles PNG/JPEG; PDF OCR uses Tesseract plus
+Poppler utilities (`pdfinfo` and `pdftoppm`). Extraction is optional and
+requires the evidence encryption key. OCR text and suggestions are encrypted
+before they enter SQLite. MarkTrail limits image dimensions to 40 megapixels,
+PDF processing to the first five pages, and extracted text to 24,000
+characters. The staff workspace presents possible document type, registration
+references, dates and keyword hits as suggestions only. Every result requires
+comparison with the original document and locked roster; OCR never changes
+attendance, marks, student identity, script custody or case decisions. Missing
+OCR tools are reported as unavailable rather than as a successful extraction.
+
+The analysis endpoint is `POST /api/evidence/attachments/{attachment_id}/analyze`.
+It rechecks the user's role and attachment ownership and refuses files that
+have not passed the malware scan.
+
+Database backups now have matching evidence sidecar archives. Both files must
+be retained and restored as a pair. Before publishing a backup, MarkTrail checks
+that every attachment row in the database snapshot points to a safe file with
+the expected stored size. Restore repeats that cross-check against the extracted
+archive and refuses to replace live data if even one referenced file is missing
+or does not match its recorded size. Legacy plaintext files are also checked
+against their SHA-256 digest before a backup or restore is accepted.
+
+### Handoff tracking, notifications, and reports
+
+The audit view shows the current handoff owner, how long the batch has waited,
+and the recorded duration and handler for earlier stages. Students receive
+in-app notifications when a report is rejected, a lecturer submits an
+amendment, or marks are published. They can mark each notification as read.
+
+Authorized users can download a CSV audit report for a batch. It includes
+workflow events and stage timing; mark-level history is available only to
+non-student roles.
+
+Portal import is still recorded manually by a portal operator. Automatic
+verification is not implemented. It needs an institution-approved API or
+sandbox, its documentation, and authorized non-production access; do not use
+personal portal passwords or session cookies.
 
 ### Local development
 
+Install the one runtime dependency:
+
 ~~~bash
 cd MarkTrail
-python3 run.py
+python3 -m pip install -r requirements.txt
+~~~
+
+Generate a persistent local evidence key once. Keep it unchanged while any
+encrypted evidence exists:
+
+~~~bash
+python3 -c 'import secrets; print(secrets.token_hex(32))'
+~~~
+
+Put the output in your local environment as
+`MARKTRAIL_EVIDENCE_ENCRYPTION_KEY`. Do not commit the key or place it in a
+database backup.
+
+~~~bash
+MARKTRAIL_EVIDENCE_ENCRYPTION_KEY="PASTE_YOUR_64_HEX_CHARACTER_KEY" MARKTRAIL_SEED_DEMO=1 MARKTRAIL_COOKIE_SECURE=0 python3 run.py
 ~~~
 
 Open http://127.0.0.1:8000.
+
+Demo accounts:
+
+~~~text
+student / student123
+lecturer / lecturer123
+reviewer / reviewer123
+exam_office / office123
+senate_office / senate123
+portal_operator / portal123
+admin / admin123
+~~~
+
+The demo course includes a fresh assessment named `CAT 3 (Ready to upload)` so
+the lecturer can try CSV validation and batch submission immediately. CSV files
+use the headers `registration_number,mark`; students omitted from a valid CSV
+are recorded as missing. Common exports using `Registration Number,Marks` are
+also accepted. Registration numbers must match students enrolled in the selected
+course; names are not required in the marks CSV.
+
+Assessments have an explicit result-release policy:
+- `DIRECT` is for CATs/coursework that the university authorises for direct release.
+- `SENATE` routes the verified batch from the exam office to the Senate Secretariat.
+  The Secretariat records an approval or deferral against a meeting/minute reference.
+  Deferred or pending batches are not available to the portal operator.
+- Existing assessments from older databases are migrated as `UNCLASSIFIED`.
+  An administrator must explicitly classify them before exam-office processing or
+  portal publication can continue.
+
+The synthetic demo `Final Exam` uses the Senate path and is seeded with a clearly
+labelled synthetic Senate approval so the portal publication flow can be tested.
+The demo `senate_office / senate123` account is only for local development.
+
+The server defaults to no demo data and HTTPS-only session cookies. The
+command above explicitly opts into synthetic demo accounts and an insecure
+cookie for local HTTP only. Never use demo accounts or disable secure cookies
+in an externally accessible deployment.
+
+Only administrator-created accounts can sign in; there is no public sign-up.
+New student accounts require a graduation/access end date, and the system
+blocks sign-in and existing sessions after that date. Administrators can also
+disable or re-enable any account from Setup. Existing accounts with no end date
+remain active until an administrator sets one or disables the account.
+Bulk enrollment creates a different high-entropy, one-time password for each
+new student and displays it once for secure distribution by the institution.
+The credential list is not stored by MarkTrail; students must change their
+password at first sign-in.
+
+For a new installation without demo users, create the first administrator
+interactively with `python3 run.py --create-admin`, then start the server with
+demo seeding disabled. The command prompts for the username, name, and
+password; the password is not passed on the command line.
+
+### Production readiness
+
+Safe defaults do not make the current server production-ready. It uses
+Python's built-in HTTP server and SQLite, and portal imports are still entered
+manually. Do not store real student records in this deployment. A production
+launch still needs an institution-approved hosting and database design,
+HTTPS termination, backups and recovery testing, operational monitoring,
+an independent security/privacy review, and operational processes for keeping
+graduation dates and account approvals accurate.
+Portal automation also requires an approved university API and test
+environment.
 
 Tests:
 
@@ -500,6 +707,10 @@ python3 -m unittest discover -s tests -v
 forge build
 forge test -vv
 ~~~
+
+For a local demo database initialization or reset, opt in explicitly with
+`python3 run.py --init --seed-demo` or `make reset`. Initialization and server
+startup do not seed demo credentials by default.
 
 ### Chain configuration
 
